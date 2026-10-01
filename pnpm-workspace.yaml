@@ -1,0 +1,44 @@
+# Build-script approval, pinned so a clean CI install behaves like a local one
+# instead of silently skipping postinstalls (or prompting).
+#
+# esbuild bundles the migrator and unrs-resolver backs eslint's import
+# resolution — both need their postinstall. cpu-features and ssh2 are optional
+# native bindings for Testcontainers' Docker client, which talks over a unix
+# socket here; compiling them would put a C toolchain on the critical path of
+# every install for no gain. protobufjs' script is a version check.
+allowBuilds:
+  cpu-features: false
+  esbuild: true
+  protobufjs: false
+  ssh2: false
+  unrs-resolver: true
+
+# @node-rs/argon2 ships its native binding as per-platform optional
+# dependencies. Resolve them for the deploy target as well as for whoever ran
+# the install, or a lockfile written on a Mac omits @node-rs/argon2-linux-*-musl
+# entirely and `pnpm install --frozen-lockfile` inside node:22-alpine produces an
+# image that builds, pushes, deploys, and then throws on the first login.
+#
+# Same failure mode as nodeLinker below: invisible until the container runs.
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - current
+    - x64
+    - arm64
+  libc:
+    - current
+    - musl
+    - glibc
+
+# Next.js `output: 'standalone'` traces real file paths and does not reproduce
+# pnpm's symlink farm. With the default linker the standalone bundle ships
+# .pnpm/@swc+helpers but not the symlink under next's own node_modules that
+# next's require-hook resolves through, and the container dies at boot with
+# `Cannot find module …/@swc/helpers/esm/_interop_require_default.js`.
+#
+# The build succeeds either way — this only fails when the image runs, which is
+# why it is pinned here rather than discovered again later.
+nodeLinker: hoisted

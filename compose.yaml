@@ -1,0 +1,49 @@
+name: meeting-manager
+
+services:
+  app:
+    # Built and pushed by GitHub Actions. No `build:` block: this stack only pulls.
+    image: ${APP_IMAGE:-ghcr.io/ki4hrg/meeting-manager:main}
+    # `:main` is a mutable tag and `docker compose up` will not re-pull a tag that
+    # already exists locally. Without this the redeploy keeps running old code.
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      # The password travels beside the URL, not inside it: postgres-js parses the
+      # URL with `new URL()`, and a `/` in the password breaks it. It reads
+      # PGPASSWORD natively.
+      DATABASE_URL: postgres://mm@db:5432/mm
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET}
+      # The external HTTPS origin. OAuth discovery is built from it.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      # Times are formatted on the server; unset, a container is UTC.
+      TZ: ${TZ:-America/Chicago}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # APP_PORT is required with no default: left bare, an unset value makes
+      # Docker publish on a random port and the proxy points at nothing.
+      - '${APP_BIND:-0.0.0.0}:${APP_PORT:?set APP_PORT — the host port the reverse proxy forwards to}:3000'
+
+  db:
+    image: postgres:18-alpine
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: mm
+    volumes:
+      # PG18 keeps data in a version subdirectory and wants the mount at
+      # /var/lib/postgresql, not /var/lib/postgresql/data.
+      - pgdata18:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mm']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata18:
