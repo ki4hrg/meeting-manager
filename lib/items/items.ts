@@ -1,0 +1,824 @@
+/*
+ * Items: one record type in four kinds (docs/SPEC.md, "Core model").
+ *
+ * The rules this file holds:
+ *
+ *   - Topic, question and action convert in place. A decision is always its own
+ *     record with its own wording, linked to what it settled.
+ *   - A question closes with its answer; a topic or an action closes by being
+ *     done. Anything open can be dropped. A decision is never open: it stands
+ *     until another supersedes it.
+ *   - A context is a hard boundary. An item's project, groups and parent must
+ *     sit in the item's own context.
+ *   - Every step is logged to item_events, in the same commit as the step.
+ */
+
+import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { parseDay } from '../core/dates'
+import {
+  NotFoundError,
+  ValidationError,
+  inTransaction,
+  type ActorContext,
+  type Executor,
+} from '../core/types'
+import { groups, itemEvents, itemParties, items, people, projects } from '../db/schema'
+import { getContext } from '../directory/contexts'
+
+export type ItemKind = (typeof items.$inferSelect)['kind']
+export type ItemStatus = (typeof items.$inferSelect)['status']
+export type PartyRole = (typeof itemParties.$inferSelect)['role']
+
+export const ITEM_KINDS: ItemKind[] = ['topic', 'question', 'action', 'decision']
+
+/** Still waiting on someone. needs_answer is an open question by another name. */
+export const OPEN_STATUSES: ItemStatus[] = ['open', 'needs_answer']
+
+export type PartyRef = { personId: string; groupId?: undefined } | { groupId: string; personId?: undefined }
+export type PartyInput = PartyRef & { role: PartyRole }
+
+export type ItemParty = {
+  type: 'person' | 'group'
+  id: string
+  name: string
+  role: PartyRole
+  isSelf: boolean
+}
+
+export type ItemView = {
+  id: string
+  contextId: string
+  kind: ItemKind
+  status: ItemStatus
+  text: string
+  detail: string | null
+  resolution: string | null
+  project: { id: string; name: string } | null
+  dueOn: string | null
+  parentItemId: string | null
+  supersededByItemId: string | null
+  closedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+  parties: ItemParty[]
+}
+
+export type ItemEventType =
+  | 'created'
+  | 'edited'
+  | 'parties'
+  | 'note'
+  | 'converted'
+  | 'answered'
+  | 'completed'
+  | 'dropped'
+  | 'reopened'
+  | 'spawned'
+  | 'superseded'
+
+export type ItemEvent = {
+  id: string
+  itemId: string
+  type: ItemEventType
+  data: Record<string, unknown>
+  source: string
+  createdAt: Date
+}
+
+export function isOpen(item: { status: ItemStatus }): boolean {
+  return OPEN_STATUSES.includes(item.status)
+}
+
+// ─── reading ─────────────────────────────────────────────────────────────────
+
+async function loadViews(exec: Executor, where: SQL | undefined, limit?: number): Promise<ItemView[]> {
+  const query = exec
+    .select({ item: items, projectName: projects.name })
+    .from(items)
+    .leftJoin(projects, eq(projects.id, items.projectId))
+    .where(where)
+    // Deadlines first, soonest first; then newest.
+    .orderBy(sql`${items.dueOn} asc nulls last`, sql`${items.createdAt} desc`)
+  const rows = await (limit ? query.limit(limit) : query)
+  if (rows.length === 0) return []
+
+  const parties = await exec
+    .select({
+      itemId: itemParties.itemId,
+      role: itemParties.role,
+      personId: itemParties.personId,
+      groupId: itemParties.groupId,
+      personName: people.name,
+      isSelf: people.isSelf,
+      groupName: groups.name,
+    })
+    .from(itemParties)
+    .leftJoin(people, eq(people.id, itemParties.personId))
+    .leftJoin(groups, eq(groups.id, itemParties.groupId))
+    .where(
+      inArray(
+        itemParties.itemId,
+        rows.map((row) => row.item.id),
+      ),
+    )
+    .orderBy(asc(itemParties.createdAt))
+
+  const byItem = new Map<string, ItemParty[]>()
+  for (const party of parties) {
+    const list = byItem.get(party.itemId) ?? []
+    list.push(
+      party.personId
+        ? {
+            type: 'person',
+            id: party.personId,
+            name: party.personName ?? '',
+            role: party.role,
+            isSelf: party.isSelf ?? false,
+          }
+        : {
+            type: 'group',
+            id: party.groupId!,
+            name: party.groupName ?? '',
+            role: party.role,
+            isSelf: false,
+          },
+    )
+    byItem.set(party.itemId, list)
+  }
+
+  return rows.map(({ item, projectName }) => ({
+    id: item.id,
+    contextId: item.contextId,
+    kind: item.kind,
+    status: item.status,
+    text: item.text,
+    detail: item.detail,
+    resolution: item.resolution,
+    project: item.projectId ? { id: item.projectId, name: projectName ?? '' } : null,
+    dueOn: item.dueOn,
+    parentItemId: item.parentItemId,
+    supersededByItemId: item.supersededByItemId,
+    closedAt: item.closedAt,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    parties: byItem.get(item.id) ?? [],
+  }))
+}
+
+export async function getItem(exec: Executor, id: string): Promise<ItemView> {
+  const [view] = await loadViews(exec, eq(items.id, id))
+  if (!view) throw new NotFoundError('Item', id)
+  return view
+}
+
+export type ItemFilter = {
+  /** Always required: nothing is ever listed across contexts. */
+  contextId: string
+  kinds?: ItemKind[]
+  statuses?: ItemStatus[]
+  /** Shorthand for the open statuses, or for everything else. */
+  open?: boolean
+  projectId?: string
+  /** Items naming this party, in any role unless one is given. */
+  party?: PartyRef & { role?: PartyRole }
+  /** Open, with no party and no project: nothing says where it belongs yet. */
+  inbox?: boolean
+  search?: string
+  limit?: number
+}
+
+function partyExists(party: PartyRef & { role?: PartyRole }): SQL {
+  const who = party.personId
+    ? sql`${itemParties.personId} = ${party.personId}`
+    : sql`${itemParties.groupId} = ${party.groupId}`
+  const role = party.role ? sql` and ${itemParties.role} = ${party.role}` : sql``
+  return sql`exists (select 1 from ${itemParties}
+    where ${itemParties.itemId} = ${items.id} and ${who}${role})`
+}
+
+export async function listItems(exec: Executor, filter: ItemFilter): Promise<ItemView[]> {
+  const conditions: SQL[] = [eq(items.contextId, filter.contextId)]
+
+  if (filter.kinds?.length) conditions.push(inArray(items.kind, filter.kinds))
+  if (filter.statuses?.length) conditions.push(inArray(items.status, filter.statuses))
+  if (filter.open === true) conditions.push(inArray(items.status, OPEN_STATUSES))
+  if (filter.open === false) conditions.push(sql`${items.status} not in ('open', 'needs_answer')`)
+  if (filter.projectId) conditions.push(eq(items.projectId, filter.projectId))
+  if (filter.party) conditions.push(partyExists(filter.party))
+  if (filter.inbox) {
+    conditions.push(
+      inArray(items.status, OPEN_STATUSES),
+      sql`${items.projectId} is null`,
+      sql`not exists (select 1 from ${itemParties} where ${itemParties.itemId} = ${items.id})`,
+    )
+  }
+  if (filter.search?.trim()) {
+    const pattern = `%${filter.search.trim().replace(/[\\%_]/g, '\\$&')}%`
+    conditions.push(
+      sql`(${items.text} ilike ${pattern} or ${items.detail} ilike ${pattern}
+        or ${items.resolution} ilike ${pattern})`,
+    )
+  }
+
+  return loadViews(exec, and(...conditions), filter.limit)
+}
+
+export type OpenCounts = {
+  inbox: number
+  byProject: Map<string, number>
+  byPerson: Map<string, number>
+  byGroup: Map<string, number>
+}
+
+/** How much is open in a context, for the tiles and list pages. */
+export async function openCounts(exec: Executor, contextId: string): Promise<OpenCounts> {
+  const open = and(eq(items.contextId, contextId), inArray(items.status, OPEN_STATUSES))
+
+  const [inbox] = await exec
+    .select({ n: sql<number>`count(*)::int` })
+    .from(items)
+    .where(
+      and(
+        open,
+        sql`${items.projectId} is null`,
+        sql`not exists (select 1 from ${itemParties} where ${itemParties.itemId} = ${items.id})`,
+      ),
+    )
+
+  const projectRows = await exec
+    .select({ id: items.projectId, n: sql<number>`count(*)::int` })
+    .from(items)
+    .where(and(open, sql`${items.projectId} is not null`))
+    .groupBy(items.projectId)
+
+  const partyRows = await exec
+    .select({
+      personId: itemParties.personId,
+      groupId: itemParties.groupId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(itemParties)
+    .innerJoin(items, eq(items.id, itemParties.itemId))
+    .where(open)
+    .groupBy(itemParties.personId, itemParties.groupId)
+
+  const counts: OpenCounts = {
+    inbox: inbox?.n ?? 0,
+    byProject: new Map(projectRows.map((row) => [row.id!, row.n])),
+    byPerson: new Map(),
+    byGroup: new Map(),
+  }
+  for (const row of partyRows) {
+    if (row.personId) counts.byPerson.set(row.personId, row.n)
+    else if (row.groupId) counts.byGroup.set(row.groupId, row.n)
+  }
+  return counts
+}
+
+export type ThreadEntry = { item: ItemView; depth: number }
+
+/**
+ * The whole thread an item belongs to: up to the root, then everything that
+ * came out of it, in the order a reader would follow.
+ */
+export async function getThread(
+  exec: Executor,
+  id: string,
+): Promise<{ entries: ThreadEntry[]; events: ItemEvent[] }> {
+  const rows = await exec.execute(sql`
+    with recursive up as (
+      select id, parent_item_id from items where id = ${id}
+      union all
+      select i.id, i.parent_item_id from items i join up on i.id = up.parent_item_id
+    ),
+    down as (
+      select id from up where parent_item_id is null
+      union all
+      select i.id from items i join down on i.parent_item_id = down.id
+    )
+    select id from down`)
+
+  const ids = [...rows].map((row) => (row as { id: string }).id)
+  if (ids.length === 0) throw new NotFoundError('Item', id)
+
+  const views = await loadViews(exec, inArray(items.id, ids))
+  const oldestFirst = [...views].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+
+  const children = new Map<string | null, ItemView[]>()
+  for (const view of oldestFirst) {
+    const list = children.get(view.parentItemId) ?? []
+    list.push(view)
+    children.set(view.parentItemId, list)
+  }
+
+  const entries: ThreadEntry[] = []
+  const walk = (parentId: string | null, depth: number) => {
+    for (const item of children.get(parentId) ?? []) {
+      entries.push({ item, depth })
+      walk(item.id, depth + 1)
+    }
+  }
+  walk(null, 0)
+
+  const events = await exec
+    .select()
+    .from(itemEvents)
+    .where(inArray(itemEvents.itemId, ids))
+    .orderBy(asc(itemEvents.createdAt))
+
+  return {
+    entries,
+    events: events.map((event) => ({
+      id: event.id,
+      itemId: event.itemId,
+      type: event.type as ItemEventType,
+      data: event.data as Record<string, unknown>,
+      source: event.source,
+      createdAt: event.createdAt,
+    })),
+  }
+}
+
+// ─── writing ─────────────────────────────────────────────────────────────────
+
+async function logEvent(
+  exec: Executor,
+  actor: ActorContext,
+  itemId: string,
+  type: ItemEventType,
+  data: Record<string, unknown> = {},
+) {
+  await exec
+    .insert(itemEvents)
+    .values({ itemId, type, data, source: actor.source, requestId: actor.requestId })
+}
+
+function blankToNull(value: string | null | undefined): string | null {
+  const trimmed = (value ?? '').trim()
+  return trimmed === '' ? null : trimmed
+}
+
+async function assertProjectIn(exec: Executor, projectId: string, contextId: string) {
+  const [project] = await exec
+    .select({ contextId: projects.contextId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+  if (!project) throw new NotFoundError('Project', projectId)
+  if (project.contextId !== contextId) {
+    throw new ValidationError('That project belongs to another context.')
+  }
+}
+
+/* Replaces an item's parties. Validated here rather than left to the foreign
+   keys so the refusal can say what was wrong. */
+async function writeParties(
+  exec: Executor,
+  itemId: string,
+  contextId: string,
+  parties: PartyInput[],
+): Promise<void> {
+  const seen = new Set<string>()
+  for (const party of parties) {
+    const key = party.personId ? `p:${party.personId}` : `g:${party.groupId}`
+    if (seen.has(key)) throw new ValidationError('The same party is listed twice.')
+    seen.add(key)
+
+    if (party.personId) {
+      const [person] = await exec
+        .select({ id: people.id })
+        .from(people)
+        .where(eq(people.id, party.personId))
+        .limit(1)
+      if (!person) throw new NotFoundError('Person', party.personId)
+    } else {
+      const [group] = await exec
+        .select({ contextId: groups.contextId })
+        .from(groups)
+        .where(eq(groups.id, party.groupId!))
+        .limit(1)
+      if (!group) throw new NotFoundError('Group', party.groupId!)
+      if (group.contextId !== contextId) {
+        throw new ValidationError('That group belongs to another context.')
+      }
+    }
+  }
+
+  await exec.delete(itemParties).where(eq(itemParties.itemId, itemId))
+  if (parties.length > 0) {
+    await exec.insert(itemParties).values(
+      parties.map((party, index) => ({
+        itemId,
+        personId: party.personId ?? null,
+        groupId: party.groupId ?? null,
+        role: party.role,
+        // Keeps the order given: rows inserted together share a timestamp.
+        createdAt: new Date(Date.now() + index),
+      })),
+    )
+  }
+}
+
+export type CreateItemInput = {
+  contextId: string
+  text: string
+  kind?: ItemKind
+  detail?: string | null
+  projectId?: string | null
+  dueOn?: string | null
+  parties?: PartyInput[]
+  /** The item this one came out of. */
+  parentItemId?: string | null
+}
+
+export async function createItem(
+  exec: Executor,
+  actor: ActorContext,
+  input: CreateItemInput,
+): Promise<ItemView> {
+  const text = input.text.trim()
+  if (text === '') throw new ValidationError('Enter some text.')
+  const kind = input.kind ?? 'topic'
+  const dueOn = parseDay(input.dueOn)
+
+  return inTransaction(exec, async (tx) => {
+    await getContext(tx, input.contextId)
+    if (input.projectId) await assertProjectIn(tx, input.projectId, input.contextId)
+
+    if (input.parentItemId) {
+      const parent = await getItem(tx, input.parentItemId)
+      if (parent.contextId !== input.contextId) {
+        throw new ValidationError('A follow-up stays in the context of the item it came from.')
+      }
+    }
+
+    const [row] = await tx
+      .insert(items)
+      .values({
+        contextId: input.contextId,
+        kind,
+        // A decision is a record of something settled; it is never open.
+        status: kind === 'decision' ? 'decided' : 'open',
+        text,
+        detail: blankToNull(input.detail),
+        projectId: input.projectId ?? null,
+        dueOn,
+        parentItemId: input.parentItemId ?? null,
+      })
+      .returning()
+
+    await writeParties(tx, row!.id, input.contextId, input.parties ?? [])
+    await logEvent(tx, actor, row!.id, 'created', { kind })
+    if (input.parentItemId) {
+      await logEvent(tx, actor, input.parentItemId, 'spawned', { itemId: row!.id, kind, text })
+    }
+
+    return getItem(tx, row!.id)
+  })
+}
+
+export type UpdateItemInput = {
+  text?: string
+  detail?: string | null
+  projectId?: string | null
+  dueOn?: string | null
+}
+
+export async function updateItem(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  input: UpdateItemInput,
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    const patch: Partial<typeof items.$inferInsert> = {}
+
+    if (input.text !== undefined) {
+      const text = input.text.trim()
+      if (text === '') throw new ValidationError('Enter some text.')
+      if (text !== item.text) patch.text = text
+    }
+    if (input.detail !== undefined) {
+      const detail = blankToNull(input.detail)
+      if (detail !== item.detail) patch.detail = detail
+    }
+    if (input.projectId !== undefined) {
+      const projectId = input.projectId || null
+      if (projectId) await assertProjectIn(tx, projectId, item.contextId)
+      if (projectId !== (item.project?.id ?? null)) patch.projectId = projectId
+    }
+    if (input.dueOn !== undefined) {
+      const dueOn = parseDay(input.dueOn)
+      if (dueOn !== item.dueOn) patch.dueOn = dueOn
+    }
+
+    const changed = Object.keys(patch)
+    if (changed.length === 0) return item
+
+    await tx
+      .update(items)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'edited', { fields: changed })
+    return getItem(tx, id)
+  })
+}
+
+export async function setItemParties(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  parties: PartyInput[],
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    await writeParties(tx, id, item.contextId, parties)
+    await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id))
+
+    const updated = await getItem(tx, id)
+    await logEvent(tx, actor, id, 'parties', {
+      owners: updated.parties.filter((party) => party.role === 'owner').map((party) => party.name),
+      with: updated.parties.filter((party) => party.role === 'with').map((party) => party.name),
+    })
+    return updated
+  })
+}
+
+function toInputs(parties: ItemParty[]): PartyInput[] {
+  return parties.map((party) =>
+    party.type === 'person'
+      ? { personId: party.id, role: party.role }
+      : { groupId: party.id, role: party.role },
+  )
+}
+
+/** Add one party, or change the role of one already there. */
+export async function addItemParty(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  party: PartyInput,
+): Promise<ItemView> {
+  const item = await getItem(exec, id)
+  const partyId = party.personId ?? party.groupId
+  const others = toInputs(item.parties.filter((existing) => existing.id !== partyId))
+  return setItemParties(exec, actor, id, [...others, party])
+}
+
+export async function removeItemParty(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  party: PartyRef,
+): Promise<ItemView> {
+  const item = await getItem(exec, id)
+  const partyId = party.personId ?? party.groupId
+  return setItemParties(
+    exec,
+    actor,
+    id,
+    toInputs(item.parties.filter((existing) => existing.id !== partyId)),
+  )
+}
+
+/** Topic, question and action change into one another, keeping the record and its history. */
+export async function convertItem(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  kind: ItemKind,
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (item.kind === kind) return item
+
+    if (kind === 'decision') {
+      throw new ValidationError(
+        'A decision is its own record with its own wording. Record one from this item instead.',
+      )
+    }
+    if (item.kind === 'decision') {
+      throw new ValidationError('A decision cannot become something else. Supersede it instead.')
+    }
+    if (!isOpen(item)) throw new ValidationError('Reopen this item before converting it.')
+
+    await tx
+      .update(items)
+      // needs_answer only means something on a question.
+      .set({ kind, status: 'open', updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'converted', { from: item.kind, to: kind })
+    return getItem(tx, id)
+  })
+}
+
+/* Report back: the resolution, raised with another party as a topic of its
+   own. This is how an answer from one meeting reaches another. */
+async function reportBack(
+  exec: Executor,
+  actor: ActorContext,
+  source: ItemView,
+  to: PartyRef,
+  resolution: string | null,
+): Promise<ItemView> {
+  return createItem(exec, actor, {
+    contextId: source.contextId,
+    kind: 'topic',
+    text: source.text,
+    detail: resolution,
+    projectId: source.project?.id ?? null,
+    parentItemId: source.id,
+    parties: [{ ...to, role: 'with' }],
+  })
+}
+
+/** A topic or an action, finished. */
+export async function completeItem(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  input: { resolution?: string | null } = {},
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (item.kind === 'decision') throw new ValidationError('A decision is already settled.')
+    if (item.kind === 'question') {
+      throw new ValidationError('A question closes with its answer. Record the answer.')
+    }
+    if (!isOpen(item)) throw new ValidationError('This item is already closed.')
+
+    const resolution = blankToNull(input.resolution)
+    await tx
+      .update(items)
+      .set({
+        status: 'done',
+        closedAt: new Date(),
+        updatedAt: new Date(),
+        ...(resolution ? { resolution } : {}),
+      })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'completed', resolution ? { resolution } : {})
+    return getItem(tx, id)
+  })
+}
+
+/**
+ * Close a question with its answer. It stays a question; a decision, if the
+ * answer amounts to one, is recorded separately with wording of its own.
+ */
+export async function answerItem(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  input: { answer: string; reportTo?: PartyRef | null },
+): Promise<{ item: ItemView; report: ItemView | null }> {
+  const answer = input.answer.trim()
+  if (answer === '') throw new ValidationError('Enter the answer.')
+
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (item.kind !== 'question') throw new ValidationError('Only a question takes an answer.')
+    if (!isOpen(item)) throw new ValidationError('This question is already closed.')
+
+    await tx
+      .update(items)
+      .set({ status: 'done', resolution: answer, closedAt: new Date(), updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'answered', { answer })
+
+    const report = input.reportTo ? await reportBack(tx, actor, item, input.reportTo, answer) : null
+    return { item: await getItem(tx, id), report }
+  })
+}
+
+export async function dropItem(exec: Executor, actor: ActorContext, id: string): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (item.kind === 'decision') {
+      throw new ValidationError('A decision cannot be dropped. Supersede it instead.')
+    }
+    if (!isOpen(item)) throw new ValidationError('This item is already closed.')
+
+    await tx
+      .update(items)
+      .set({ status: 'dropped', closedAt: new Date(), updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'dropped')
+    return getItem(tx, id)
+  })
+}
+
+export async function reopenItem(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (item.kind === 'decision') throw new ValidationError('A decision is never open.')
+    if (isOpen(item)) return item
+
+    await tx
+      .update(items)
+      // The old answer stays in the history; the field is cleared for the next one.
+      .set({ status: 'open', closedAt: null, resolution: null, updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'reopened')
+    return getItem(tx, id)
+  })
+}
+
+export type RecordDecisionInput = {
+  text: string
+  detail?: string | null
+  /** What the decision settles. It supplies the context and, by default, the project. */
+  fromItemId?: string | null
+  /** Required when there is no source item. */
+  contextId?: string
+  projectId?: string | null
+  parties?: PartyInput[]
+  reportTo?: PartyRef | null
+}
+
+/** A decision as its own record, linked to the item it settled when there is one. */
+export async function recordDecision(
+  exec: Executor,
+  actor: ActorContext,
+  input: RecordDecisionInput,
+): Promise<{ item: ItemView; report: ItemView | null }> {
+  return inTransaction(exec, async (tx) => {
+    const source = input.fromItemId ? await getItem(tx, input.fromItemId) : null
+    const contextId = source?.contextId ?? input.contextId
+    if (!contextId) throw new ValidationError('Say which context this decision belongs to.')
+
+    const decision = await createItem(tx, actor, {
+      contextId,
+      kind: 'decision',
+      text: input.text,
+      detail: input.detail,
+      projectId: input.projectId !== undefined ? input.projectId : (source?.project?.id ?? null),
+      parties: input.parties,
+      parentItemId: source?.id ?? null,
+    })
+
+    const report = input.reportTo
+      ? await reportBack(tx, actor, decision, input.reportTo, decision.detail)
+      : null
+    return { item: decision, report }
+  })
+}
+
+/** Replace a decision with a new one. The old record stays, marked and linked. */
+export async function supersedeDecision(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  input: { text: string; detail?: string | null },
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const old = await getItem(tx, id)
+    if (old.kind !== 'decision') throw new ValidationError('Only a decision can be superseded.')
+    if (old.status === 'superseded') {
+      throw new ValidationError('This decision has already been superseded.')
+    }
+
+    const replacement = await createItem(tx, actor, {
+      contextId: old.contextId,
+      kind: 'decision',
+      text: input.text,
+      detail: input.detail,
+      projectId: old.project?.id ?? null,
+      parties: toInputs(old.parties),
+      parentItemId: old.id,
+    })
+
+    await tx
+      .update(items)
+      .set({
+        status: 'superseded',
+        supersededByItemId: replacement.id,
+        closedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'superseded', { itemId: replacement.id })
+    return replacement
+  })
+}
+
+export async function addNote(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  text: string,
+): Promise<void> {
+  const note = text.trim()
+  if (note === '') throw new ValidationError('Enter a note.')
+
+  await inTransaction(exec, async (tx) => {
+    await getItem(tx, id)
+    await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'note', { text: note })
+  })
+}

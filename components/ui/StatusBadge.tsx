@@ -30,7 +30,7 @@ const ICON: Record<Tone, string> = {
 export function Badge({ tone = 'gray', children }: { tone?: Tone; children: React.ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 text-xs font-semibold leading-5 ${PILL[tone]}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold leading-5 ${PILL[tone]}`}
     >
       {children}
     </span>
@@ -73,5 +73,43 @@ const STATUS: Record<ItemStatus, { label: string; tone: Tone }> = {
 
 export function StatusBadge({ status }: { status: ItemStatus }) {
   const { label, tone } = STATUS[status]
+  return <Badge tone={tone}>{label}</Badge>
+}
+
+// ─── deadlines ───────────────────────────────────────────────────────────────
+
+/** A deadline. Red once it has passed on something still open, amber on the day. */
+export function DueBadge({
+  label,
+  dueOn,
+  today,
+  open = true,
+}: {
+  label: string
+  dueOn: string
+  today: string
+  open?: boolean
+}) {
+  const tone: Tone = !open ? 'gray' : dueOn < today ? 'red' : dueOn === today ? 'amber' : 'gray'
+  return (
+    <Badge tone={tone}>
+      <Icon name="clock" className="h-3 w-3" label="Due" />
+      {label}
+    </Badge>
+  )
+}
+
+// ─── project status ──────────────────────────────────────────────────────────
+
+export type ProjectStatus = 'active' | 'paused' | 'done'
+
+export const PROJECT_STATUS: Record<ProjectStatus, { label: string; tone: Tone }> = {
+  active: { label: 'Active', tone: 'green' },
+  paused: { label: 'Paused', tone: 'amber' },
+  done: { label: 'Done', tone: 'gray' },
+}
+
+export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
+  const { label, tone } = PROJECT_STATUS[status]
   return <Badge tone={tone}>{label}</Badge>
 }

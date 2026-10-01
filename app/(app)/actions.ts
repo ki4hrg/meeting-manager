@@ -1,0 +1,285 @@
+'use server'
+
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { requireUser } from '@/lib/auth/guards'
+import { ValidationError } from '@/lib/core/types'
+import { db } from '@/lib/db'
+import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
+import { addMember, createGroup, removeMember, renameGroup } from '@/lib/directory/groups'
+import { createPerson, updatePerson } from '@/lib/directory/people'
+import { captureLine, type CapturePresets } from '@/lib/items/capture'
+import {
+  ITEM_KINDS,
+  addItemParty,
+  addNote,
+  answerItem,
+  completeItem,
+  convertItem,
+  dropItem,
+  getItem,
+  recordDecision,
+  removeItemParty,
+  reopenItem,
+  supersedeDecision,
+  updateItem,
+  type ItemKind,
+} from '@/lib/items/items'
+import {
+  PROJECT_STATUSES,
+  addLink,
+  addMilestone,
+  createProject,
+  deleteLink,
+  deleteMilestone,
+  setMilestoneDone,
+  updateProject,
+  type ProjectStatus,
+} from '@/lib/projects/projects'
+import { act, field, partyRef, type ActionResult } from '@/lib/web/action'
+import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
+
+// ─── contexts ────────────────────────────────────────────────────────────────
+
+export async function switchContextAction(contextId: string): Promise<void> {
+  await requireUser()
+  const context = await getContext(db, contextId)
+  ;(await cookies()).set(CONTEXT_COOKIE, context.id, contextCookieOptions)
+  /* Home, not the page they were on: a project or group page belongs to the
+     context being left. */
+  redirect('/')
+}
+
+export async function createContextAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    const context = await createContext(db, { name: field(formData, 'name') })
+    ;(await cookies()).set(CONTEXT_COOKIE, context.id, contextCookieOptions)
+  })
+}
+
+export async function renameContextAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await renameContext(db, field(formData, 'id'), field(formData, 'name'))
+  })
+}
+
+// ─── items ───────────────────────────────────────────────────────────────────
+
+function kindFrom(value: string): ItemKind {
+  if (!ITEM_KINDS.includes(value as ItemKind)) throw new ValidationError('Pick a kind.')
+  return value as ItemKind
+}
+
+export async function captureAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    let presets: CapturePresets
+    try {
+      presets = JSON.parse(field(formData, 'presets') || '{}') as CapturePresets
+    } catch {
+      throw new ValidationError('That could not be added. Reload the page and try again.')
+    }
+
+    /* A follow-up goes where its parent is; anything else goes to the context
+       selected in the bar. */
+    const contextId = presets.parentItemId
+      ? (await getItem(db, presets.parentItemId)).contextId
+      : (await currentContext())?.id
+    if (!contextId) throw new ValidationError('Create a context first.')
+
+    await captureLine(db, actor, { contextId, line: field(formData, 'line'), presets })
+  })
+}
+
+export async function updateItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await updateItem(db, actor, field(formData, 'id'), {
+      text: field(formData, 'text'),
+      detail: field(formData, 'detail'),
+      projectId: field(formData, 'projectId') || null,
+      dueOn: field(formData, 'dueOn') || null,
+    })
+  })
+}
+
+export async function itemStatusAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const id = field(formData, 'id')
+    const op = field(formData, 'op')
+    if (op === 'done') await completeItem(db, actor, id)
+    else if (op === 'drop') await dropItem(db, actor, id)
+    else if (op === 'reopen') await reopenItem(db, actor, id)
+    else throw new ValidationError('Unknown change.')
+  })
+}
+
+export async function answerItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await answerItem(db, actor, field(formData, 'id'), {
+      answer: field(formData, 'answer'),
+      reportTo: partyRef(field(formData, 'reportTo')),
+    })
+  })
+}
+
+export async function convertItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await convertItem(db, actor, field(formData, 'id'), kindFrom(field(formData, 'kind')))
+  })
+}
+
+export async function recordDecisionAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await recordDecision(db, actor, {
+      fromItemId: field(formData, 'fromItemId'),
+      text: field(formData, 'text'),
+      detail: field(formData, 'detail'),
+      reportTo: partyRef(field(formData, 'reportTo')),
+    })
+  })
+}
+
+export async function supersedeDecisionAction(formData: FormData): Promise<ActionResult> {
+  let replacementId = ''
+  const result = await act(async (actor) => {
+    const replacement = await supersedeDecision(db, actor, field(formData, 'id'), {
+      text: field(formData, 'text'),
+      detail: field(formData, 'detail'),
+    })
+    replacementId = replacement.id
+  })
+  // On to the decision that now stands.
+  if (!result.error) redirect(`/items/${replacementId}`)
+  return result
+}
+
+export async function addPartyAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const party = partyRef(field(formData, 'party'))
+    if (!party) throw new ValidationError('Pick a person or a group.')
+    const role = field(formData, 'role') === 'owner' ? 'owner' : 'with'
+    await addItemParty(db, actor, field(formData, 'id'), { ...party, role })
+  })
+}
+
+export async function removePartyAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const party = partyRef(field(formData, 'party'))
+    if (!party) throw new ValidationError('Pick a person or a group.')
+    await removeItemParty(db, actor, field(formData, 'id'), party)
+  })
+}
+
+export async function addNoteAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await addNote(db, actor, field(formData, 'id'), field(formData, 'text'))
+  })
+}
+
+// ─── people and groups ───────────────────────────────────────────────────────
+
+export async function createPersonAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await createPerson(db, { name: field(formData, 'name'), email: field(formData, 'email') })
+  })
+}
+
+export async function updatePersonAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await updatePerson(db, field(formData, 'id'), {
+      name: field(formData, 'name'),
+      email: field(formData, 'email'),
+    })
+  })
+}
+
+export async function createGroupAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    const context = await currentContext()
+    if (!context) throw new ValidationError('Create a context first.')
+    await createGroup(db, { contextId: context.id, name: field(formData, 'name') })
+  })
+}
+
+export async function renameGroupAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await renameGroup(db, field(formData, 'id'), field(formData, 'name'))
+  })
+}
+
+export async function addMemberAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    const personId = field(formData, 'personId')
+    if (!personId) throw new ValidationError('Pick a person.')
+    await addMember(db, field(formData, 'groupId'), personId)
+  })
+}
+
+export async function removeMemberAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await removeMember(db, field(formData, 'groupId'), field(formData, 'personId'))
+  })
+}
+
+// ─── projects ────────────────────────────────────────────────────────────────
+
+export async function createProjectAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    const context = await currentContext()
+    if (!context) throw new ValidationError('Create a context first.')
+    await createProject(db, {
+      contextId: context.id,
+      name: field(formData, 'name'),
+      description: field(formData, 'description'),
+    })
+  })
+}
+
+export async function updateProjectAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    const status = field(formData, 'status') as ProjectStatus
+    if (!PROJECT_STATUSES.includes(status)) throw new ValidationError('Pick a status.')
+    await updateProject(db, field(formData, 'id'), {
+      name: field(formData, 'name'),
+      description: field(formData, 'description'),
+      status,
+    })
+  })
+}
+
+export async function addMilestoneAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await addMilestone(db, {
+      projectId: field(formData, 'projectId'),
+      title: field(formData, 'title'),
+      dueOn: field(formData, 'dueOn'),
+    })
+  })
+}
+
+export async function toggleMilestoneAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await setMilestoneDone(db, field(formData, 'id'), field(formData, 'done') === 'true')
+  })
+}
+
+export async function deleteMilestoneAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await deleteMilestone(db, field(formData, 'id'))
+  })
+}
+
+export async function addLinkAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await addLink(db, {
+      projectId: field(formData, 'projectId'),
+      url: field(formData, 'url'),
+      label: field(formData, 'label'),
+    })
+  })
+}
+
+export async function deleteLinkAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await deleteLink(db, field(formData, 'id'))
+  })
+}

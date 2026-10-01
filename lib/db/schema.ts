@@ -1,8 +1,9 @@
 /*
  * Drizzle table definitions.
  *
- * Phase 0 holds only sign-in and the OAuth authorization server. The domain
- * model (docs/SPEC.md) arrives in phase 1.
+ * Sign-in, the OAuth authorization server, and the phase 1 domain model
+ * (docs/SPEC.md): contexts, the directory, projects and items. Meetings,
+ * agendas, notes and the Todoist links arrive with their phases.
  *
  * Conventions: snake_case in Postgres, camelCase in TypeScript.
  */
@@ -10,8 +11,13 @@
 import { sql } from 'drizzle-orm'
 import {
   type AnyPgColumn,
+  boolean,
+  check,
+  date,
   index,
+  integer,
   jsonb,
+  primaryKey,
   pgEnum,
   pgTable,
   text,
@@ -23,6 +29,24 @@ import {
 export const oauthTokenKind = pgEnum('oauth_token_kind', ['access', 'refresh'])
 
 export const oauthRegistrationSource = pgEnum('oauth_registration_source', ['dcr', 'manual'])
+
+export const itemKind = pgEnum('item_kind', ['topic', 'question', 'action', 'decision'])
+
+/* open, done and dropped for topics, questions and actions; decided and
+   superseded for decisions. needs_answer is a question ticked off in Todoist
+   with no answer recorded; nothing sets it before phase 4. */
+export const itemStatus = pgEnum('item_status', [
+  'open',
+  'needs_answer',
+  'done',
+  'dropped',
+  'decided',
+  'superseded',
+])
+
+export const partyRole = pgEnum('party_role', ['owner', 'with'])
+
+export const projectStatus = pgEnum('project_status', ['active', 'paused', 'done'])
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -155,4 +179,217 @@ export const mcpWriteReceipts = pgTable(
     uniqueIndex('mcp_write_receipts_key').on(sql`coalesce(${t.clientId}, '')`, t.idempotencyKey),
     index('mcp_write_receipts_expiry_idx').on(t.expiresAt),
   ],
+)
+
+// ─── contexts and the directory ──────────────────────────────────────────────
+
+/* A hard boundary: projects, groups and items carry a context and nothing
+   crosses between two of them. */
+export const contexts = pgTable(
+  'contexts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('contexts_name_key').on(sql`lower(${t.name})`)],
+)
+
+/* People are global: the same person can be met in two contexts. */
+export const people = pgTable(
+  'people',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    /* The one row that is John. "I owe" and "owed to me" are read against it. */
+    isSelf: boolean('is_self').notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('people_self_key').on(t.isSelf).where(sql`${t.isSelf}`),
+    index('people_name_idx').on(sql`lower(${t.name})`),
+  ],
+)
+
+export const personEmails = pgTable(
+  'person_emails',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('person_emails_email_key').on(sql`lower(${t.email})`),
+    index('person_emails_person_idx').on(t.personId),
+  ],
+)
+
+export const groups = pgTable(
+  'groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contextId: uuid('context_id')
+      .notNull()
+      .references(() => contexts.id),
+    name: text('name').notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('groups_name_key').on(t.contextId, sql`lower(${t.name})`)],
+)
+
+export const groupMembers = pgTable(
+  'group_members',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.groupId, t.personId] }),
+    index('group_members_person_idx').on(t.personId),
+  ],
+)
+
+// ─── projects ────────────────────────────────────────────────────────────────
+
+export const projects = pgTable(
+  'projects',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contextId: uuid('context_id')
+      .notNull()
+      .references(() => contexts.id),
+    name: text('name').notNull(),
+    description: text('description'),
+    status: projectStatus('status').notNull().default('active'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('projects_name_key').on(t.contextId, sql`lower(${t.name})`)],
+)
+
+export const milestones = pgTable(
+  'milestones',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    dueOn: date('due_on'),
+    doneAt: timestamp('done_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('milestones_project_idx').on(t.projectId)],
+)
+
+export const projectLinks = pgTable(
+  'project_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    url: text('url').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('project_links_project_idx').on(t.projectId)],
+)
+
+// ─── items ───────────────────────────────────────────────────────────────────
+
+/*
+ * One table, four kinds. Only the context and the text are required. Topic,
+ * question and action convert in place; a decision is always its own row,
+ * linked to what it settled through parent_item_id.
+ *
+ * origin_meeting_id and the target_* columns arrive in phase 2, with the tables
+ * they point at.
+ */
+export const items = pgTable(
+  'items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contextId: uuid('context_id')
+      .notNull()
+      .references(() => contexts.id),
+    kind: itemKind('kind').notNull().default('topic'),
+    status: itemStatus('status').notNull().default('open'),
+    text: text('text').notNull(),
+    detail: text('detail'),
+    /* The answer to a question, or how a topic or action ended. */
+    resolution: text('resolution'),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    /* Always a deadline, never a "do it on" date. */
+    dueOn: date('due_on'),
+    /* What this item came out of. Set at creation and never moved, so a thread
+       cannot loop. */
+    parentItemId: uuid('parent_item_id').references((): AnyPgColumn => items.id),
+    supersededByItemId: uuid('superseded_by_item_id').references((): AnyPgColumn => items.id),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('items_context_status_idx').on(t.contextId, t.status),
+    index('items_project_idx').on(t.projectId),
+    index('items_parent_idx').on(t.parentItemId),
+  ],
+)
+
+/*
+ * Who an item involves: a person or a group, never both in one row. `owner`
+ * owes the action or the answer. `with` is who to raise it with; on an item
+ * John owns, it is the party the item is owed to.
+ */
+export const itemParties = pgTable(
+  'item_parties',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    personId: uuid('person_id').references(() => people.id),
+    groupId: uuid('group_id').references(() => groups.id),
+    role: partyRole('role').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('item_parties_one_party', sql`num_nonnulls(${t.personId}, ${t.groupId}) = 1`),
+    /* One role per party per item. */
+    uniqueIndex('item_parties_person_key')
+      .on(t.itemId, t.personId)
+      .where(sql`${t.personId} is not null`),
+    uniqueIndex('item_parties_group_key')
+      .on(t.itemId, t.groupId)
+      .where(sql`${t.groupId} is not null`),
+    index('item_parties_person_idx').on(t.personId),
+    index('item_parties_group_idx').on(t.groupId),
+  ],
+)
+
+/* Every step an item takes. The type is text rather than an enum because later
+   phases add their own ("discussed" arrives with meetings). */
+export const itemEvents = pgTable(
+  'item_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    data: jsonb('data').notNull().default({}),
+    source: text('source').notNull(),
+    requestId: text('request_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('item_events_item_idx').on(t.itemId, t.createdAt)],
 )

@@ -25,7 +25,12 @@ export function Modal({
   useEffect(() => {
     const dialog = ref.current
     if (!dialog) return
-    if (open && !dialog.open) dialog.showModal()
+    if (open && !dialog.open) {
+      dialog.showModal()
+      // showModal() focuses the first focusable element, which is the close
+      // button. A modal with a form should start in its first field.
+      dialog.querySelector<HTMLElement>('input:not([type=hidden]), textarea, select')?.focus()
+    }
     if (!open && dialog.open) dialog.close()
   }, [open])
 

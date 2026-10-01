@@ -21,13 +21,15 @@ import type { BearerIdentity } from '../oauth/grants'
 import { actorFor } from './auth'
 import { granted, refusalFor } from './scopes'
 import { ToolRefusal, type ToolContext, type ToolDefinition } from './tools/types'
+import { directoryTools } from './tools/directory'
+import { itemTools } from './tools/items'
 import { whoamiTool } from './tools/whoami'
 
 export const SERVER_NAME = 'meeting-manager'
 export const SERVER_VERSION = '0.1.0'
 
 /** Every tool that exists, at every scope. Filtered per connection. */
-export const allTools: ToolDefinition[] = [whoamiTool]
+export const allTools: ToolDefinition[] = [whoamiTool, ...itemTools, ...directoryTools]
 
 export function toolsFor(identity: BearerIdentity): ToolDefinition[] {
   return allTools.filter((tool) => granted(identity, tool.scope))
@@ -41,7 +43,9 @@ export function createMcpServer(identity: BearerIdentity, exec: Executor): Serve
       instructions:
         'Meeting Manager captures topics, questions, actions and decisions, builds agendas ' +
         'from them, and tracks what meetings leave behind, across separate working contexts. ' +
-        'A context is a hard boundary: nothing crosses between them.',
+        'A context is a hard boundary: nothing crosses between them. People, groups, projects ' +
+        'and contexts can be named instead of looked up by id; an ambiguous name is refused ' +
+        'with its candidates.',
     },
   )
 

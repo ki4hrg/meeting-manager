@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { users } from '../../db/schema'
 import { defineTool, ToolRefusal } from './types'
 
-/** Proves the authenticated path end to end; the domain tools arrive in phase 1. */
+/** Proves the authenticated path end to end. */
 export const whoamiTool = defineTool({
   name: 'whoami',
   title: 'Who am I',

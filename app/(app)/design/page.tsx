@@ -7,16 +7,25 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import {
   Badge,
+  DueBadge,
   KIND,
   KindIcon,
+  PROJECT_STATUS,
+  ProjectStatusBadge,
   StatusBadge,
   type ItemKind,
   type ItemStatus,
+  type ProjectStatus,
 } from '@/components/ui/StatusBadge'
 import { Interactive } from './interactive'
 
 const KINDS = Object.keys(KIND) as ItemKind[]
 const STATUSES: ItemStatus[] = ['open', 'needs_answer', 'done', 'decided', 'dropped', 'superseded']
+const PROJECT_STATUSES = Object.keys(PROJECT_STATUS) as ProjectStatus[]
+const formatDate = (d: Date) => d.toISOString().split('T')[0]!
+const TODAY = formatDate(new Date())
+const TOMORROW = formatDate(new Date(Date.now() + 86400000))
+const YESTERDAY = formatDate(new Date(Date.now() - 86400000))
 
 const SAMPLE: Array<{ kind: ItemKind; text: string; status: ItemStatus; who: string; group?: boolean }> = [
   { kind: 'topic', text: 'Update on the building survey', status: 'open', who: 'Finance Committee', group: true },
@@ -91,12 +100,52 @@ export default function DesignPage() {
 
       <Section title="Kinds and status">
         <Card>
-          <div className="flex flex-wrap items-center gap-4">
-            {KINDS.map((kind) => (
-              <KindIcon key={kind} kind={kind} />
-            ))}
-            {STATUSES.map((status) => (
-              <StatusBadge key={status} status={status} />
+          <div className="flex flex-col gap-6">
+            <div>
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Kinds</p>
+              <div className="flex flex-wrap items-center gap-3">
+                {KINDS.map((kind) => (
+                  <KindIcon key={kind} kind={kind} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Item status</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {STATUSES.map((status) => (
+                  <StatusBadge key={status} status={status} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Project status</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {PROJECT_STATUSES.map((status) => (
+                  <ProjectStatusBadge key={status} status={status} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Due date</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <DueBadge label="Today" dueOn={TODAY} today={TODAY} open />
+                <DueBadge label="Tomorrow" dueOn={TOMORROW} today={TODAY} open />
+                <DueBadge label="Overdue" dueOn={YESTERDAY} today={TODAY} open />
+                <DueBadge label="Done" dueOn={TODAY} today={TODAY} open={false} />
+              </div>
+            </div>
+          </div>
+        </Card>
+      </Section>
+
+      <Section title="Icons">
+        <Card>
+          <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch'] as const).map((name) => (
+              <div key={name} className="flex flex-col items-center gap-2">
+                <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+                <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>
+              </div>
             ))}
           </div>
         </Card>
