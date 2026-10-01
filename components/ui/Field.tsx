@@ -47,15 +47,27 @@ export function Field({
   )
 }
 
+/* Told to password managers on every field that is not a credential, or a
+   field called "name" gets an identity offered for it. */
+const NO_AUTOFILL = {
+  autoComplete: 'off',
+  'data-1p-ignore': true,
+  'data-lpignore': 'true',
+  'data-bwignore': true,
+  'data-form-type': 'other',
+} as const
+
+/** Password managers stay out unless the field says what it holds with `autoComplete`. */
 export function Input({ className = '', ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={`${CONTROL} ${className}`} {...props} />
+  const quiet = props.autoComplete === undefined ? NO_AUTOFILL : {}
+  return <input className={`${CONTROL} ${className}`} {...quiet} {...props} />
 }
 
 export function Textarea({
   className = '',
   ...props
 }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={`${CONTROL} ${className}`} {...props} />
+  return <textarea className={`${CONTROL} ${className}`} {...NO_AUTOFILL} {...props} />
 }
 
 export function Select({

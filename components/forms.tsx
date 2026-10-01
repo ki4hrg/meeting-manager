@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useToast } from '@/components/Toast'
 import { Button, type ButtonProps } from '@/components/ui/Button'
 import { FormError } from '@/components/ui/Field'
+import { IconButton, type IconButtonProps } from '@/components/ui/IconButton'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 import type { ActionResult } from '@/lib/web/action'
@@ -68,6 +69,9 @@ export function FormModal({
   also,
   variant = 'primary',
   size = 'md',
+  compact = false,
+  danger = false,
+  wide = false,
   children,
 }: {
   action: Action
@@ -80,30 +84,41 @@ export function FormModal({
   also?: { label: string; name: string; value: string }
   variant?: ButtonProps['variant']
   size?: ButtonProps['size']
-  children: React.ReactNode
+  /** The trigger is a small icon button, as on a row. Needs `icon`. */
+  compact?: boolean
+  /** The form destroys something: its submit button says so in red. */
+  danger?: boolean
+  /** A wider modal, for a form with a long text field. */
+  wide?: boolean
+  children?: React.ReactNode
 }) {
   /* Counts opens, and keys the form on it: each opening starts from the
      current values rather than whatever was left in the fields last time. */
   const [opened, setOpened] = useState(0)
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
+  const show = () => {
+    setOpened((count) => count + 1)
+    setOpen(true)
+  }
 
   return (
     <>
-      <Button
-        variant={variant}
-        size={size}
-        aria-label={label ? undefined : title}
-        onClick={() => {
-          setOpened((count) => count + 1)
-          setOpen(true)
-        }}
-      >
-        {icon ? <Icon name={icon} className="h-4 w-4" /> : null}
-        {label}
-      </Button>
+      {compact && icon ? (
+        <IconButton icon={icon} label={title} onClick={show} />
+      ) : (
+        <Button
+          variant={variant}
+          size={size}
+          aria-label={label ? undefined : title}
+          onClick={show}
+        >
+          {icon ? <Icon name={icon} className="h-4 w-4" /> : null}
+          {label}
+        </Button>
+      )}
 
-      <Modal open={open} onClose={close} title={title}>
+      <Modal open={open} onClose={close} title={title} size={wide ? 'lg' : 'md'}>
         <ActionForm key={opened} action={action} onDone={close}>
           {children}
           <div className="flex justify-end gap-2">
@@ -115,12 +130,47 @@ export function FormModal({
                 {also.label}
               </Button>
             ) : null}
-            <Button type="submit">{submit}</Button>
+            <Button type="submit" variant={danger ? 'destructive' : 'primary'}>
+              {submit}
+            </Button>
           </div>
         </ActionForm>
       </Modal>
     </>
   )
+}
+
+/* Runs an action with fixed fields. A refusal surfaces as a toast. */
+function useAction(action: Action, fields: Record<string, string>, done?: string) {
+  const toast = useToast()
+  const [pending, startTransition] = useTransition()
+
+  function run() {
+    const data = new FormData()
+    for (const [name, value] of Object.entries(fields)) data.set(name, value)
+    startTransition(async () => {
+      const result = await action(data)
+      if (result?.error) toast.error(result.error)
+      else if (done) toast.success(done)
+    })
+  }
+  return { pending, run }
+}
+
+/** One click, one action, as a small icon on a row. */
+export function IconAction({
+  action,
+  fields,
+  done,
+  ...props
+}: Omit<IconButtonProps, 'onClick' | 'type'> & {
+  action: Action
+  fields: Record<string, string>
+  /** Said in a toast when there is nothing on screen to show it worked. */
+  done?: string
+}) {
+  const { pending, run } = useAction(action, fields, done)
+  return <IconButton {...props} disabled={pending || props.disabled} onClick={run} />
 }
 
 /** One click, one action. A refusal surfaces as a toast. */
@@ -133,22 +183,9 @@ export function ActionButton({
   action: Action
   fields: Record<string, string>
 }) {
-  const toast = useToast()
-  const [pending, startTransition] = useTransition()
-
+  const { pending, run } = useAction(action, fields)
   return (
-    <Button
-      {...props}
-      disabled={pending || props.disabled}
-      onClick={() => {
-        const data = new FormData()
-        for (const [name, value] of Object.entries(fields)) data.set(name, value)
-        startTransition(async () => {
-          const result = await action(data)
-          if (result?.error) toast.error(result.error)
-        })
-      }}
-    >
+    <Button {...props} disabled={pending || props.disabled} onClick={run}>
       {children}
     </Button>
   )

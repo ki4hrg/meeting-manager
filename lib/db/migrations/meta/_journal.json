@@ -15,6 +15,13 @@
       "when": 1790873909318,
       "tag": "0001_careful_black_tom",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790875705641,
+      "tag": "0002_melted_king_cobra",
+      "breakpoints": true
     }
   ]
 }

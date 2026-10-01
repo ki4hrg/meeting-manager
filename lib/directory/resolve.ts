@@ -9,7 +9,7 @@
 import { eq } from 'drizzle-orm'
 import { isUuid, matchName } from '../core/match'
 import { ValidationError, type Executor } from '../core/types'
-import { groups, people, projects } from '../db/schema'
+import { groups, people, projects, series } from '../db/schema'
 import { listContexts, type Context } from './contexts'
 
 export type Party = { type: 'person' | 'group'; id: string; name: string }
@@ -80,13 +80,91 @@ export async function resolveProject(
   throw new ValidationError(`${wanted} could be ${listNames(matches)}. Be more specific.`)
 }
 
+/** A person, never a group: who is at a meeting. `me` is John. */
+export async function resolvePerson(exec: Executor, ref: string): Promise<{ id: string; name: string }> {
+  const wanted = ref.trim().replace(/^@/, '')
+  if (wanted === '') throw new ValidationError('Name a person.')
+
+  const rows = await exec.select({ id: people.id, name: people.name, isSelf: people.isSelf }).from(people)
+  const only = (row: { id: string; name: string }) => ({ id: row.id, name: row.name })
+
+  if (isUuid(wanted)) {
+    const person = rows.find((row) => row.id === wanted)
+    if (person) return only(person)
+    throw new ValidationError(`No person has the id ${wanted}.`)
+  }
+
+  if (wanted.toLowerCase() === 'me') {
+    const self = rows.find((row) => row.isSelf)
+    if (self) return only(self)
+  }
+
+  const matches = matchName(rows, wanted)
+  if (matches.length === 1) return only(matches[0]!)
+  if (matches.length === 0) throw new ValidationError(`No person matches ${wanted}.`)
+  throw new ValidationError(`${wanted} could be ${listNames(matches)}. Be more specific.`)
+}
+
+/** A group in this context. */
+export async function resolveGroup(
+  exec: Executor,
+  contextId: string,
+  ref: string,
+): Promise<{ id: string; name: string }> {
+  const wanted = ref.trim().replace(/^@/, '')
+  if (wanted === '') throw new ValidationError('Name a group.')
+
+  const rows = await exec
+    .select({ id: groups.id, name: groups.name })
+    .from(groups)
+    .where(eq(groups.contextId, contextId))
+
+  if (isUuid(wanted)) {
+    const group = rows.find((row) => row.id === wanted)
+    if (group) return group
+    throw new ValidationError(`No group in this context has the id ${wanted}.`)
+  }
+
+  const matches = matchName(rows, wanted)
+  if (matches.length === 1) return matches[0]!
+  if (matches.length === 0) throw new ValidationError(`No group matches ${wanted}.`)
+  throw new ValidationError(`${wanted} could be ${listNames(matches)}. Be more specific.`)
+}
+
+/** A series in this context. */
+export async function resolveSeries(
+  exec: Executor,
+  contextId: string,
+  ref: string,
+): Promise<{ id: string; name: string }> {
+  const wanted = ref.trim()
+  if (wanted === '') throw new ValidationError('Name a series.')
+
+  const rows = await exec
+    .select({ id: series.id, name: series.name })
+    .from(series)
+    .where(eq(series.contextId, contextId))
+
+  if (isUuid(wanted)) {
+    const found = rows.find((row) => row.id === wanted)
+    if (found) return found
+    throw new ValidationError(`No series in this context has the id ${wanted}.`)
+  }
+
+  const matches = matchName(rows, wanted)
+  if (matches.length === 1) return matches[0]!
+  if (matches.length === 0) throw new ValidationError(`No series matches ${wanted}.`)
+  throw new ValidationError(`${wanted} could be ${listNames(matches)}. Be more specific.`)
+}
+
 /**
  * The context a capture belongs in when the caller did not say: the only one
- * there is, or the only one holding a project or group by one of these names.
+ * there is, or the only one holding a project, series or group by one of these
+ * names.
  */
 export async function inferContext(
   exec: Executor,
-  hints: { context?: string; project?: string; parties?: string[] },
+  hints: { context?: string; project?: string; series?: string; parties?: string[] },
 ): Promise<Context> {
   const all = await listContexts(exec)
   if (all.length === 0) throw new ValidationError('There are no contexts yet. Create one first.')
@@ -107,6 +185,15 @@ export async function inferContext(
     const rows = await exec
       .select({ id: projects.id, name: projects.name, contextId: projects.contextId })
       .from(projects)
+    const found = isUuid(wanted) ? rows.filter((row) => row.id === wanted) : matchName(rows, wanted)
+    for (const row of found) holding.add(row.contextId)
+  }
+
+  if (holding.size === 0 && hints.series) {
+    const wanted = hints.series.trim()
+    const rows = await exec
+      .select({ id: series.id, name: series.name, contextId: series.contextId })
+      .from(series)
     const found = isUuid(wanted) ? rows.filter((row) => row.id === wanted) : matchName(rows, wanted)
     for (const row of found) holding.add(row.contextId)
   }

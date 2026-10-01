@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
-import { FormModal } from '@/components/forms'
+import { ActionButton, FormModal } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
+import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Section } from '@/components/ui/Card'
 import { Field, Input } from '@/components/ui/Field'
@@ -10,8 +11,10 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { getPerson } from '@/lib/directory/people'
 import { listItems, type ItemView } from '@/lib/items/items'
+import { listMeetings } from '@/lib/meetings/meetings'
 import { requireContext, viewer } from '@/lib/web/context'
 import { updatePersonAction } from '../../actions'
+import { prepWithPersonAction } from '../../meetings/actions'
 
 const has = (item: ItemView, personId: string, role: 'owner' | 'with') =>
   item.parties.some((party) => party.id === personId && party.role === role)
@@ -23,7 +26,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   if (!isUuid(id)) notFound()
 
   const context = await requireContext()
-  const { self, today } = await viewer()
+  const { user, self, today } = await viewer()
   const person = await getPerson(db, id).catch((err) => {
     if (err instanceof NotFoundError) notFound()
     throw err
@@ -41,15 +44,23 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     <PageHeader
       title={person.name}
       actions={
-        <FormModal action={updatePersonAction} title="Edit" label="Edit" variant="secondary">
-          <input type="hidden" name="id" value={person.id} />
-          <Field label="Name" required>
-            <Input name="name" defaultValue={person.name} required />
-          </Field>
-          <Field label="Email">
-            <Input name="email" type="email" defaultValue={person.email ?? ''} />
-          </Field>
-        </FormModal>
+        <div className="flex items-center gap-2">
+          {/* One click: a stub with everything saved up for them already on its agenda. */}
+          {person.isSelf ? null : (
+            <ActionButton action={prepWithPersonAction} fields={{ personId: person.id }}>
+              Prep
+            </ActionButton>
+          )}
+          <FormModal action={updatePersonAction} title="Edit" label="Edit" variant="secondary">
+            <input type="hidden" name="id" value={person.id} />
+            <Field label="Name" required>
+              <Input name="name" defaultValue={person.name} required />
+            </Field>
+            <Field label="Email">
+              <Input name="email" type="email" defaultValue={person.email ?? ''} />
+            </Field>
+          </FormModal>
+        </div>
       }
     />
   )
@@ -76,6 +87,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     )
   }
 
+  const meetings = await listMeetings(db, { contextId: context.id, personId: id, topLevelOnly: true })
   const theyOwe = open.filter((item) => has(item, id, 'owner'))
   const iOwe = open.filter((item) => has(item, id, 'with') && has(item, self.id, 'owner'))
   const raise = open.filter((item) => has(item, id, 'with') && !has(item, self.id, 'owner'))
@@ -118,6 +130,10 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
         }
       >
         <ItemGrid items={iOwe} today={today} empty="action" />
+      </Section>
+
+      <Section title="Meetings">
+        <MeetingGrid meetings={meetings} timeZone={user.timeZone} />
       </Section>
 
       {closed.length > 0 ? (

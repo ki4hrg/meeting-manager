@@ -57,3 +57,94 @@ export function formatMoment(moment: Date, timeZone: string | null | undefined):
     minute: '2-digit',
   }).format(moment)
 }
+
+// ─── moments ─────────────────────────────────────────────────────────────────
+
+const LOCAL = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/
+
+function wallParts(moment: Date, timeZone: string | null | undefined) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timeZone ?? undefined,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(moment)
+  const get = (type: string) => parts.find((part) => part.type === type)!.value
+  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute') }
+}
+
+/** The value a `datetime-local` input shows for a moment: 'YYYY-MM-DDTHH:MM' on the zone's clock. */
+export function toLocalInput(moment: Date, timeZone: string | null | undefined): string {
+  const { year, month, day, hour, minute } = wallParts(moment, timeZone)
+  return `${year}-${month}-${day}T${hour}:${minute}`
+}
+
+/**
+ * The moment a `datetime-local` value names in the given zone. The server's
+ * own zone never enters into it.
+ *
+ * Around a clock change a wall time can name two moments or none: the first
+ * is taken when the hour repeats, and a time inside the skipped hour moves
+ * forward by the gap (2:30 becomes 3:30), as a calendar would do.
+ */
+export function fromLocalInput(value: string, timeZone: string | null | undefined): Date {
+  const match = LOCAL.exec(value.trim())
+  if (!match) throw new ValidationError(`${value} is not a date and time.`)
+  const [year, month, day, hour, minute] = match.slice(1).map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+  ]
+  const wall = Date.UTC(year, month - 1, day, hour, minute)
+  if (!isDay(value.trim().slice(0, 10)) || hour > 23 || minute > 59) {
+    throw new ValidationError(`${value} is not a date and time.`)
+  }
+
+  /* How far the zone's clock is ahead of UTC at a given moment. */
+  const offsetAt = (instant: number) => {
+    const shown = toLocalInput(new Date(instant), timeZone)
+    const parts = LOCAL.exec(shown)!.slice(1).map(Number) as [number, number, number, number, number]
+    return Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4]) - instant
+  }
+
+  const first = wall - offsetAt(wall)
+  const settled = wall - offsetAt(first)
+  // Inside a skipped hour nothing reads back as what was typed; the first guess is the later reading.
+  const exact = toLocalInput(new Date(settled), timeZone) === toLocalInput(new Date(wall), 'UTC')
+  return new Date(exact ? settled : first)
+}
+
+/** 'HH:MM' on the zone's 24-hour clock. */
+export function clockIn(moment: Date, timeZone: string | null | undefined): string {
+  const { hour, minute } = wallParts(moment, timeZone)
+  return `${hour}:${minute}`
+}
+
+/** '15:05' as "3:05 PM". */
+export function formatClock(clock: string): string {
+  const [hour, minute] = clock.split(':').map(Number)
+  const h = ((hour! % 24) + 24) % 24
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(minute).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+}
+
+/** "3:05 PM" in the given zone. */
+export function formatTime(moment: Date, timeZone: string | null | undefined): string {
+  return formatClock(clockIn(moment, timeZone))
+}
+
+/** "Thu, Oct 9", with the year only when it is not this one. */
+export function formatWeekday(day: string, today: string): string {
+  const [year, month, date] = day.split('-').map(Number)
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: day.slice(0, 4) === today.slice(0, 4) ? undefined : 'numeric',
+  }).format(new Date(Date.UTC(year!, month! - 1, date!)))
+}

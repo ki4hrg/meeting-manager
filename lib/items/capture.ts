@@ -94,6 +94,8 @@ export type CapturePresets = {
   /** Parties with their roles already decided, as on a person or group page. */
   parties?: PartyInput[]
   parentItemId?: string
+  /** Captured from a meeting's page: the item is aimed at that meeting's agenda. */
+  targetMeetingId?: string
 }
 
 function sameParty(a: PartyInput, b: PartyInput): boolean {
@@ -150,6 +152,13 @@ export async function captureLine(
       projectId: project?.id ?? presets.projectId ?? null,
       parties,
       parentItemId: presets.parentItemId ?? null,
+      /* Something to raise is aimed at the meeting; a decision is not raised,
+         it was made there. */
+      ...(presets.targetMeetingId
+        ? kind === 'decision'
+          ? { originMeetingId: presets.targetMeetingId }
+          : { target: { meetingId: presets.targetMeetingId } }
+        : {}),
     })
   })
 }

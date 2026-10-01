@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { FormError } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
+import { Spinner } from '@/components/ui/Spinner'
 import { KIND, KindIcon, type ItemKind } from '@/components/ui/StatusBadge'
 import { matchName, normalise, tokenFor } from '@/lib/core/match'
 import type { CapturePresets } from '@/lib/items/capture'
@@ -111,21 +112,31 @@ export function QuickAdd({
   }
 
   function submit() {
-    if (line.trim() === '') return
+    const value = line
+    if (value.trim() === '') return
     const data = new FormData()
-    data.set('line', line)
+    data.set('line', value)
     data.set('presets', JSON.stringify(presets ?? {}))
 
+    /* Capture often comes in batches, so the field is cleared at once and
+       nothing is disabled while a line is saved: the next can be typed and
+       entered before this one has landed. (A disabled submit button would
+       swallow Enter.) */
+    edit('', 0)
+    inputRef.current?.focus()
     startTransition(async () => {
       const result = await captureAction(data)
-      if (result?.error) {
-        setError(result.error)
+      if (!result?.error) {
+        toast.success('Added')
         return
       }
-      // Stays open: capture often comes in batches.
-      toast.success('Added')
-      edit('', 0)
-      inputRef.current?.focus()
+      // Back to be corrected, unless the next line is already being typed.
+      if (inputRef.current?.value === '') {
+        edit(value, value.length)
+        setError(result.error)
+      } else {
+        toast.error(`${value}: ${result.error}`)
+      }
     })
   }
 
@@ -176,6 +187,10 @@ export function QuickAdd({
               onKeyDown={onKeyDown}
               autoFocus
               autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore
+              data-form-type="other"
               aria-label="New item"
               placeholder="@person  #project"
               className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
@@ -227,9 +242,13 @@ export function QuickAdd({
                 </button>
               ))}
             </div>
-            <Button type="submit" disabled={pending || line.trim() === ''}>
-              Add
-            </Button>
+            <div className="flex items-center gap-3">
+              {/* The field is already clear for the next line; this says the last one is still on its way. */}
+              {pending ? <Spinner /> : null}
+              <Button type="submit" disabled={line.trim() === ''}>
+                Add
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>

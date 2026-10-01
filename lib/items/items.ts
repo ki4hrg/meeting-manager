@@ -22,7 +22,16 @@ import {
   type ActorContext,
   type Executor,
 } from '../core/types'
-import { groups, itemEvents, itemParties, items, people, projects } from '../db/schema'
+import {
+  groups,
+  itemEvents,
+  itemParties,
+  items,
+  meetings,
+  people,
+  projects,
+  series,
+} from '../db/schema'
 import { getContext } from '../directory/contexts'
 
 export type ItemKind = (typeof items.$inferSelect)['kind']
@@ -58,6 +67,9 @@ export type ItemView = {
   parentItemId: string | null
   supersededByItemId: string | null
   closedAt: Date | null
+  originMeetingId: string | null
+  targetMeetingId: string | null
+  targetSeriesId: string | null
   createdAt: Date
   updatedAt: Date
   parties: ItemParty[]
@@ -75,6 +87,8 @@ export type ItemEventType =
   | 'reopened'
   | 'spawned'
   | 'superseded'
+  | 'targeted'
+  | 'discussed'
 
 export type ItemEvent = {
   id: string
@@ -159,6 +173,9 @@ async function loadViews(exec: Executor, where: SQL | undefined, limit?: number)
     parentItemId: item.parentItemId,
     supersededByItemId: item.supersededByItemId,
     closedAt: item.closedAt,
+    originMeetingId: item.originMeetingId,
+    targetMeetingId: item.targetMeetingId,
+    targetSeriesId: item.targetSeriesId,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     parties: byItem.get(item.id) ?? [],
@@ -176,6 +193,10 @@ export type ItemFilter = {
   contextId: string
   kinds?: ItemKind[]
   statuses?: ItemStatus[]
+  /** Only these, still within the context. An empty list matches nothing. */
+  ids?: string[]
+  /** Came out of, or was captured in, this meeting. */
+  originMeetingId?: string
   /** Shorthand for the open statuses, or for everything else. */
   open?: boolean
   projectId?: string
@@ -199,6 +220,11 @@ function partyExists(party: PartyRef & { role?: PartyRole }): SQL {
 export async function listItems(exec: Executor, filter: ItemFilter): Promise<ItemView[]> {
   const conditions: SQL[] = [eq(items.contextId, filter.contextId)]
 
+  if (filter.ids) {
+    if (filter.ids.length === 0) return []
+    conditions.push(inArray(items.id, filter.ids))
+  }
+  if (filter.originMeetingId) conditions.push(eq(items.originMeetingId, filter.originMeetingId))
   if (filter.kinds?.length) conditions.push(inArray(items.kind, filter.kinds))
   if (filter.statuses?.length) conditions.push(inArray(items.status, filter.statuses))
   if (filter.open === true) conditions.push(inArray(items.status, OPEN_STATUSES))
@@ -370,6 +396,43 @@ async function assertProjectIn(exec: Executor, projectId: string, contextId: str
   }
 }
 
+/** Where an item is to be raised: one meeting, or the next occurrence of a series. */
+export type ItemTarget = { meetingId: string } | { seriesId: string } | null
+
+async function assertMeetingIn(exec: Executor, meetingId: string, contextId: string) {
+  const [meeting] = await exec
+    .select({ contextId: meetings.contextId })
+    .from(meetings)
+    .where(eq(meetings.id, meetingId))
+    .limit(1)
+  if (!meeting) throw new NotFoundError('Meeting', meetingId)
+  if (meeting.contextId !== contextId) {
+    throw new ValidationError('That meeting belongs to another context.')
+  }
+}
+
+async function assertSeriesIn(exec: Executor, seriesId: string, contextId: string) {
+  const [row] = await exec
+    .select({ contextId: series.contextId })
+    .from(series)
+    .where(eq(series.id, seriesId))
+    .limit(1)
+  if (!row) throw new NotFoundError('Series', seriesId)
+  if (row.contextId !== contextId) {
+    throw new ValidationError('That series belongs to another context.')
+  }
+}
+
+async function targetColumns(exec: Executor, target: ItemTarget | undefined, contextId: string) {
+  if (!target) return { targetMeetingId: null, targetSeriesId: null }
+  if ('meetingId' in target) {
+    await assertMeetingIn(exec, target.meetingId, contextId)
+    return { targetMeetingId: target.meetingId, targetSeriesId: null }
+  }
+  await assertSeriesIn(exec, target.seriesId, contextId)
+  return { targetMeetingId: null, targetSeriesId: target.seriesId }
+}
+
 /* Replaces an item's parties. Validated here rather than left to the foreign
    keys so the refusal can say what was wrong. */
 async function writeParties(
@@ -429,6 +492,9 @@ export type CreateItemInput = {
   parties?: PartyInput[]
   /** The item this one came out of. */
   parentItemId?: string | null
+  /** The meeting it was captured in. */
+  originMeetingId?: string | null
+  target?: ItemTarget
 }
 
 export async function createItem(
@@ -452,9 +518,14 @@ export async function createItem(
       }
     }
 
+    if (input.originMeetingId) await assertMeetingIn(tx, input.originMeetingId, input.contextId)
+    const target = await targetColumns(tx, input.target, input.contextId)
+
     const [row] = await tx
       .insert(items)
       .values({
+        ...target,
+        originMeetingId: input.originMeetingId ?? null,
         contextId: input.contextId,
         kind,
         // A decision is a record of something settled; it is never open.
@@ -522,6 +593,49 @@ export async function updateItem(
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'edited', { fields: changed })
     return getItem(tx, id)
+  })
+}
+
+/** Point an item at a meeting or a series, or clear that. */
+export async function setItemTarget(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  target: ItemTarget,
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    const columns = await targetColumns(tx, target, item.contextId)
+    if (
+      columns.targetMeetingId === item.targetMeetingId &&
+      columns.targetSeriesId === item.targetSeriesId
+    ) {
+      return item
+    }
+    await tx
+      .update(items)
+      .set({ ...columns, updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'targeted', {
+      meetingId: columns.targetMeetingId,
+      seriesId: columns.targetSeriesId,
+    })
+    return getItem(tx, id)
+  })
+}
+
+/** Raised in a meeting but not finished: the item stays open and the history says so. */
+export async function markDiscussed(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  meetingId: string,
+): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    await assertMeetingIn(tx, meetingId, item.contextId)
+    await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'discussed', { meetingId })
   })
 }
 

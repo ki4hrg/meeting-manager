@@ -17,6 +17,11 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       # The external HTTPS origin. OAuth discovery is built from it.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      # Google OAuth for calendar integration
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Encryption key for stored credentials
+      CONNECT_KEY: ${CONNECT_KEY:-}
       # Times are formatted on the server; unset, a container is UTC.
       TZ: ${TZ:-America/Chicago}
     depends_on:

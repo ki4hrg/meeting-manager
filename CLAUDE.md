@@ -14,7 +14,7 @@ These apply to every screen.
   - No helper paragraphs, no subtitles that restate the title, no explanatory empty states. An empty list shows its icon and the one action that fills it.
 - **Kind, owner type and status are shown visually**, not with text labels: `KindIcon`, the person/group icon, `StatusBadge`.
 - **One colour map.** Every tone comes from `components/ui/StatusBadge.tsx`. Don't invent a colour for a status inline.
-- **Use the shared components** in `components/ui/` (`Card`, `LinkCard`, `Tile`, `Section`, `CardGrid`, `PageHeader`, `Field`/`Input`, `Modal`, `Button`, `EmptyState`, `Icon`, `DueBadge`, `ProjectStatusBadge`) and `components/` (`FormModal`, `ActionForm`, `ActionButton`, `QuickAdd`, `ItemCard`/`ItemGrid`) instead of repeating class strings. `/design` shows them all; add new shared pieces there.
+- **Use the shared components** in `components/ui/` (`Card`, `LinkCard`, `Tile`, `Section`, `CardGrid`, `PageHeader`, `Field`/`Input`, `Modal`, `Button`, `EmptyState`, `Icon`, `IconButton`, `Chip`, `RemovableChip`, `CheckList`, `DueBadge`, `ProjectStatusBadge`) and `components/` (`FormModal`, `ActionForm`, `ActionButton`, `IconAction`, `ActionSelect`, `CopyButton`, `QuickAdd`, `ItemCard`/`ItemGrid`, `MeetingCard`) instead of repeating class strings. `/design` shows them all; add new shared pieces there.
 - Every colour class has a `dark:` partner. Check new screens in light, dark and at phone width.
 
 ## Layout
@@ -28,9 +28,12 @@ These apply to every screen.
 - `lib/directory/` — contexts, people, groups, and `resolve.ts`, which turns a typed name into a row.
 - `lib/projects/` — projects, milestones, links.
 - `lib/items/` — `items.ts` (the item lifecycle and every item query), `capture.ts` (the quick-add line).
+- `lib/meetings/` — `meetings.ts` and `series.ts` (CRUD), `prep.ts` (what turns a person, a series or a calendar event into a meeting with its agenda started).
+- `lib/agenda/` — `lines.ts` (the agenda in the database), `schedule.ts` (start times), `candidates.ts` (what an agenda pulls in: the leak rules), `generated.ts` (follow-ups, since last time, lookahead), `brief.ts` (the paste for Granola and the public agenda), `outline.ts`.
+- `lib/connect/` — connections to outside services and their bindings; `lib/calendar/feed.ts` — the read-only Google Calendar feed.
 - `lib/web/` — `context.ts` (the viewer and the selected context), `action.ts` (`act()`, the wrapper every server action uses).
-- `app/(app)/actions.ts` — every server action.
-- `components/forms.tsx` — `ActionForm`, `FormModal`, `ActionButton`. `components/items/` — `ItemCard`, `ItemGrid`, `PartyLine`.
+- `app/(app)/actions.ts` — server actions for items, the directory and projects. `app/(app)/meetings/actions.ts`, `app/(app)/series/actions.ts` and `app/(app)/settings/actions.ts` hold their own areas'.
+- `components/forms.tsx` — `ActionForm`, `FormModal`, `ActionButton`, `IconAction`. `components/items/` — `ItemCard`, `ItemGrid`, `PartyLine`. `components/meetings/` — the agenda card, suggestions, blocks, meeting and event cards. `components/series/` — the skeleton editor.
 - `test/` — Vitest against a real Postgres (Testcontainers; Docker must be running).
 
 ## Commands
@@ -55,6 +58,9 @@ Local database: `docker run -d --name mm-dev-db -e POSTGRES_USER=mm -e POSTGRES_
 - Forms submit through `ActionForm`/`FormModal`, which keep what was typed when the action refuses.
 - Pages get the user, John's person row and "today" from `viewer()`, and the selected context (the `mm_context` cookie) from `requireContext()`, both in `lib/web/context.ts`.
 - Every item query takes a `contextId`. Nothing is listed across contexts.
+- John is never a row in `meeting_people` or `series_people`; he is at every meeting. A 1:1 is a meeting with one row.
+- An agenda's candidates and generated blocks come only from `lib/agenda/candidates.ts` and `generated.ts`. A change to either needs a case in `test/candidate-rules.test.ts`.
+- A meeting row is created only by `lib/meetings/prep.ts` or by hand. Nothing creates meetings from the calendar on its own.
 - Much of `lib/oauth`, `lib/mcp` and `lib/auth` was lifted from `../Meeter`; that repo is the reference for the integrations still to come (Granola, Todoist, Google Calendar).
 
 ## Deploy

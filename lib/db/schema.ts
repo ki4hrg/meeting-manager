@@ -1,9 +1,10 @@
 /*
  * Drizzle table definitions.
  *
- * Sign-in, the OAuth authorization server, and the phase 1 domain model
- * (docs/SPEC.md): contexts, the directory, projects and items. Meetings,
- * agendas, notes and the Todoist links arrive with their phases.
+ * Sign-in, the OAuth authorization server, and the domain model through phase 2
+ * (docs/SPEC.md): contexts, the directory, projects, items, series, meetings
+ * and agendas, and the calendar connection. Notes, processing and the Todoist
+ * links arrive with their phases.
  *
  * Conventions: snake_case in Postgres, camelCase in TypeScript.
  */
@@ -311,9 +312,6 @@ export const projectLinks = pgTable(
  * One table, four kinds. Only the context and the text are required. Topic,
  * question and action convert in place; a decision is always its own row,
  * linked to what it settled through parent_item_id.
- *
- * origin_meeting_id and the target_* columns arrive in phase 2, with the tables
- * they point at.
  */
 export const items = pgTable(
   'items',
@@ -336,12 +334,28 @@ export const items = pgTable(
     parentItemId: uuid('parent_item_id').references((): AnyPgColumn => items.id),
     supersededByItemId: uuid('superseded_by_item_id').references((): AnyPgColumn => items.id),
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    /* The meeting this item was captured in or came out of. */
+    originMeetingId: uuid('origin_meeting_id').references(() => meetings.id, {
+      onDelete: 'set null',
+    }),
+    /* "Raise this at": one meeting, or the next occurrence of a series. Such an
+       item is placed on that agenda without being asked for. */
+    targetMeetingId: uuid('target_meeting_id').references(() => meetings.id, {
+      onDelete: 'set null',
+    }),
+    targetSeriesId: uuid('target_series_id').references(() => series.id, {
+      onDelete: 'set null',
+    }),
     ...timestamps,
   },
   (t) => [
+    check('items_one_target', sql`num_nonnulls(${t.targetMeetingId}, ${t.targetSeriesId}) <= 1`),
     index('items_context_status_idx').on(t.contextId, t.status),
     index('items_project_idx').on(t.projectId),
     index('items_parent_idx').on(t.parentItemId),
+    index('items_target_meeting_idx').on(t.targetMeetingId),
+    index('items_target_series_idx').on(t.targetSeriesId),
+    index('items_origin_meeting_idx').on(t.originMeetingId),
   ],
 )
 
@@ -377,7 +391,7 @@ export const itemParties = pgTable(
 )
 
 /* Every step an item takes. The type is text rather than an enum because later
-   phases add their own ("discussed" arrives with meetings). */
+   phases add their own. */
 export const itemEvents = pgTable(
   'item_events',
   {
@@ -392,4 +406,243 @@ export const itemEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('item_events_item_idx').on(t.itemId, t.createdAt)],
+)
+
+// ─── series and meetings ─────────────────────────────────────────────────────
+
+/* Which generated blocks an agenda carries. Set on the series; a meeting with
+   no series, or with `blocks` null, falls back to all off. */
+export type BlockSettings = { followUps: boolean; sinceLast: boolean; lookahead: boolean }
+
+/* A series' standing agenda, copied onto each new occurrence. */
+export type SkeletonSection = {
+  title: string
+  lines: { text: string; minutes?: number | null }[]
+}
+
+/*
+ * A recurring meeting: its roster, default projects, group, standing agenda
+ * and generated-block defaults. A calendar recurring event maps to one series.
+ */
+export const series = pgTable(
+  'series',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contextId: uuid('context_id')
+      .notNull()
+      .references(() => contexts.id),
+    name: text('name').notNull(),
+    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
+    /* The calendar's id for the recurring event (Google's recurringEventId). */
+    calendarSeriesId: text('calendar_series_id'),
+    skeleton: jsonb('skeleton').$type<SkeletonSection[]>().notNull().default([]),
+    blocks: jsonb('blocks')
+      .$type<BlockSettings>()
+      .notNull()
+      .default({ followUps: false, sinceLast: false, lookahead: false }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('series_name_key').on(t.contextId, sql`lower(${t.name})`),
+    uniqueIndex('series_calendar_key')
+      .on(t.calendarSeriesId)
+      .where(sql`${t.calendarSeriesId} is not null`),
+  ],
+)
+
+/* The roster. John is never a row here or in meeting_people: he is at every
+   meeting, so "a 1:1" is a meeting with exactly one row. */
+export const seriesPeople = pgTable(
+  'series_people',
+  {
+    seriesId: uuid('series_id')
+      .notNull()
+      .references(() => series.id, { onDelete: 'cascade' }),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.seriesId, t.personId] })],
+)
+
+export const seriesProjects = pgTable(
+  'series_projects',
+  {
+    seriesId: uuid('series_id')
+      .notNull()
+      .references(() => series.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.seriesId, t.projectId] })],
+)
+
+/*
+ * Created lazily: a row exists only once John preps the meeting, logs it, or a
+ * note arrives for it. The calendar itself is a read-only feed.
+ *
+ * starts_at null is an undated stub ("Prep a meeting with…"), which can later
+ * be attached to a calendar event. parent_meeting_id, one level deep, makes a
+ * session of a multi-day meeting.
+ */
+export const meetings = pgTable(
+  'meetings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contextId: uuid('context_id')
+      .notNull()
+      .references(() => contexts.id),
+    seriesId: uuid('series_id').references(() => series.id, { onDelete: 'set null' }),
+    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
+    parentMeetingId: uuid('parent_meeting_id').references((): AnyPgColumn => meetings.id, {
+      onDelete: 'cascade',
+    }),
+    title: text('title').notNull(),
+    startsAt: timestamp('starts_at', { withTimezone: true }),
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    /* The calendar event this meeting is, once attached. */
+    calendarId: text('calendar_id'),
+    calendarEventId: text('calendar_event_id'),
+    /* Null inherits the series' blocks. */
+    blocks: jsonb('blocks').$type<BlockSettings>(),
+    ...timestamps,
+  },
+  (t) => [
+    /* One meeting per calendar event: attaching a stub cannot make a duplicate. */
+    uniqueIndex('meetings_calendar_event_key')
+      .on(t.calendarEventId)
+      .where(sql`${t.calendarEventId} is not null`),
+    index('meetings_context_start_idx').on(t.contextId, t.startsAt),
+    index('meetings_series_idx').on(t.seriesId, t.startsAt),
+    index('meetings_parent_idx').on(t.parentMeetingId),
+  ],
+)
+
+export const meetingPeople = pgTable(
+  'meeting_people',
+  {
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.meetingId, t.personId] }),
+    index('meeting_people_person_idx').on(t.personId),
+  ],
+)
+
+export const meetingProjects = pgTable(
+  'meeting_projects',
+  {
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.meetingId, t.projectId] }),
+    index('meeting_projects_project_idx').on(t.projectId),
+  ],
+)
+
+/* "Not this time": a candidate turned away for this meeting stays away, and an
+   item taken off the agenda is not put back by the automatic placement. */
+export const meetingDismissals = pgTable(
+  'meeting_dismissals',
+  {
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.meetingId, t.itemId] })],
+)
+
+/*
+ * An agenda in two levels. A section is a row with is_section; a line belongs
+ * to a section or sits at the top level. A line is free text, or a reference to
+ * a live item (whose text is shown unless `text` overrides it), with a private
+ * note only John sees.
+ */
+export const agendaLines = pgTable(
+  'agenda_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    isSection: boolean('is_section').notNull().default(false),
+    sectionId: uuid('section_id').references((): AnyPgColumn => agendaLines.id, {
+      onDelete: 'cascade',
+    }),
+    /* Order among siblings: top-level rows together, a section's lines together. */
+    position: integer('position').notNull().default(0),
+    text: text('text'),
+    itemId: uuid('item_id').references(() => items.id, { onDelete: 'cascade' }),
+    privateNote: text('private_note'),
+    minutes: integer('minutes'),
+    /* 'HH:MM' in the user's time zone: this line starts then, whatever precedes it. */
+    pinnedStart: text('pinned_start'),
+    ...timestamps,
+  },
+  (t) => [
+    check(
+      'agenda_lines_section_shape',
+      sql`not ${t.isSection} or (${t.sectionId} is null and ${t.itemId} is null)`,
+    ),
+    check('agenda_lines_has_content', sql`${t.text} is not null or ${t.itemId} is not null`),
+    /* An item is on an agenda once. */
+    uniqueIndex('agenda_lines_item_key')
+      .on(t.meetingId, t.itemId)
+      .where(sql`${t.itemId} is not null`),
+    index('agenda_lines_meeting_idx').on(t.meetingId, t.position),
+  ],
+)
+
+// ─── integrations ────────────────────────────────────────────────────────────
+
+/* An account at an outside service. `credentials` is encrypted at rest. */
+export const connections = pgTable(
+  'connections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    provider: text('provider').notNull(),
+    account: text('account').notNull(),
+    credentials: text('credentials').notNull(),
+    scopes: text('scopes').notNull().default(''),
+    /* Set when the service refused the credentials; cleared on the next success. */
+    lastError: text('last_error'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('connections_account_key').on(t.provider, sql`lower(${t.account})`)],
+)
+
+/* What an outside thing maps to here: a calendar to a context in phase 2; a
+   Granola folder or Todoist project to a context or project later. */
+export const bindings = pgTable(
+  'bindings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    externalId: text('external_id').notNull(),
+    name: text('name').notNull(),
+    contextId: uuid('context_id')
+      .notNull()
+      .references(() => contexts.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('bindings_external_key').on(t.connectionId, t.kind, t.externalId)],
 )

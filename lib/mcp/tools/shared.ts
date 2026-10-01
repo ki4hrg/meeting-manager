@@ -1,11 +1,14 @@
 /* What the domain tools share: the write wrapper, name resolution and the wire shapes. */
 
+import { eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { inTransaction, type Tx } from '@/lib/core/types'
+import { inTransaction, type Executor, type Tx } from '@/lib/core/types'
+import { todayIn } from '../../core/dates'
+import { users } from '../../db/schema'
 import { resolveParty } from '../../directory/resolve'
 import type { ItemView, PartyInput, PartyRole } from '../../items/items'
 import { withIdempotency } from '../idempotency'
-import type { ToolContext } from './types'
+import { ToolRefusal, type ToolContext } from './types'
 
 export const idempotencyKey = z
   .string()
@@ -35,6 +38,20 @@ export async function write<T>(
     args,
     work,
   )
+}
+
+/** The account's time zone (null is the instance's own) and the day it is there. */
+export type Clock = { timeZone: string | null; today: string; now: Date }
+
+export async function clockFor(exec: Executor, context: Pick<ToolContext, 'identity'>): Promise<Clock> {
+  const [user] = await exec
+    .select({ timeZone: users.timeZone })
+    .from(users)
+    .where(eq(users.id, context.identity.userId))
+    .limit(1)
+  if (!user) throw new ToolRefusal('That account no longer exists.')
+  const now = new Date()
+  return { timeZone: user.timeZone, today: todayIn(user.timeZone, now), now }
 }
 
 /** Names or ids, each a person anywhere or a group in the context. */
@@ -75,6 +92,9 @@ export function itemOut(item: ItemView) {
     with: party('with'),
     parent_item_id: item.parentItemId,
     superseded_by_item_id: item.supersededByItemId,
+    target_meeting_id: item.targetMeetingId,
+    target_series_id: item.targetSeriesId,
+    origin_meeting_id: item.originMeetingId,
     created_at: item.createdAt.toISOString(),
     closed_at: item.closedAt?.toISOString() ?? null,
   }

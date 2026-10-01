@@ -1,72 +1,78 @@
-# Handoff: start of phase 2
+# Handoff: start of phase 3
 
-Written 2026-10-01 at the end of phase 1. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands) first; this file only covers where things stand and what to do next.
+Written 2026-10-01 at the end of phase 2. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
 
 ## State
 
-Phases 0 and 1 are complete. The app is usable for capture: items go in through quick-add or MCP and are read back on the Inbox and the project, person and group pages. Phase 0 is deployed; phase 1 is not yet.
+Phases 0, 1 and 2 are complete. The app is usable for capture and for prep: items go in through quick-add or MCP, a meeting is prepped in one click from a person, a group, a series or a calendar event, and its agenda goes to Granola as a pasted brief. Phase 0 is deployed; phases 1 and 2 are not yet.
 
-- **Schema:** `contexts`, `people`, `person_emails`, `groups`, `group_members`, `projects`, `milestones`, `project_links`, `items`, `item_parties`, `item_events`, added by migration `0001`. `items` has no `origin_meeting_id` or `target_*` columns yet.
-- **Domain:** `lib/directory` (contexts, people, groups, name resolution), `lib/projects`, `lib/items/items.ts` (lifecycle, queries, threads), `lib/items/capture.ts` (quick-add).
-- **Quick-add:** `Q: what is the menu @sarah @tom #retreat`. Kind prefix `T:` `Q:` `A:` `D:`, any number of `@person`/`@group`, one `#project`, all optional. A name matches on a prefix of any word (`@sarah`, `@Sarah-Jones`); an unknown or ambiguous one is refused. A token at either end of the line is dropped from the text; one inside the sentence is replaced by the name.
-- **Role rule in quick-add:** on a topic or decision, those named are `with`. On a question or action they are `owner`, unless `@me` is named, in which case John is the owner and the others are `with`. `@me` on a topic makes John its owner. A hub page's Add button passes its party and role as presets instead.
-- **Screens:** home (tiles, "I owe", "Waiting on"), `/inbox`, `/projects` and `/projects/[id]`, `/people` and `/people/[id]`, `/groups` and `/groups/[id]`, `/items/[id]` (the item, its thread, its history, every lifecycle action), `/contexts`. The context switcher and quick-add (also the `N` key) are in the top bar.
-- **MCP:** `whoami`; `capture_item`, `list_items`, `get_item`, `update_item`, `convert_item`; `list_contexts`, `create_context`, `list_people`, `create_person`, `list_groups`, `create_group`, `list_projects`, `create_project`, `update_project`. Names are accepted wherever an id is. `idempotency_key` is optional on writes.
-- **Tests:** 46 passing in six files. Phase 1 added `test/items.test.ts`, `test/capture.test.ts` and `test/mcp-items.test.ts`.
-- **Look and colours:** confirmed by John on 2026-10-01 (kind colours: purple topic, amber question, blue action, green decision).
-- **Browser check:** every screen was walked through with Playwright in light, dark and at phone width against a production build.
+- **Schema:** migration `0002` adds `series`, `series_people`, `series_projects`, `meetings`, `meeting_people`, `meeting_projects`, `meeting_dismissals`, `agenda_lines`, `connections`, `bindings`, and `origin_meeting_id`, `target_meeting_id`, `target_series_id` on `items`. `series_projects` is not in the spec's table list; the spec's "default projects" needed somewhere to live.
+- **Domain:** `lib/meetings` (meetings, series, prep), `lib/agenda` (lines, schedule, candidates, generated blocks, brief, outline), `lib/connect` (connections, bindings, Google OAuth and calendar client), `lib/calendar/feed.ts`.
+- **Screens:** `/meetings` (upcoming from the calendar and by hand, undated, past), `/meetings/[id]` (agenda editor with timing, suggestions, generated blocks, copy brief, copy agenda, sessions), `/series` and `/series/[id]` (next, roster, projects, skeleton, block defaults, history), `/settings` (Google connection, calendar-to-context binding), "Raise at" on the item page, Prep on person and group pages, meetings sections on the three hubs, "Next up" on home.
+- **MCP:** adds `list_meetings`, `get_meeting`, `prep_meeting`, `update_meeting`, `set_agenda`, `edit_agenda`, `get_briefing`, `list_series`, `create_series`, `update_series`; `capture_item` and `update_item` take `target_meeting` or `target_series`. A meeting is named by id only (titles are not unique).
+- **Tests:** 294 passing in 19 files. `test/candidate-rules.test.ts` holds the spec's Verification cases for candidates, leaks and context isolation; `test/prep.test.ts` holds the phase 2 walkthroughs (sporadic, routine 1:1).
+- **Browser check:** every phase 2 screen was walked with Playwright against a production build, in light, dark and at phone width, with the server in UTC and the user in America/Chicago.
+
+## Not verified
+
+- **Nothing has talked to real Google.** The OAuth exchange, the calendar list and `events.list` are covered by stubbed-`fetch` tests only. The first real connection is the test. To set up: create an OAuth client in Google Cloud with redirect URI `${PUBLIC_BASE_URL}/api/connect/google/callback`, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and optionally `CONNECT_KEY`; it falls back to `SESSION_SECRET`, so rotating that one would orphan the stored tokens), then Settings, Connect, and bind a calendar to a context.
+- **The calendar-event paths in the UI** (Prep from an event, attach a stub, make a series) have never been clicked, because there is no feed locally. The functions under them are tested and the card renders on `/design`.
+- **"Since last time"** has tests but was not seen in a browser.
 
 ## Open with John
 
-- **`@me` on a topic** makes John the owner. A reviewer read the spec as wanting `with`. Left as built; confirm.
-- **Nothing can be deleted or archived:** people, groups, projects, contexts and items have no removal. An item can be dropped. A person entered twice cannot be merged.
-- **Migration `0001` runs on the next deploy** (the container migrates at boot).
-- **The series hub** is the fourth hub in the spec and belongs to phase 2.
-- **Granola probe not run.** `scripts/granola-probe.ts` needs `GRANOLA_API_KEY`. Needed before phase 3.
+- **`@me` on a topic** makes John the owner (carried over from phase 1; confirm).
+- **A 1:1 places only `with` items.** `Q: … @bishop` in the top-bar quick-add makes the bishop the owner, so it is suggested in his 1:1, one click away, rather than placed. Captured from his page it is `with` and places itself. The spec says `with`; say if owner items should place themselves in a 1:1 too.
+- **Project suggestions include items raised with people who are not attending.** That is the spec's rule (project match). It may want narrowing.
+- **The brief marks kinds as `[question, Sarah]`,** not `Q:`, because `Q:`/`A:`/`D:` lines in Granola's notepad are parsed as new captures in phase 3.
+- **The meeting form takes a start and a length,** not an end time.
+- **`users.time_zone` cannot be set in the app.** It is null, so everything uses the process `TZ` (compose sets America/Chicago). A field on Settings is small.
+- **Quick-add no longer disables while saving** (a disabled submit swallowed Enter on fast entry). A tab closed within a moment of Enter could lose that line.
+- **Settings is linked twice,** from the context switcher and the account menu.
+- **Nothing can be deleted or archived** except meetings and series: people, groups, projects, contexts and items still have no removal, and a person entered twice cannot be merged.
+- **Migrations `0001` and `0002` run on the next deploy** (the container migrates at boot).
+- **Granola probe not run.** `scripts/granola-probe.ts` needs `GRANOLA_API_KEY`. Needed now.
 
-## Phase 2 scope (from the spec's build order)
+## Phase 3 scope (from the spec's build order)
 
-Calendar feed, series, lazy meetings, stubs, sessions, candidate placement and suggestions, agenda editor with timing, generated blocks, outline import, brief for Granola. The result should be usable daily for prep.
+Log a meeting with pasted notes first; then Granola ingest, reconcile job, extraction, review screen, recap export. The result closes the loop.
 
 Suggested order:
 
-1. **Schema and migration:** `series`, `series_people`, `meetings`, `meeting_people`, `meeting_projects`, `meeting_dismissals`, `agenda_lines`; `items.origin_meeting_id`, `target_meeting_id`, `target_series_id`; the "discussed" item event.
-2. **Meetings by hand first:** create a meeting or an undated stub, set people, projects and group, "Prep a meeting with…" from a person page. No calendar needed.
-3. **Candidates:** the placed and suggested rules in the spec ("Agendas pull candidates"), with the tests in its Verification section written first. This is where a context or privacy leak would happen.
-4. **Agenda editor:** sections and lines, free text or item reference, public text and private note, minutes and computed starts.
-5. **Series:** roster, default projects, skeleton, generated-block defaults; the series hub.
-6. **Generated blocks and the brief for Granola.** Outline import (`lib/agenda/outline.ts` lifts from Meeter).
-7. **Google Calendar feed** last: connections, calendar-to-context binding, stub-to-event attachment.
+1. **Schema:** `notes`, `processing_runs`, `proposals`, `documents`, `integration_events`.
+2. **Log a meeting:** pick people, paste notes, run processing. No Granola needed, and it is the fallback if Granola fails.
+3. **Verbatim lines by code:** `D:` `Q:` `A:` `T:` lines parsed before the model runs. `lib/items/capture.ts` has the prefix parser.
+4. **Extraction** as a background job (`lib/jobs/scheduler.ts` lifts from Meeter), with fingerprints and remembered rejections.
+5. **Review screen:** accept, edit, reject, approve all, undo. Low-confidence owners highlighted and excluded from approve-all.
+6. **Granola ingest:** webhook, folder bindings (the `bindings` table already takes a `kind`), reconcile job, drop-ins with no calendar match.
+7. **Recap export,** which obeys the same leak rule as follow-ups: only items placed on the agenda or originating in the meeting.
 
 ## Model rules to hold on to
 
-These are the points the design turned on; the spec has the full reasoning.
+The phase 1 rules still stand (one `items` table in four kinds; a decision is its own record; a question closes only with an answer; `parent_item_id` never moves; people are global and a context is a hard boundary for everything else). Phase 2 added:
 
-- **One `items` table, four kinds.** Only `context` and `text` are required. Topic, question and action convert in place, and only while open.
-- **A decision is its own record with its own wording,** created with status `decided`. An answered question stays a question; "Decision" on its page creates a linked decision pre-filled from the answer. Superseding creates a new decision whose parent is the old one and marks the old one.
-- **Action vs question is decided by what closes it:** a question closes only with an answer; a topic or action closes by being done.
-- **Reopening clears the resolution;** the old answer stays in the history.
-- **`item_parties`:** a person or a group, one role per party per item, `owner` or `with`. On an item John owns, `with` is the party it is owed to.
-- **Report back:** answering a question or recording a decision can spawn a child topic `with` another person or group. It carries the question's text and the answer as its detail.
-- **People are global; contexts are a hard boundary** for projects, groups and items. A person's page shows only the selected context. One person row is John (`is_self`), created from his account on first use.
-- **`parent_item_id` is set at creation and never moved,** so a thread cannot loop. The item page shows the whole thread from its root.
-- **The Inbox** is open items with no party and no project.
-- **Statuses:** open, done, dropped; decisions: decided, superseded. `needs_answer` is in the enum and counts as open; nothing sets it before phase 4.
+- **John is never a row in `meeting_people` or `series_people`.** "Exactly two attendees" is a meeting with one row.
+- **Placed without asking:** items aimed at the meeting; items aimed at its series, on the next occurrence only; in a 1:1, items `with` the other person.
+- **Suggested:** matched through one of the meeting's projects or its group. In a 1:1, also what the other person owes.
+- **Never offered:** person-only items in a larger meeting (they sit under "more"); anything matched only through John.
+- **The leak rule:** follow-ups and "since last time" draw only from items on the agenda or originating in the meeting. The recap must do the same.
+- **Taking an item's line off an agenda dismisses it** for that meeting, so automatic placement does not put it back. Placing it again clears the dismissal.
+- **Automatic placement runs when a meeting is prepped and each time its page is opened,** until the meeting is over.
+- **A stub is a meeting with no start.** Attaching it to a calendar event keeps the same row; `meetings.calendar_event_id` is unique, so an event cannot have two meetings.
+- **A session is a meeting with a parent,** one level deep.
+- **Blocks:** the meeting's own setting, else the series', else all off.
+- **Outline minutes** are read only from the end of a title.
 
 ## Things learned
 
-- **React resets a form after its action runs.** The auth forms return what was typed in the action state. Everything else submits by hand through `ActionForm` in `components/forms.tsx`, which leaves the fields alone when the action refuses.
-- **A server action is a public endpoint.** Each goes through `act()` in `lib/web/action.ts`, which authenticates before doing anything.
-- **`showModal()` focuses the close button.** `Modal` moves focus to the first field itself; React's `autoFocus` does not set the attribute the dialog looks for.
-- **The React lint rule forbids `setState` directly inside an effect.** Read external state with `useSyncExternalStore` (see `components/theme-provider.tsx`) and close menus from click handlers, not from a pathname effect.
-- **Expense Tracker has no card component or tokens to import;** its look was reproduced in `components/ui/`. Its `Button`, `Toast` and `ThemeToggle` were copied and keep its double-quote style; everything else follows Meeter's style (single quotes, no semicolons).
-- **Docker Desktop must be running** for `pnpm test`.
-- **`PUBLIC_BASE_URL`** defaults to `http://localhost:3000` in development. Set it in `.env.local` if the dev server runs on another port, or OAuth discovery advertises the wrong origin.
-- **Browser checks:** there is still no Playwright in this repo. Next refuses a second `next dev` in one directory, so phase 1 was checked with `pnpm build` and `pnpm start -p 3111` against a scratch database (`mm_verify` in the `mm-dev-db` container), driven by the Playwright in `../Meeter/node_modules`. Adding Playwright here with a small e2e suite is overdue.
-
-## Lifting from Meeter later
-
-The spec's "Stack and reuse" table says what lifts cleanly and what is a rewrite. Two corrections found during review: every integration client in `../Meeter/lib/connect` depends on an 888-line `connections.ts` that should be replaced with something small, and `copy-for-granola.tsx` lives under `app/(app)/meetings/[id]/agenda/`, not `lib/agenda`.
+- **Subagents on the default model produced thin work in this repo:** placeholder screens, tests that asserted nothing, dead branches in the candidate rules, a refresh token overwritten with null. The same briefs run on the strongest model came back complete and found those defects. Anything touching the leak rules, credentials or a whole screen should go to the strong model, and its report should be read against the code.
+- **Agents building in one directory clobber `.next`.** Copy `.next/standalone` and `.next/static` aside and run the server from the copy.
+- **The feed cache hangs off `globalThis`,** because Next loads a module once per server layer and a clear from an action would otherwise miss the copy a page reads.
+- **A disabled submit button swallows Enter.**
+- **`Response.redirect` wants an absolute URL** in a Route Handler.
+- The phase 1 notes still apply: React resets a form after its action; `showModal()` focuses the close button; no `setState` directly in an effect; Docker must be running for `pnpm test`; set `PUBLIC_BASE_URL` when the dev server is not on port 3000.
+- **Password managers:** `Input` and `Textarea` opt out of autofill unless a field sets `autoComplete` itself. A raw `<input>` needs the same attributes by hand (see `QuickAdd`).
+- **Browser checks:** still no Playwright in this repo; the walks used the one in `../Meeter/node_modules`. Adding it here with a small e2e suite is overdue.
 
 ## Local setup
 
@@ -77,4 +83,4 @@ pnpm db:migrate          # DATABASE_URL from .env.local
 pnpm dev
 ```
 
-`.env.local` is not committed; `.env.example` lists what it needs.
+`.env.local` is not committed; `.env.example` lists what it needs. The scratch databases `mm_verify_meetings` and `mm_verify_series` in `mm-dev-db` are left over from the browser walks and can be dropped.

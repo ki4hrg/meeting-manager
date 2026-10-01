@@ -1,9 +1,16 @@
+import { ActionSelect } from '@/components/ActionSelect'
+import { CopyButton } from '@/components/CopyButton'
+import { EventCard } from '@/components/meetings/EventCard'
+import { FormModal, IconAction } from '@/components/forms'
 import { Button } from '@/components/ui/Button'
 import { Card, CardGrid, CardHeader, LinkCard, Section, Tile } from '@/components/ui/Card'
+import { CheckList } from '@/components/ui/CheckList'
+import { Chip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { RemovableChip } from '@/components/ui/RemovableChip'
 import { Spinner } from '@/components/ui/Spinner'
 import {
   Badge,
@@ -17,6 +24,9 @@ import {
   type ItemStatus,
   type ProjectStatus,
 } from '@/components/ui/StatusBadge'
+import type { MeetingView } from '@/lib/meetings/meetings'
+import type { UpcomingEntry } from '@/lib/meetings/prep'
+import { sampleAction } from './actions'
 import { Interactive } from './interactive'
 
 const KINDS = Object.keys(KIND) as ItemKind[]
@@ -36,6 +46,27 @@ const SAMPLE: Array<{ kind: ItemKind; text: string; status: ItemStatus; who: str
 
 /* The shared pieces in one place, for checking the look in light, dark and at
    phone width. Sample content only. */
+/* A recurring calendar event nobody has prepped, with a stub waiting for it.
+   The buttons are live actions and refuse: the event is not on any calendar. */
+const EVENT: UpcomingEntry = {
+  startsAt: new Date('2026-10-08T14:00:00Z'),
+  event: {
+    calendarId: 'sample',
+    eventId: 'sample',
+    seriesId: 'sample',
+    title: 'Coffee with the bishop',
+    startsAt: new Date('2026-10-08T14:00:00Z'),
+    endsAt: new Date('2026-10-08T15:00:00Z'),
+    allDay: false,
+    attendees: [{ personId: 'sample', email: 'bishop@example.test', name: 'Bishop Wright', declined: false }],
+    location: null,
+    htmlLink: null,
+  },
+  meeting: null,
+  series: null,
+  stubs: [{ id: 'sample', title: 'Bishop Wright' } as MeetingView],
+}
+
 export default function DesignPage() {
   return (
     <>
@@ -141,7 +172,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>
@@ -162,8 +193,34 @@ export default function DesignPage() {
             <Button size="sm">Add</Button>
             <Button disabled>Save</Button>
             <Spinner />
+            <CopyButton label="Copy brief" text="# Staff meeting" html="<h1>Staff meeting</h1>" />
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <IconAction action={sampleAction} fields={{}} icon="chevronUp" label="Move up" />
+            <IconAction action={sampleAction} fields={{}} icon="chevronDown" label="Move down" />
+            <FormModal action={sampleAction} title="Edit line" icon="pencil" compact>
+              <Field label="Text">
+                <Input name="text" defaultValue="Budget review" />
+              </Field>
+            </FormModal>
+            <IconAction action={sampleAction} fields={{}} icon="close" label="Remove" />
+            <IconAction action={sampleAction} fields={{}} icon="check" label="Discussed" tone="on" aria-pressed />
+            <IconAction action={sampleAction} fields={{}} icon="plus" label="Place all" tone="blue" />
+            <Chip href="/design" icon="person">
+              Sarah Jones
+            </Chip>
+            <Chip href="/design" icon="refresh">
+              Staff meeting
+            </Chip>
           </div>
         </Card>
+      </Section>
+
+      <Section title="Calendar events">
+        <CardGrid>
+          <EventCard entry={EVENT} time="9:00 AM" />
+          <EventCard entry={{ ...EVENT, stubs: [], series: { id: 's', name: 'Staff weekly' } }} time="2:30 PM" />
+        </CardGrid>
       </Section>
 
       <Section title="Form">
@@ -184,6 +241,60 @@ export default function DesignPage() {
             <Field label="Detail">
               <Textarea name="detail" rows={3} />
             </Field>
+          </div>
+        </Card>
+      </Section>
+
+      <Section title="Picking and removing">
+        <Card padding="md" className="max-w-xl">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <RemovableChip
+                icon="person"
+                href="/design"
+                remove={{ action: sampleAction, fields: {}, label: 'Remove Sarah Jones' }}
+              >
+                Sarah Jones
+              </RemovableChip>
+              <RemovableChip
+                icon="project"
+                href="/design"
+                remove={{ action: sampleAction, fields: {}, label: 'Remove Retreat' }}
+              >
+                Retreat
+              </RemovableChip>
+              <FormModal
+                action={sampleAction}
+                title="Delete Staff meeting?"
+                icon="trash"
+                variant="ghost"
+                size="sm"
+                submit="Delete"
+                danger
+              />
+            </div>
+            <CheckList
+              label="People"
+              name="personIds"
+              selected={['2']}
+              options={[
+                { id: '1', name: 'Sarah Jones' },
+                { id: '2', name: 'Tom Baker' },
+                { id: '3', name: 'Bishop Wright' },
+              ]}
+            />
+            <ActionSelect
+              action={sampleAction}
+              fields={{}}
+              name="contextId"
+              value=""
+              label="Context"
+              className="!w-44"
+            >
+              <option value="">—</option>
+              <option value="1">Parish</option>
+              <option value="2">Diocese</option>
+            </ActionSelect>
           </div>
         </Card>
       </Section>

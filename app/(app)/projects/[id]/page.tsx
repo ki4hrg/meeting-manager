@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { ActionButton, FormModal } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
+import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -13,6 +14,7 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { isOpen, listItems, type ItemView } from '@/lib/items/items'
+import { listMeetings } from '@/lib/meetings/meetings'
 import {
   PROJECT_STATUSES,
   getProject,
@@ -61,7 +63,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const { id } = await params
   if (!isUuid(id)) notFound()
 
-  const { today } = await viewer()
+  const { user, today } = await viewer()
   const project = await getProject(db, id).catch((err) => {
     if (err instanceof NotFoundError) notFound()
     throw err
@@ -70,6 +72,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const milestones = await listMilestones(db, id)
   const links = await listLinks(db, id)
   const all = await listItems(db, { contextId: project.contextId, projectId: id })
+  const meetings = await listMeetings(db, { contextId: project.contextId, projectId: id })
 
   const open = all.filter(isOpen)
   const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
@@ -272,6 +275,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         action={<QuickAdd presets={{ kind: 'decision', projectId: id }} />}
       >
         <ItemGrid items={decisions} today={today} empty="decision" showProject={false} />
+      </Section>
+
+      <Section title="Meetings">
+        <MeetingGrid meetings={meetings} timeZone={user.timeZone} recent={9} />
       </Section>
 
       {closed.length > 0 ? (

@@ -1,11 +1,14 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { ActionSelect } from '@/components/ActionSelect'
 import { ActionButton, ActionForm, FormModal } from '@/components/forms'
 import { ItemCard } from '@/components/items/ItemCard'
 import { PartyOptions } from '@/components/items/PartyOptions'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Button } from '@/components/ui/Button'
 import { Card, Section } from '@/components/ui/Card'
+import { Chip } from '@/components/ui/Chip'
+import { RemovableChip } from '@/components/ui/RemovableChip'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon, type IconName } from '@/components/ui/icons'
 import {
@@ -24,6 +27,8 @@ import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { getThread, isOpen, type ItemEvent, type ItemParty } from '@/lib/items/items'
 import { listProjects } from '@/lib/projects/projects'
+import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
+import { listSeries } from '@/lib/meetings/series'
 import { viewer } from '@/lib/web/context'
 import {
   addNoteAction,
@@ -35,6 +40,7 @@ import {
   removePartyAction,
   supersedeDecisionAction,
   updateItemAction,
+  setItemTargetAction,
 } from '../../actions'
 
 const CONVERTIBLE: ItemKind[] = ['topic', 'question', 'action']
@@ -51,6 +57,8 @@ const EVENT: Record<ItemEvent['type'], { icon: IconName; label: string }> = {
   reopened: { icon: 'refresh', label: 'Reopened' },
   spawned: { icon: 'arrowRight', label: 'Follow-up' },
   superseded: { icon: 'refresh', label: 'Superseded' },
+  targeted: { icon: 'meeting', label: 'Agenda' },
+  discussed: { icon: 'meeting', label: 'Discussed' },
 }
 
 function eventDetail(event: ItemEvent): React.ReactNode {
@@ -133,6 +141,41 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
 
   const open = isOpen(item)
   const decision = item.kind === 'decision'
+
+  /* "Raise at": an open item can be aimed at one meeting, or at a series,
+     whose next occurrence then takes it. What is on offer is what is still to
+     come; a target already in the past stays listed so the select can show it. */
+  const raisable = open && !decision
+  const series = raisable || item.targetSeriesId ? await listSeries(db, item.contextId) : []
+  const meetings = raisable
+    ? [
+        ...(await listMeetings(db, { contextId: item.contextId, when: 'upcoming' })),
+        ...(await listMeetings(db, { contextId: item.contextId, when: 'stubs' })),
+      ]
+    : []
+  const lookUp = (meetingId: string | null) =>
+    meetingId
+      ? getMeeting(db, meetingId).catch((err) => {
+          if (err instanceof NotFoundError) return null
+          throw err
+        })
+      : null
+  const targetMeeting = await lookUp(item.targetMeetingId)
+  if (targetMeeting && raisable && !meetings.some((meeting) => meeting.id === targetMeeting.id)) {
+    meetings.unshift(targetMeeting)
+  }
+  const targetSeries = series.find((one) => one.id === item.targetSeriesId)
+  const target = targetMeeting
+    ? { name: targetMeeting.title, href: `/meetings/${targetMeeting.id}` }
+    : targetSeries
+      ? { name: targetSeries.name, href: `/series/${targetSeries.id}` }
+      : null
+  const targetValue = targetMeeting
+    ? `meeting:${targetMeeting.id}`
+    : targetSeries
+      ? `series:${targetSeries.id}`
+      : ''
+  const origin = await lookUp(item.originMeetingId)
   const events = thread.events.filter((event) => event.itemId === id)
 
   const reportTo = (
@@ -205,6 +248,71 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 </Field>
               </FormModal>
             </div>
+
+            {raisable || target || origin ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {origin ? (
+                  <Chip icon="undo" href={`/meetings/${origin.id}`}>
+                    {origin.title}
+                  </Chip>
+                ) : null}
+                {target && raisable ? (
+                  <RemovableChip
+                    icon="meeting"
+                    iconLabel="Raise at"
+                    href={target.href}
+                    remove={{
+                      action: setItemTargetAction,
+                      fields: { id: item.id, target: '' },
+                      label: `Stop raising at ${target.name}`,
+                    }}
+                  >
+                    {target.name}
+                  </RemovableChip>
+                ) : target ? (
+                  <Chip icon="meeting" href={target.href}>
+                    {target.name}
+                  </Chip>
+                ) : null}
+                {raisable ? (
+                  <span className="flex items-center gap-1.5">
+                    {/* Decorative: the select carries the name. */}
+                    {target ? null : <Icon name="meeting" className="h-4 w-4 text-gray-400" />}
+                    <ActionSelect
+                      key={targetValue}
+                      action={setItemTargetAction}
+                      fields={{ id: item.id }}
+                      name="target"
+                      value={targetValue}
+                      label="Raise at"
+                      className="!w-auto max-w-[14rem] !py-1 !text-sm"
+                    >
+                      <option value="">—</option>
+                      {meetings.length > 0 ? (
+                        <optgroup label="Meetings">
+                          {meetings.map((meeting) => (
+                            <option key={meeting.id} value={`meeting:${meeting.id}`}>
+                              {meeting.startsAt
+                                ? `${meeting.title} · ${formatMoment(meeting.startsAt, user.timeZone)}`
+                                : meeting.title}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                      {series.length > 0 ? (
+                        <optgroup label="Series">
+                          {series.map((one) => (
+                            <option key={one.id} value={`series:${one.id}`}>
+                              {one.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                    </ActionSelect>
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 dark:border-gray-700">
               {open && item.kind === 'question' ? (

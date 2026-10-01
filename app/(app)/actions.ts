@@ -3,7 +3,8 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { requireUser } from '@/lib/auth/guards'
-import { ValidationError } from '@/lib/core/types'
+import { placeItem } from '@/lib/agenda/candidates'
+import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
 import { addMember, createGroup, removeMember, renameGroup } from '@/lib/directory/groups'
@@ -18,12 +19,15 @@ import {
   convertItem,
   dropItem,
   getItem,
+  isOpen,
   recordDecision,
   removeItemParty,
   reopenItem,
+  setItemTarget,
   supersedeDecision,
   updateItem,
   type ItemKind,
+  type ItemTarget,
 } from '@/lib/items/items'
 import {
   PROJECT_STATUSES,
@@ -36,6 +40,7 @@ import {
   updateProject,
   type ProjectStatus,
 } from '@/lib/projects/projects'
+import { getMeeting } from '@/lib/meetings/meetings'
 import { act, field, partyRef, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
@@ -83,10 +88,18 @@ export async function captureAction(formData: FormData): Promise<ActionResult> {
        selected in the bar. */
     const contextId = presets.parentItemId
       ? (await getItem(db, presets.parentItemId)).contextId
-      : (await currentContext())?.id
+      : presets.targetMeetingId
+        ? (await getMeeting(db, presets.targetMeetingId)).contextId
+        : (await currentContext())?.id
     if (!contextId) throw new ValidationError('Create a context first.')
 
-    await captureLine(db, actor, { contextId, line: field(formData, 'line'), presets })
+    await inTransaction(db, async (tx) => {
+      const item = await captureLine(tx, actor, { contextId, line: field(formData, 'line'), presets })
+      // Added from a meeting's page: on its agenda at once, whenever the meeting is.
+      if (presets.targetMeetingId && isOpen(item)) {
+        await placeItem(tx, actor, presets.targetMeetingId, item.id)
+      }
+    })
   })
 }
 
@@ -172,6 +185,19 @@ export async function removePartyAction(formData: FormData): Promise<ActionResul
 export async function addNoteAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     await addNote(db, actor, field(formData, 'id'), field(formData, 'text'))
+  })
+}
+
+/* "Raise at": `meeting:<id>`, `series:<id>`, or nothing to stop aiming it anywhere. */
+export async function setItemTargetAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const [type, id] = field(formData, 'target').split(':')
+    let target: ItemTarget
+    if (!type) target = null
+    else if (type === 'meeting' && id) target = { meetingId: id }
+    else if (type === 'series' && id) target = { seriesId: id }
+    else throw new ValidationError('Pick a meeting or a series.')
+    await setItemTarget(db, actor, field(formData, 'id'), target)
   })
 }
 

@@ -12,10 +12,12 @@ import { logoutAction } from '../(auth)/actions'
 export const dynamic = 'force-dynamic'
 
 const SECTIONS: NavSection[] = [
+  { href: '/meetings', label: 'Meetings' },
   { href: '/inbox', label: 'Inbox' },
   { href: '/projects', label: 'Projects' },
   { href: '/people', label: 'People' },
   { href: '/groups', label: 'Groups' },
+  { href: '/series', label: 'Series' },
 ]
 
 /* Everything under app/(app)/ is authenticated by sitting under this layout. */

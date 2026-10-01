@@ -121,6 +121,17 @@ export function AppShell({
                     <p className="truncate border-b border-gray-100 px-4 py-2 text-sm text-gray-900 dark:border-gray-700 dark:text-gray-100">
                       {email}
                     </p>
+                    {/* Here as well as in the context switcher: the switcher
+                        is not shown until there is a context. */}
+                    <Link
+                      href="/settings"
+                      role="menuitem"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                    >
+                      <Icon name="cog" className="mr-3 h-4 w-4 shrink-0" />
+                      Settings
+                    </Link>
                     <form action={signOut}>
                       <button
                         type="submit"

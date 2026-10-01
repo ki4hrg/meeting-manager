@@ -6,7 +6,7 @@
 
 import { z } from 'zod'
 import { ValidationError } from '@/lib/core/types'
-import { inferContext, resolveParty, resolveProject } from '../../directory/resolve'
+import { inferContext, resolveParty, resolveProject, resolveSeries } from '../../directory/resolve'
 import {
   addNote,
   answerItem,
@@ -20,10 +20,13 @@ import {
   recordDecision,
   reopenItem,
   setItemParties,
+  setItemTarget,
   supersedeDecision,
   updateItem,
+  type ItemTarget,
   type PartyRef,
 } from '../../items/items'
+import { getMeeting } from '../../meetings/meetings'
 import { idempotencyKey, itemOut, partiesFrom, write } from './shared'
 import { defineTool } from './types'
 
@@ -34,6 +37,23 @@ const KIND_RULE =
   'owed; closes when it comes back), action (a named party owes a deliverable; closes when it ' +
   'is done), decision (something settled; a record, never open). What closes it decides between ' +
   'question and action.'
+
+/* Where an item is to be raised. Undefined when neither field names anything. */
+async function targetFrom(
+  tx: Parameters<typeof resolveParty>[0],
+  contextId: string,
+  input: { target_meeting?: string | null; target_series?: string | null },
+): Promise<ItemTarget | undefined> {
+  if (input.target_meeting && input.target_series) {
+    throw new ValidationError('An item is aimed at one meeting or one series, not both.')
+  }
+  // The item layer refuses a meeting that is in another context.
+  if (input.target_meeting) return { meetingId: input.target_meeting }
+  if (input.target_series) {
+    return { seriesId: (await resolveSeries(tx, contextId, input.target_series)).id }
+  }
+  return undefined
+}
 
 async function refOf(
   tx: Parameters<typeof resolveParty>[0],
@@ -51,8 +71,9 @@ export const captureItemTool = defineTool({
     'Capture a topic, question, action or decision. Only text is required; with nothing else ' +
     `it lands in the Inbox as a topic. ${KIND_RULE} ` +
     'owners owe the action or answer; with is who to raise it with (on an item I own, who it ' +
-    'is owed to). "me" names the account holder. The context is inferred from the project or ' +
-    'a group when there is more than one.',
+    'is owed to). "me" names the account holder. target_meeting or target_series aims it at ' +
+    'one meeting, or at the next occurrence of a series, where prep places it on the agenda. ' +
+    'The context is inferred from the project, the target or a group when there is more than one.',
   scope: 'meetings:write',
   input: z.object({
     text: z.string().min(1).describe('One line, in the wording to keep.'),
@@ -64,22 +85,36 @@ export const captureItemTool = defineTool({
     with: z.array(z.string()).optional().describe('People or groups, by name or id.'),
     due_on: z.string().optional().describe('A deadline, YYYY-MM-DD.'),
     parent_item_id: z.uuid().optional().describe('The item this one came out of.'),
+    target_meeting: z.uuid().optional().describe('Meeting id to raise this at.'),
+    target_series: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Series name or id: raised at its next occurrence.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
     write(context, 'capture_item', input, async (tx) => {
       const parent = input.parent_item_id ? await getItem(tx, input.parent_item_id) : null
+      const aimedAt =
+        !parent && !input.context && input.target_meeting
+          ? await getMeeting(tx, input.target_meeting)
+          : null
       const contextId =
         parent?.contextId ??
+        aimedAt?.contextId ??
         (
           await inferContext(tx, {
             context: input.context,
             project: input.project,
+            series: input.target_series,
             parties: [...(input.owners ?? []), ...(input.with ?? [])],
           })
         ).id
 
       const project = input.project ? await resolveProject(tx, contextId, input.project) : null
+      const target = await targetFrom(tx, contextId, input)
+
       const item = await createItem(tx, context.actor, {
         contextId,
         kind: input.kind,
@@ -89,6 +124,7 @@ export const captureItemTool = defineTool({
         dueOn: input.due_on,
         parties: await partiesFrom(tx, contextId, input),
         parentItemId: parent?.id ?? null,
+        target,
       })
       return { item: itemOut(item) }
     }),
@@ -170,7 +206,8 @@ export const updateItemTool = defineTool({
     'it. status done finishes a topic or action; a question closes by giving answer instead. ' +
     'status dropped abandons it and open reopens it. report_to raises the answer with another ' +
     'person or group as a new topic. owners and with each replace the whole list for that role ' +
-    'when given. Pass null to clear project, due_on or detail.',
+    'when given. target_meeting or target_series aims it at a meeting or at the next occurrence ' +
+    'of a series. Pass null to clear project, due_on, detail or the target.',
   scope: 'meetings:write',
   input: z.object({
     id: z.uuid(),
@@ -185,6 +222,13 @@ export const updateItemTool = defineTool({
     answer: z.string().optional().describe('Closes a question with this answer.'),
     resolution: z.string().optional().describe('How a topic or action ended, with status done.'),
     report_to: z.string().optional().describe('Person or group to report the answer to.'),
+    target_meeting: z.uuid().nullable().optional().describe('Meeting id to raise this at.'),
+    target_series: z
+      .string()
+      .min(1)
+      .nullable()
+      .optional()
+      .describe('Series name or id: raised at its next occurrence.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -218,6 +262,12 @@ export const updateItemTool = defineTool({
             with: input.with ?? keep('with'),
           }),
         )
+      }
+
+      // An item has one target, so null on either field clears it.
+      if (input.target_meeting !== undefined || input.target_series !== undefined) {
+        const target = await targetFrom(tx, contextId, input)
+        await setItemTarget(tx, actor, input.id, target ?? null)
       }
 
       if (input.note) await addNote(tx, actor, input.id, input.note)

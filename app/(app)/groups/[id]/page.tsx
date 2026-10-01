@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ActionButton, FormModal } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
+import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -14,8 +15,10 @@ import { db } from '@/lib/db'
 import { getGroup, listMembers } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listItems, type ItemView } from '@/lib/items/items'
+import { listMeetings } from '@/lib/meetings/meetings'
 import { viewer } from '@/lib/web/context'
 import { addMemberAction, removeMemberAction, renameGroupAction } from '../../actions'
+import { prepWithGroupAction } from '../../meetings/actions'
 
 const has = (item: ItemView, groupId: string, role: 'owner' | 'with') =>
   item.parties.some((party) => party.id === groupId && party.role === role)
@@ -24,7 +27,7 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
   const { id } = await params
   if (!isUuid(id)) notFound()
 
-  const { today } = await viewer()
+  const { user, today } = await viewer()
   const group = await getGroup(db, id).catch((err) => {
     if (err instanceof NotFoundError) notFound()
     throw err
@@ -39,18 +42,28 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
   const owes = open.filter((item) => has(item, id, 'owner'))
   const waiting = open.filter((item) => has(item, id, 'with'))
   const decisions = all.filter((item) => item.kind === 'decision')
+  const meetings = await listMeetings(db, {
+    contextId: group.contextId,
+    groupId: id,
+    topLevelOnly: true,
+  })
 
   return (
     <>
       <PageHeader
         title={group.name}
         actions={
-          <FormModal action={renameGroupAction} title="Rename" label="Rename" variant="secondary">
-            <input type="hidden" name="id" value={group.id} />
-            <Field label="Name" required>
-              <Input name="name" defaultValue={group.name} required />
-            </Field>
-          </FormModal>
+          <div className="flex items-center gap-2">
+            <ActionButton action={prepWithGroupAction} fields={{ groupId: group.id }}>
+              Prep
+            </ActionButton>
+            <FormModal action={renameGroupAction} title="Rename" label="Rename" variant="secondary">
+              <input type="hidden" name="id" value={group.id} />
+              <Field label="Name" required>
+                <Input name="name" defaultValue={group.name} required />
+              </Field>
+            </FormModal>
+          </div>
         }
       />
 
@@ -80,6 +93,10 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
         }
       >
         <ItemGrid items={decisions} today={today} empty="decision" />
+      </Section>
+
+      <Section title="Meetings">
+        <MeetingGrid meetings={meetings} timeZone={user.timeZone} />
       </Section>
 
       <Section
