@@ -58,7 +58,7 @@ const NO_AUTOFILL = {
 } as const
 
 /** Password managers stay out unless the field says what it holds with `autoComplete`. */
-export function Input({ className = '', ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className = '', ...props }: React.ComponentProps<'input'>) {
   const quiet = props.autoComplete === undefined ? NO_AUTOFILL : {}
   return <input className={`${CONTROL} ${className}`} {...quiet} {...props} />
 }

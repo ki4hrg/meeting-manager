@@ -300,6 +300,69 @@ describe('a series target', () => {
   })
 })
 
+describe('a multi-day meeting', () => {
+  async function retreatWithSessions() {
+    const w = await makeWorld()
+    const retreat = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Retreat',
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+    })
+    const session = (title: string, iso: string | null) =>
+      createMeeting(db, actor, {
+        contextId: w.parish.id,
+        title,
+        parentMeetingId: retreat.id,
+        startsAt: iso ? new Date(iso) : null,
+        personIds: [w.sarah.id],
+        projectIds: [w.retreat.id],
+      })
+    const done = await session('Day zero', '2026-10-04T15:00:00Z')
+    const first = await session('Day one', '2026-10-06T15:00:00Z')
+    const second = await session('Day two', '2026-10-07T15:00:00Z')
+    return { w, retreat, done, first, second }
+  }
+
+  it('what is aimed at the whole meeting goes to its next session, and the meeting places nothing itself', async () => {
+    const { w, retreat, done, first, second } = await retreatWithSessions()
+    const aimed = await createItem(db, actor, { contextId: w.parish.id, text: 'for the retreat', target: { meetingId: retreat.id } })
+    // A 1:1-shaped roster would place this on a meeting of its own.
+    const withSarah = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'ask sarah',
+      parties: [{ personId: w.sarah.id, role: 'with' }],
+    })
+
+    expect(ids((await getCandidates(db, retreat.id, NOW)).toPlace)).toEqual([])
+    expect(await placeAutomatic(db, actor, retreat.id, NOW)).toBe(0)
+    expect(ids((await getCandidates(db, done.id, NOW)).toPlace)).toEqual([withSarah.id])
+    expect(ids((await getCandidates(db, first.id, NOW)).toPlace)).toEqual([aimed.id, withSarah.id].sort())
+    expect(ids((await getCandidates(db, second.id, NOW)).toPlace)).toEqual([withSarah.id])
+  })
+
+  it('follow-ups of the whole meeting are drawn from its sessions’ agendas, and nothing else', async () => {
+    const { w, retreat, first } = await retreatWithSessions()
+    const owed = (text: string) =>
+      createItem(db, actor, {
+        contextId: w.parish.id,
+        kind: 'action',
+        text,
+        projectId: w.retreat.id,
+        parties: [{ personId: w.tom.id, role: 'owner' }],
+      })
+    const placed = await owed('book the hall')
+    await owed('never raised')
+    await placeItem(db, actor, first.id, placed.id)
+
+    expect(await blockItemIds(retreat.id)).toEqual(expect.arrayContaining([placed.id]))
+    const blocks = await computeBlocks(db, retreat.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(blocks.followUps?.flatMap((entry) => entry.items.map((item) => item.itemId))).toEqual([placed.id])
+    // Its own sessions are not "next" in its lookahead.
+    expect(blocks.lookahead?.meetings ?? []).toEqual([])
+  })
+})
+
 describe('follow-ups', () => {
   it('lists only what is on the agenda, however much else the attendee owes', async () => {
     const w = await makeWorld()

@@ -73,20 +73,34 @@ export async function computeBlocks(
 }
 
 /* The only items a meeting may speak about: those on its agenda and those that
-   came out of it. Bound to the meeting's context as well, so a stray reference
-   could not carry anything across. The recap reads through here too. */
+   came out of it. A meeting with sessions is their rollup, so theirs count as
+   its own; a session speaks only for itself. Bound to the meeting's context as
+   well, so a stray reference could not carry anything across. The recap reads
+   through here too. */
 export async function itemsOf(exec: Executor, meeting: Meeting): Promise<ItemView[]> {
+  const sessions = await exec
+    .select({ id: meetings.id })
+    .from(meetings)
+    .where(and(eq(meetings.parentMeetingId, meeting.id), eq(meetings.contextId, meeting.contextId)))
+  const covered = [meeting.id, ...sessions.map((row) => row.id)]
+
   const placed = await exec
     .select({ itemId: agendaLines.itemId })
     .from(agendaLines)
-    .where(and(eq(agendaLines.meetingId, meeting.id), isNotNull(agendaLines.itemId)))
+    .where(and(inArray(agendaLines.meetingId, covered), isNotNull(agendaLines.itemId)))
 
-  const [onAgenda, cameOut] = await Promise.all([
-    listItems(exec, { contextId: meeting.contextId, ids: placed.map((row) => row.itemId!) }),
-    listItems(exec, { contextId: meeting.contextId, originMeetingId: meeting.id }),
+  const [onAgenda, ...cameOut] = await Promise.all([
+    listItems(exec, { contextId: meeting.contextId, ids: [...new Set(placed.map((row) => row.itemId!))] }),
+    ...covered.map((id) => listItems(exec, { contextId: meeting.contextId, originMeetingId: id })),
   ])
   const seen = new Set(onAgenda.map((item) => item.id))
-  return [...onAgenda, ...cameOut.filter((item) => !seen.has(item.id))]
+  const rest: ItemView[] = []
+  for (const item of cameOut.flat()) {
+    if (seen.has(item.id)) continue
+    seen.add(item.id)
+    rest.push(item)
+  }
+  return [...onAgenda, ...rest]
 }
 
 async function followUpsFor(
@@ -245,6 +259,8 @@ async function lookaheadFor(
           and(
             eq(meetings.contextId, meeting.contextId),
             ne(meetings.id, meeting.id),
+            // A multi-day meeting's own sessions are not what comes next.
+            or(isNull(meetings.parentMeetingId), ne(meetings.parentMeetingId, meeting.id)),
             gt(meetings.startsAt, meeting.startsAt ?? now),
             linked,
           ),

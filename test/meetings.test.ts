@@ -735,8 +735,39 @@ describe('meetings', () => {
       startsAt: new Date('2026-10-07T14:00:00Z'),
     })
 
-    const [listed] = await listMeetings(db, { contextId: parish.id, when: 'stubs', topLevelOnly: true })
+    const [listed] = await listMeetings(db, { contextId: parish.id, topLevelOnly: true })
     expect(listed!.sessions.map((session) => session.title)).toEqual(['Day one'])
     expect(listed!.sessions).toEqual((await getMeeting(db, retreat.id)).sessions)
+  })
+
+  it('a meeting with sessions keeps its own start and end, whatever its sessions do', async () => {
+    const { parish } = await makeWorld()
+    const retreat = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Planning retreat',
+      startsAt: new Date('2026-10-07T13:00:00Z'),
+      endsAt: new Date('2026-10-09T22:00:00Z'),
+    })
+    const day = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Day one',
+      parentMeetingId: retreat.id,
+      startsAt: new Date('2026-10-07T14:00:00Z'),
+      endsAt: new Date('2026-10-07T22:00:00Z'),
+    })
+    await updateMeeting(db, actor, day.id, { endsAt: new Date('2026-10-07T23:00:00Z') })
+    await updateMeeting(db, actor, retreat.id, { endsAt: new Date('2026-10-10T18:00:00Z') })
+
+    const after = await getMeeting(db, retreat.id)
+    expect(after.startsAt).toEqual(new Date('2026-10-07T13:00:00Z'))
+    expect(after.endsAt).toEqual(new Date('2026-10-10T18:00:00Z'))
+    // Listed as the whole event.
+    const upcoming = await listMeetings(db, {
+      contextId: parish.id,
+      when: 'upcoming',
+      topLevelOnly: true,
+      now: new Date('2026-10-01T00:00:00Z'),
+    })
+    expect(upcoming.map((m) => m.title)).toEqual(['Planning retreat'])
   })
 })

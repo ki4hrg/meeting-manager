@@ -18,7 +18,7 @@
  */
 
 import { and, asc, eq, inArray } from 'drizzle-orm'
-import { formatDay, formatTime, formatWeekday, todayIn } from '../core/dates'
+import { formatDay, formatSpan, formatWeekday, todayIn } from '../core/dates'
 import { NotFoundError, type Executor } from '../core/types'
 import {
   meetingPeople,
@@ -203,7 +203,7 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
     .where(inArray(notes.meetingId, coveredIds))
     .orderBy(asc(notes.createdAt), asc(notes.id))
   // The meeting's own notes, then each session's in turn.
-  noteRows.sort((a, b) => coveredIds.indexOf(a.meetingId) - coveredIds.indexOf(b.meetingId))
+  noteRows.sort((a, b) => coveredIds.indexOf(a.meetingId!) - coveredIds.indexOf(b.meetingId!))
 
   const runs =
     noteRows.length === 0
@@ -376,12 +376,7 @@ function recapParts(recap: Recap): Part[] {
   const parts: Part[] = [{ type: 'h1', text: meeting.title }]
 
   const facts: string[] = []
-  if (meeting.startsAt) {
-    facts.push(formatWeekday(day(recap)!, today))
-    const from = formatTime(meeting.startsAt, timeZone)
-    const to = meeting.endsAt ? formatTime(meeting.endsAt, timeZone) : from
-    facts.push(to === from ? from : `${from} – ${to}`)
-  }
+  if (meeting.startsAt) facts.push(formatSpan(meeting.startsAt, meeting.endsAt, timeZone, today))
   if (meeting.people.length > 0) facts.push(meeting.people.map((person) => person.name).join(', '))
   if (facts.length > 0) parts.push({ type: 'p', text: facts.join(' · ') })
 

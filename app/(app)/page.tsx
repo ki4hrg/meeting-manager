@@ -2,6 +2,7 @@ import { ItemGrid } from '@/components/items/ItemCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
 import { CardGrid, Section, Tile } from '@/components/ui/Card'
+import { countUnfiledNotes } from '@/lib/connect/granola/unfiled'
 import { formatMoment } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
@@ -15,6 +16,7 @@ export default async function HomePage() {
   const { user, self, today } = await viewer()
 
   const counts = await openCounts(db, context.id)
+  const unfiled = await countUnfiledNotes(db)
   const projects = await listProjects(db, context.id)
   const groups = await listGroups(db, context.id)
   const next = (await listUpcoming(db, context.id)).entries.slice(0, 3)
@@ -38,7 +40,7 @@ export default async function HomePage() {
       <div className="mb-8">
         <CardGrid>
           <Tile href="/meetings" icon="meeting" title="Meetings" tone="teal" />
-          <Tile href="/inbox" icon="inbox" title="Inbox" tone="blue" count={counts.inbox} />
+          <Tile href="/inbox" icon="inbox" title="Inbox" tone="blue" count={counts.inbox + unfiled} />
           <Tile
             href="/projects"
             icon="project"

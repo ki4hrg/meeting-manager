@@ -1,4 +1,9 @@
-/* Meetings: created lazily, stubs or dated, solo or multi-day sessions. */
+/*
+ * Meetings: created lazily, stubs or dated, solo or multi-day sessions.
+ *
+ * A meeting with sessions keeps its own start and end, so it shows as the
+ * whole event wherever meetings are listed; its agenda is its sessions'.
+ */
 
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import {
@@ -38,7 +43,7 @@ export type MeetingView = {
   blocks: BlockSettings
   people: { id: string; name: string }[]
   projects: { id: string; name: string }[]
-  sessions: { id: string; title: string; startsAt: Date | null }[]
+  sessions: { id: string; title: string; startsAt: Date | null; endsAt: Date | null }[]
 }
 
 // ─── reading ─────────────────────────────────────────────────────────────────
@@ -98,6 +103,7 @@ async function loadViews(
       id: meetings.id,
       title: meetings.title,
       startsAt: meetings.startsAt,
+      endsAt: meetings.endsAt,
       parentMeetingId: meetings.parentMeetingId,
     })
     .from(meetings)
@@ -120,10 +126,10 @@ async function loadViews(
     byMeetingProjects.set(row.meetingId, list)
   }
 
-  const byParent = new Map<string, { id: string; title: string; startsAt: Date | null }[]>()
+  const byParent = new Map<string, MeetingView['sessions']>()
   for (const row of sessionRows) {
     const list = byParent.get(row.parentMeetingId!) ?? []
-    list.push({ id: row.id, title: row.title, startsAt: row.startsAt })
+    list.push({ id: row.id, title: row.title, startsAt: row.startsAt, endsAt: row.endsAt })
     byParent.set(row.parentMeetingId!, list)
   }
 
@@ -508,12 +514,13 @@ export async function updateMeeting(
   if (input.groupId !== undefined) patch.groupId = input.groupId
   if (input.blocks !== undefined) patch.blocks = input.blocks
 
-  await exec
-    .update(meetings)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(meetings.id, id))
-
-  return getMeeting(exec, id)
+  return inTransaction(exec, async (tx) => {
+    await tx
+      .update(meetings)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(meetings.id, id))
+    return getMeeting(tx, id)
+  })
 }
 
 export async function setMeetingPeople(
@@ -604,12 +611,13 @@ export async function attachToEvent(
   if (input.endsAt !== undefined) patch.endsAt = input.endsAt
   if (input.seriesId !== undefined) patch.seriesId = input.seriesId
 
-  await exec
-    .update(meetings)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(meetings.id, id))
-
-  return getMeeting(exec, id)
+  return inTransaction(exec, async (tx) => {
+    await tx
+      .update(meetings)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(meetings.id, id))
+    return getMeeting(tx, id)
+  })
 }
 
 export async function detachFromEvent(

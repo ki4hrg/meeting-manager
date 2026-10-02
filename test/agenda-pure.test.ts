@@ -215,6 +215,8 @@ describe('brief rendering', () => {
             text: 'Opening remarks',
             ownText: null,
             item: null,
+            description: 'Five minutes each',
+            leader: { id: 'person-1', name: 'Sarah', isSelf: false },
             privateNote: 'Keep it brief',
             minutes: 5,
             pinnedStart: null,
@@ -225,6 +227,8 @@ describe('brief rendering', () => {
             text: 'Agenda review',
             ownText: null,
             item: null,
+            description: null,
+            leader: null,
             privateNote: null,
             minutes: 5,
             pinnedStart: null,
@@ -257,6 +261,8 @@ describe('brief rendering', () => {
           updatedAt: new Date(),
           parties: [],
         },
+        description: null,
+        leader: null,
         privateNote: null,
         minutes: 20,
         pinnedStart: null,
@@ -313,7 +319,8 @@ describe('brief rendering', () => {
       [
         '## Agenda',
         '- **9:00 AM · Welcome (10 min)**',
-        '  - 9:00 AM · Opening remarks (5 min)',
+        '  - 9:00 AM · Opening remarks — Sarah (5 min)',
+        '    - Five minutes each',
         '    - Note: Keep it brief',
         '  - 9:05 AM · Agenda review (5 min)',
         '- 9:10 AM · Q&A session [question] (20 min)',
@@ -340,6 +347,42 @@ describe('brief rendering', () => {
     expect(agenda).not.toContain('[question]')
   })
 
+  it("sends a line's description and leader out with the public agenda", () => {
+    expect(renderAgenda(input)).toContain(
+      ['  - 9:00 AM · Opening remarks — Sarah (5 min)', '    - Five minutes each'].join('\n'),
+    )
+  })
+
+  it('writes a multi-day meeting as its sessions, one after another', () => {
+    const session = (title: string, start: string, end: string) => ({
+      title,
+      startsAt: new Date(start),
+      endsAt: new Date(end),
+      agenda: { ...mockAgenda, nodes: [mockAgenda.nodes[1]!] },
+    })
+    const rollup = {
+      ...input,
+      meeting: {
+        ...mockMeeting,
+        startsAt: new Date('2026-10-07T14:00:00Z'),
+        endsAt: new Date('2026-10-08T22:00:00Z'),
+      },
+      agenda: { ...mockAgenda, nodes: [] },
+      sessions: [
+        session('Day one', '2026-10-07T14:00:00Z', '2026-10-07T17:00:00Z'),
+        { ...session('Day two', '2026-10-08T14:00:00Z', '2026-10-08T22:00:00Z'), agenda: { ...mockAgenda, nodes: [] } },
+      ],
+    }
+    const text = renderAgenda(rollup)
+    expect(text.split('\n')[1]).toBe('Wed, Oct 7, 9:00 AM – Thu, Oct 8, 5:00 PM · Alice, Bob')
+    expect(text).not.toContain('## Agenda')
+    expect(text).toContain(
+      ['## Day one', 'Wed, Oct 7 · 9:00 AM – 12:00 PM', '- 9:10 AM · Q&A session (20 min)'].join('\n'),
+    )
+    // A session with nothing on it yet is still named, so the days read in order.
+    expect(text).toContain(['## Day two', 'Thu, Oct 8 · 9:00 AM – 5:00 PM'].join('\n'))
+  })
+
   it('leaves times out of an undated stub', () => {
     const untimed: Agenda = {
       ...mockAgenda,
@@ -352,7 +395,7 @@ describe('brief rendering', () => {
     }
     const brief = renderBrief({ ...input, meeting: { ...mockMeeting, startsAt: null }, agenda: untimed })
     expect(brief.split('\n')[1]).toBe('Alice, Bob')
-    expect(brief).toContain('  - Opening remarks (5 min)')
+    expect(brief).toContain('  - Opening remarks — Sarah (5 min)')
     expect(brief).not.toContain('Ends')
   })
 
@@ -389,7 +432,7 @@ describe('brief rendering', () => {
     const html = renderBriefHtml(input)
     expect(html).toContain('<h1>Team standup</h1>')
     expect(html).toContain(
-      '<li><strong>9:00 AM · Welcome (10 min)</strong><ul><li>9:00 AM · Opening remarks (5 min)<ul><li>Note: Keep it brief</li></ul></li>',
+      '<li><strong>9:00 AM · Welcome (10 min)</strong><ul><li>9:00 AM · Opening remarks — Sarah (5 min)<ul><li>Five minutes each</li><li>Note: Keep it brief</li></ul></li>',
     )
     expect(html).toContain('Q&amp;A session')
     expect(renderAgendaHtml(input)).not.toContain('Keep it brief')

@@ -20,6 +20,12 @@ import {
 } from '../lib/connect/granola/connection'
 import { listBindings, listConnections } from '../lib/connect/connections'
 import { granolaActor, ingestNoteById, type IngestOutcome } from '../lib/connect/granola/ingest'
+import {
+  countUnfiledNotes,
+  dismissHeldNote,
+  fileHeldNote,
+  listUnfiledNotes,
+} from '../lib/connect/granola/unfiled'
 import { listItems } from '../lib/items/items'
 import { createMeeting, deleteMeeting, getMeeting, listMeetings } from '../lib/meetings/meetings'
 import { createSeries } from '../lib/meetings/series'
@@ -159,7 +165,7 @@ describe('walkthrough: a drop-in from a Granola note with no calendar event', ()
 })
 
 describe('context isolation', () => {
-  it('ignores a note outside every bound folder, without reading its transcript', async () => {
+  it('holds a note outside every bound folder in no context, and runs nothing on it', async () => {
     const { granola, ingest } = await setUp()
     const unfiled = noteId()
     const elsewhere = noteId()
@@ -167,11 +173,13 @@ describe('context isolation', () => {
     granola.script.notes[elsewhere] = note({ id: elsewhere, folder_membership: [folder(OTHER, 'Personal')] })
     granola.script.transcripts[elsewhere] = []
 
-    expect(await ingest(unfiled)).toEqual({ kind: 'ignored', reason: 'unbound' })
-    expect(await ingest(elsewhere)).toEqual({ kind: 'ignored', reason: 'unbound' })
+    expect(await ingest(unfiled)).toMatchObject({ kind: 'held', reason: 'unbound', changed: true })
+    expect(await ingest(elsewhere)).toMatchObject({ kind: 'held', reason: 'unbound', changed: true })
     expect(await everyMeeting()).toEqual([])
-    expect(await db.select().from(notes)).toEqual([])
-    expect(granola.count(/transcript/)).toBe(0)
+    const held = await db.select().from(notes)
+    expect(held).toHaveLength(2)
+    expect(held.every((row) => row.meetingId === null)).toBe(true)
+    expect(await everyRun()).toEqual([])
   })
 
   it('files a note in the folder’s context even when its calendar event is a meeting elsewhere', async () => {
@@ -248,14 +256,14 @@ describe('context isolation', () => {
     expect(made).toMatchObject({ contextId: parish.id, series: null })
   })
 
-  it('leaves a note whose folders feed two contexts where it is', async () => {
+  it('holds a note whose folders feed two contexts, rather than choosing', async () => {
     const { granola, ingest } = await setUp()
     const id = noteId()
     granola.script.notes[id] = note({ id, folder_membership: [parishFolder, dioceseFolder] })
 
-    expect(await ingest(id)).toEqual({ kind: 'ignored', reason: 'ambiguous' })
+    expect(await ingest(id)).toMatchObject({ kind: 'held', reason: 'ambiguous' })
     expect(await everyMeeting()).toEqual([])
-    expect(await db.select().from(notes)).toEqual([])
+    expect((await db.select().from(notes)).map((row) => row.meetingId)).toEqual([null])
   })
 
   it('uses only the bindings of the account the note came through', async () => {
@@ -274,10 +282,159 @@ describe('context isolation', () => {
     granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
 
     // Through the first account the folder is not bound at all.
-    expect(await ingestNoteById(db, granolaActor('job'), first!.id, id)).toEqual({ kind: 'ignored', reason: 'unbound' })
-    // Through the second it feeds the context that account bound it to.
+    expect(await ingestNoteById(db, granolaActor('job'), first!.id, id)).toMatchObject({ kind: 'held', reason: 'unbound' })
+    // Through the second it feeds the context that account bound it to, and the held note is filed there.
     const outcome = filed(await ingestNoteById(db, granolaActor('job'), second!.id, id))
     expect((await getMeeting(db, outcome.meetingId)).contextId).toBe(diocese.id)
+  })
+})
+
+describe('the Inbox', () => {
+  const council = {
+    event_title: 'Council',
+    invitees: [{ email: 'sarah@example.test' }],
+    organiser: null,
+    calendar_event_id: 'evt_council',
+    scheduled_start_time: '2026-10-01T15:00:00Z',
+    scheduled_end_time: '2026-10-01T16:00:00Z',
+  }
+
+  it('lists a held note, whichever context is selected, with when and who', async () => {
+    const { granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({
+      id,
+      title: 'Hallway',
+      calendar_event: council,
+      attendees: [
+        { name: 'John', email: 'john@example.test' },
+        { name: 'Sarah', email: 'sarah@example.test' },
+      ],
+    })
+    await ingest(id)
+
+    const [held] = await listUnfiledNotes(db)
+    expect(held).toMatchObject({
+      title: 'Hallway',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+      endsAt: new Date('2026-10-01T16:00:00Z'),
+      // The note's owner (John) is never listed.
+      attendees: [{ email: 'sarah@example.test', name: 'Sarah' }],
+    })
+    expect(await countUnfiledNotes(db)).toBe(1)
+  })
+
+  it('holds a note in no folder at all, as Granola sends it with or without the field', async () => {
+    const { granola, ingest } = await setUp()
+    const bare = noteId()
+    const empty = noteId()
+    const noField = note({ id: bare, title: 'No folder' })
+    delete noField.folder_membership
+    granola.script.notes[bare] = noField
+    granola.script.notes[empty] = note({ id: empty, title: 'Empty folders', folder_membership: [] })
+
+    expect(await ingest(bare)).toMatchObject({ kind: 'held', reason: 'unbound' })
+    expect(await ingest(empty)).toMatchObject({ kind: 'held', reason: 'unbound' })
+    expect((await listUnfiledNotes(db)).map((held) => held.title).sort()).toEqual(['Empty folders', 'No folder'])
+  })
+
+  it('files a note with no bound folder on the meeting made for its calendar event', async () => {
+    const { diocese, granola, ingest } = await setUp()
+    const prepped = await createMeeting(db, actor, {
+      contextId: diocese.id,
+      title: 'Council',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+      calendarId: 'cal',
+      calendarEventId: 'evt_council',
+    })
+    const id = noteId()
+    granola.script.notes[id] = note({ id, calendar_event: council })
+
+    const outcome = filed(await ingest(id))
+    expect(outcome).toMatchObject({ meetingId: prepped.id, via: 'event', queued: true })
+    expect(await listUnfiledNotes(db)).toEqual([])
+  })
+
+  it('files a held note in the chosen context: the meeting under way there, or one of its own', async () => {
+    const { parish, diocese, sarah, granola, ingest } = await setUp()
+    const byHand = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Staff',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+    })
+    const first = noteId()
+    const second = noteId()
+    granola.script.notes[first] = note({ id: first })
+    granola.script.notes[second] = note({
+      id: second,
+      title: 'Council',
+      calendar_event: council,
+      attendees: [{ name: 'Sarah', email: 'sarah@example.test' }],
+    })
+    const one = await ingest(first)
+    const two = await ingest(second)
+    if (one.kind !== 'held' || two.kind !== 'held') throw new Error('expected both held')
+
+    // Under way in the parish when it was started: filed there.
+    expect(await fileHeldNote(db, actor, one.noteId, parish.id)).toEqual({ meetingId: byHand.id, via: 'time' })
+    // Nothing in the diocese: a meeting of its own, claiming its event, with who is known.
+    const made = await fileHeldNote(db, actor, two.noteId, diocese.id)
+    expect(made.via).toBe('new')
+    const meeting = await getMeeting(db, made.meetingId)
+    expect(meeting).toMatchObject({ contextId: diocese.id, title: 'Council', calendarEventId: 'evt_council' })
+    expect(meeting.people.map((person) => person.id)).toEqual([sarah.id])
+    expect(meeting.endsAt).toEqual(new Date('2026-10-01T16:00:00Z'))
+
+    // Each filed note is queued like any arriving note, and the Inbox is empty.
+    expect((await everyRun()).map((run) => run.noteId).sort()).toEqual([one.noteId, two.noteId].sort())
+    expect(await listUnfiledNotes(db)).toEqual([])
+    await expect(fileHeldNote(db, actor, one.noteId, diocese.id)).rejects.toThrow(ValidationError)
+
+    // A later delivery updates it where it was filed.
+    granola.script.notes[second] = { ...granola.script.notes[second]!, summary_markdown: 'More.', updated_at: '2026-10-01T17:00:00Z' }
+    expect(filed(await ingest(second))).toMatchObject({ meetingId: made.meetingId, via: 'note', changed: true })
+  })
+
+  it('keeps a held note held when it changes, and files it once its folder is bound', async () => {
+    const { parish, granola, ingest, account } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [folder(OTHER, 'Personal')] })
+    const held = await ingest(id)
+    if (held.kind !== 'held') throw new Error('expected held')
+
+    granola.script.notes[id] = { ...granola.script.notes[id]!, summary_markdown: 'Edited.' }
+    expect(await ingest(id)).toMatchObject({ kind: 'held', noteId: held.noteId, changed: true })
+    expect(await ingest(id)).toMatchObject({ kind: 'held', changed: false })
+    expect(await everyRun()).toEqual([])
+
+    await bindFolder(db, { connectionId: account.id, folderId: OTHER, name: 'Personal', contextId: parish.id })
+    const outcome = filed(await ingest(id))
+    expect(outcome).toMatchObject({ noteId: held.noteId, via: 'new', queued: true })
+    expect((await getMeeting(db, outcome.meetingId)).contextId).toBe(parish.id)
+  })
+
+  it('a dismissed note stays out of the Inbox when it is delivered again', async () => {
+    const { granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id })
+    const held = await ingest(id)
+    if (held.kind !== 'held') throw new Error('expected held')
+
+    await dismissHeldNote(db, actor, held.noteId)
+    expect(await listUnfiledNotes(db)).toEqual([])
+    granola.script.notes[id] = { ...granola.script.notes[id]!, summary_markdown: 'Edited.' }
+    await ingest(id)
+    expect(await countUnfiledNotes(db)).toBe(0)
+  })
+
+  it('refuses to dismiss or file a note that is already filed', async () => {
+    const { parish, granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+    const outcome = filed(await ingest(id))
+
+    await expect(dismissHeldNote(db, actor, outcome.noteId)).rejects.toThrow(ValidationError)
+    await expect(fileHeldNote(db, actor, outcome.noteId, parish.id)).rejects.toThrow(ValidationError)
   })
 })
 

@@ -21,6 +21,8 @@ export type LogMeetingInput = {
   title?: string
   /** When it happened; now, when not given. A logged meeting is never an undated stub. */
   startsAt?: Date | null
+  /** When it ended; or how long it ran. Neither, with a start, leaves it open-ended. */
+  endsAt?: Date | null
   minutes?: number | null
   personIds: string[]
   groupId?: string | null
@@ -46,11 +48,13 @@ export async function logMeeting(
   const startsAt = input.startsAt ?? now
   /* Logged with no time, it has just finished: ending now keeps it out of the
      upcoming list, where a meeting with no end stays for an hour. */
-  const endsAt = input.minutes
-    ? new Date(startsAt.getTime() + input.minutes * 60_000)
-    : input.startsAt
-      ? null
-      : startsAt
+  const endsAt = input.endsAt
+    ? input.endsAt
+    : input.minutes
+      ? new Date(startsAt.getTime() + input.minutes * 60_000)
+      : input.startsAt
+        ? null
+        : startsAt
 
   const personIds = [...new Set(input.personIds)]
 

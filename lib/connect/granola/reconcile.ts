@@ -5,13 +5,12 @@
  * A delivery is missed for ordinary reasons: the container was restarting,
  * Granola gave up retrying, no endpoint could be registered, or the folder was
  * bound after the note was written. So this does not replay deliveries; it
- * asks Granola what changed lately in each bound folder and files whatever is
- * not already held as it now stands. Filing is the same `ingestNote` the
- * webhook uses, so running this over a note the webhook did deliver changes
- * nothing.
+ * asks Granola what changed lately on the account and files whatever is not
+ * already held as it now stands. Filing is the same `ingestNote` the webhook
+ * uses, so running this over a note the webhook did deliver changes nothing.
  *
- * Only bound folders are listed, so a note outside them is never fetched. A
- * folder's listing includes its child folders', as the folder rule does.
+ * Every note is listed, not only those in bound folders: a note in no bound
+ * folder is held for the Inbox rather than left behind.
  *
  * There is no cursor. The window is fixed, and a note already held at the
  * `updated_at` Granola reports costs no request beyond the listing.
@@ -28,7 +27,7 @@ import {
   listNotes,
   type GranolaFolder,
 } from './client'
-import { GRANOLA, listFolderBindings, listGranolaAccounts, withGranola } from './connection'
+import { GRANOLA, listGranolaAccounts, withGranola } from './connection'
 import { granolaActor, ingestNote } from './ingest'
 
 /* How far back to look. Long enough to cover a weekend with the container
@@ -36,9 +35,9 @@ import { granolaActor, ingestNote } from './ingest'
 export const LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000
 
 export type ReconcileResult = {
-  /** Notes Granola listed in the bound folders. */
+  /** Notes Granola listed. */
   seen: number
-  /** New notes filed, and held notes that had changed. */
+  /** New notes filed or held for the Inbox, and notes already here that had changed. */
   filed: number
   /** Processing runs queued. */
   queued: number
@@ -51,20 +50,14 @@ async function reconcileAccount(
   connectionId: string,
   now: Date,
 ): Promise<Omit<ReconcileResult, 'failed'>> {
-  const folders = await listFolderBindings(exec, { connectionId })
   const result = { seen: 0, filed: 0, queued: 0 }
-  if (folders.length === 0) return result
-
   const actor = granolaActor('job')
   const updatedAfter = new Date(now.getTime() - LOOKBACK_MS)
 
   return withGranola(exec, connectionId, async (key) => {
-    /* One note in two bound folders is listed twice and filed once. */
     const listed = new Map<string, string>()
-    for (const folder of folders) {
-      for (const summary of await listNotes(key, { updatedAfter, folderId: folder.externalId })) {
-        listed.set(summary.id, summary.updated_at)
-      }
+    for (const summary of await listNotes(key, { updatedAfter })) {
+      listed.set(summary.id, summary.updated_at)
     }
     result.seen = listed.size
 
@@ -80,9 +73,9 @@ async function reconcileAccount(
         loadFolders: () => (tree ??= listFolders(key)),
         loadTranscript: () => getTranscript(key, noteId),
       })
-      if (outcome.kind !== 'filed') continue
+      if (outcome.kind === 'ignored') continue
       if (outcome.changed) result.filed += 1
-      if (outcome.queued) result.queued += 1
+      if (outcome.kind === 'filed' && outcome.queued) result.queued += 1
     }
     return result
   })

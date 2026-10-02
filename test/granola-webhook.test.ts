@@ -155,15 +155,18 @@ describe('delivery', () => {
     expect(await db.select().from(processingRuns)).toHaveLength(2)
   })
 
-  it('a note outside the bound folders is recorded as ignored and makes nothing', async () => {
+  it('a note outside the bound folders is held for the Inbox and makes nothing', async () => {
     const { granola } = await setUp()
     const stray = noteId()
     granola.script.notes[stray] = note({ id: stray, folder_membership: [folder('fol_other000000000', 'Personal')] })
 
     const result = await receiveDelivery(db, delivery(generated(stray)))
 
-    expect(result).toEqual({ status: 200, body: { ok: true, outcome: 'ignored' }, queued: false })
-    expect((await events())[0]).toMatchObject({ status: 'ignored', detail: 'The note is in no folder that feeds a context.' })
+    expect(result).toEqual({ status: 200, body: { ok: true, outcome: 'held' }, queued: false })
+    expect((await events())[0]).toMatchObject({
+      status: 'processed',
+      detail: 'In the Inbox: the note is in no folder that feeds a context.',
+    })
     expect(await db.select().from(meetings)).toEqual([])
   })
 

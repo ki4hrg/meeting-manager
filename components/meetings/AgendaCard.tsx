@@ -8,7 +8,7 @@ import {
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
 import { Card } from '@/components/ui/Card'
-import { Field, Input, Textarea } from '@/components/ui/Field'
+import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { Badge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
 import type { Agenda, AgendaLine, AgendaSection } from '@/lib/agenda/lines'
@@ -80,11 +80,15 @@ function TimingFields({ row, minutes }: { row: { pinnedStart: string | null; min
   )
 }
 
+/** Who can lead a line: anyone in the directory, John first as "Me". */
+export type LeaderChoice = { id: string; name: string; isSelf: boolean }
+
 function LineRow({
   line,
   meetingId,
   timed,
   today,
+  people,
   up,
   down,
 }: {
@@ -92,6 +96,7 @@ function LineRow({
   meetingId: string
   timed: boolean
   today: string
+  people: LeaderChoice[]
   up: boolean
   down: boolean
 }) {
@@ -122,6 +127,17 @@ function LineRow({
         ) : (
           <p className="text-sm text-gray-900 dark:text-gray-100">{line.text}</p>
         )}
+
+        {line.leader ? (
+          <p className="mt-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+            <Icon name="person" className="h-3 w-3 shrink-0 text-gray-400 dark:text-gray-500" label="Leads" />
+            {line.leader.isSelf ? 'Me' : line.leader.name}
+          </p>
+        ) : null}
+
+        {line.description ? (
+          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">{line.description}</p>
+        ) : null}
 
         {item && (item.parties.length > 0 || item.dueOn || item.project || !isOpen(item)) ? (
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -173,6 +189,19 @@ function LineRow({
           <Field label="Text" required={!item}>
             <Input name="text" defaultValue={line.text} required={!item} />
           </Field>
+          <Field label="Leader">
+            <Select name="leaderPersonId" defaultValue={line.leader?.id ?? ''}>
+              <option value="">—</option>
+              {people.map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.isSelf ? 'Me' : person.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Description">
+            <Textarea name="description" rows={3} defaultValue={line.description ?? ''} />
+          </Field>
           <Field label="Private note">
             <Textarea name="privateNote" rows={3} defaultValue={line.privateNote ?? ''} />
           </Field>
@@ -194,6 +223,7 @@ function SectionBlock({
   meetingId,
   timed,
   today,
+  people,
   up,
   down,
 }: {
@@ -201,6 +231,7 @@ function SectionBlock({
   meetingId: string
   timed: boolean
   today: string
+  people: LeaderChoice[]
   up: boolean
   down: boolean
 }) {
@@ -243,7 +274,16 @@ function SectionBlock({
         <ul>
           {section.lines.map((line) => (
             // Inside a section a line can always step: past the edge is out of it.
-            <LineRow key={line.id} line={line} meetingId={meetingId} timed={timed} today={today} up down />
+            <LineRow
+              key={line.id}
+              line={line}
+              meetingId={meetingId}
+              timed={timed}
+              today={today}
+              people={people}
+              up
+              down
+            />
           ))}
         </ul>
         <AddLine meetingId={meetingId} sectionId={section.id} />
@@ -253,7 +293,15 @@ function SectionBlock({
 }
 
 /** The agenda as it will run: sections and lines in order, each with when it starts and how long it has. */
-export function AgendaCard({ agenda, today }: { agenda: Agenda; today: string }) {
+export function AgendaCard({
+  agenda,
+  today,
+  people,
+}: {
+  agenda: Agenda
+  today: string
+  people: LeaderChoice[]
+}) {
   const { meetingId, nodes } = agenda
   const timed = nodes.some(
     (node) => node.start !== null || (node.type === 'section' && node.lines.some((line) => line.start !== null)),
@@ -286,6 +334,7 @@ export function AgendaCard({ agenda, today }: { agenda: Agenda; today: string })
               meetingId={meetingId}
               timed={timed}
               today={today}
+              people={people}
               up={index > 0}
               down={index < nodes.length - 1}
             />
@@ -296,6 +345,7 @@ export function AgendaCard({ agenda, today }: { agenda: Agenda; today: string })
               meetingId={meetingId}
               timed={timed}
               today={today}
+              people={people}
               up={index > 0}
               down={index < nodes.length - 1}
             />

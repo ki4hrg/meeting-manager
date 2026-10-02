@@ -570,8 +570,8 @@ export const meetingDismissals = pgTable(
 /*
  * An agenda in two levels. A section is a row with is_section; a line belongs
  * to a section or sits at the top level. A line is free text, or a reference to
- * a live item (whose text is shown unless `text` overrides it), with a private
- * note only John sees.
+ * a live item (whose text is shown unless `text` overrides it), with a public
+ * description, a leader, and a private note only John sees.
  */
 export const agendaLines = pgTable(
   'agenda_lines',
@@ -588,6 +588,10 @@ export const agendaLines = pgTable(
     position: integer('position').notNull().default(0),
     text: text('text'),
     itemId: uuid('item_id').references(() => items.id, { onDelete: 'cascade' }),
+    /* What the attendees read under the line: in the agenda sent round and the brief. */
+    description: text('description'),
+    /* Who leads this line; John is a person like any other here. */
+    leaderPersonId: uuid('leader_person_id').references(() => people.id, { onDelete: 'set null' }),
     privateNote: text('private_note'),
     minutes: integer('minutes'),
     /* 'HH:MM' in the user's time zone: this line starts then, whatever precedes it. */
@@ -657,13 +661,26 @@ export const bindings = pgTable(
 /* Someone a note names by address: Granola's attendees and the event's invitees. */
 export type NoteAttendee = { email: string; name: string | null }
 
+/* What a note that arrived unfiled says about when it was and which calendar
+   event it recorded: enough to find or make its meeting once a context is
+   chosen, without asking Granola again. */
+export type NoteFiling = {
+  startsAt: string | null
+  endsAt: string | null
+  calendarEventId: string | null
+}
+
 export const notes = pgTable(
   'notes',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    meetingId: uuid('meeting_id')
-      .notNull()
-      .references(() => meetings.id, { onDelete: 'cascade' }),
+    /* Null while the note is unfiled: it arrived from no folder that feeds a
+       context and waits in the Inbox, in no context at all, until John files
+       it or waves it away. Nothing is processed before it is filed. */
+    meetingId: uuid('meeting_id').references(() => meetings.id, { onDelete: 'cascade' }),
+    filing: jsonb('filing').$type<NoteFiling>(),
+    /* Waved away from the Inbox while unfiled. */
+    dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
     /* 'pasted' or 'granola'. */
     source: text('source').notNull(),
     /* Granola's note id. */
@@ -688,6 +705,7 @@ export const notes = pgTable(
       .on(t.source, t.externalId)
       .where(sql`${t.externalId} is not null`),
     index('notes_meeting_idx').on(t.meetingId),
+    index('notes_unfiled_idx').on(t.createdAt).where(sql`${t.meetingId} is null`),
   ],
 )
 

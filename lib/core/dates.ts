@@ -148,3 +148,23 @@ export function formatWeekday(day: string, today: string): string {
     year: day.slice(0, 4) === today.slice(0, 4) ? undefined : 'numeric',
   }).format(new Date(Date.UTC(year!, month! - 1, date!)))
 }
+
+/**
+ * When a meeting runs, on the zone's clock: "Thu, Oct 9 · 9:00 AM – 5:00 PM",
+ * or with both days when it runs past midnight: "Thu, Oct 9, 9:00 AM – Sat,
+ * Oct 11, 5:00 PM".
+ */
+export function formatSpan(
+  startsAt: Date,
+  endsAt: Date | null,
+  timeZone: string | null | undefined,
+  today: string,
+): string {
+  const day = todayIn(timeZone, startsAt)
+  const from = formatTime(startsAt, timeZone)
+  if (!endsAt) return `${formatWeekday(day, today)} · ${from}`
+  const lastDay = todayIn(timeZone, endsAt)
+  const to = formatTime(endsAt, timeZone)
+  if (lastDay === day) return `${formatWeekday(day, today)} · ${from === to ? from : `${from} – ${to}`}`
+  return `${formatWeekday(day, today)}, ${from} – ${formatWeekday(lastDay, today)}, ${to}`
+}
