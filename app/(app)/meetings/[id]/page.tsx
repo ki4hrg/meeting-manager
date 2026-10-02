@@ -204,8 +204,6 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                 meeting={meeting}
                 choices={choices}
                 timeZone={timeZone}
-                // Its dated sessions say when it is.
-                timed={!meeting.sessions.some((session) => session.startsAt)}
               />
             </FormModal>
             {/* A session goes where its meeting goes. */}

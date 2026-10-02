@@ -81,13 +81,13 @@ The bishop case: capture "ask @bishop about X" over several weeks. The bishop's 
 
 - Google Calendar is a read-only feed. A meeting row exists only when John preps it, a note arrives for it, or he logs it by hand.
 - `series` holds a roster, default projects, group, a standing agenda skeleton and generated-block defaults. A calendar recurring event maps to a series; a calendar maps to a context.
-- `parent_meeting_id` (one level) keeps multi-day sessions. *(2026-10-02)* A meeting with sessions is their rollup: its times span its dated sessions and are not set on it, its page shows each session's agenda in turn (no agenda or suggestions of its own), the brief and agenda copy are the sessions one after another, follow-ups and the recap draw on all its sessions, and an item aimed at it goes to its next session that is not over.
+- `parent_meeting_id` (one level) keeps multi-day sessions. *(2026-10-02)* A meeting with sessions keeps its own start and end, so it lists as the whole event; its agenda is the rollup of its sessions': its page shows each session's agenda in turn (no agenda or suggestions of its own), the brief and agenda copy are the sessions one after another, follow-ups and the recap draw on all its sessions, and an item aimed at it goes to its next session that is not over.
 - *(2026-10-02)* A meeting's time is a start and an end, not a start and a length; the end may be days later.
 - **Stub to calendar** *(review)*: an undated stub can be attached to a calendar event, and the tool suggests it when a new event's people match. Attendee matching uses the series roster as well as invitees, since in-person 1:1s often have none.
 - **Drop-ins** *(review)*:
   - A Granola note with no calendar match creates a meeting itself. If people or context are unknown, the review screen asks for them first, then runs matching against their open items.
   - **Log a meeting:** pick people, paste or type notes, and run the same processing. Covers unrecorded conversations and is the fallback if Granola fails.
-  - *(2026-10-02)* A note outside mapped Granola folders, or in folders mapped to two contexts, is filed on the meeting already made for its calendar event if there is one, wherever it is; otherwise it is held in the **Inbox**, in no context and unprocessed, until John files it into a context (which then matches or makes its meeting there as a mapped folder would) or dismisses it. Any auto-created meeting can be discarded.
+  - *(2026-10-02)* A note in no folder at all, outside mapped Granola folders, or in folders mapped to two contexts, is filed on the meeting already made for its calendar event if there is one, wherever it is; otherwise it is held in the **Inbox**, in no context and unprocessed, until John files it into a context (which then matches or makes its meeting there as a mapped folder would) or dismisses it. Any auto-created meeting can be discarded.
   - A folder maps to a context, or to one project in it; a note from a project's folder puts that project on its meeting. A subfolder follows the nearest mapped folder above it.
 
 ### Tables (about 30)

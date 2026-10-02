@@ -45,20 +45,17 @@ export function MeetingFields({
   meeting,
   choices,
   timeZone,
-  timed = true,
 }: {
   meeting?: Current
   choices: MeetingChoices
   timeZone: string | null
-  /** False for a meeting whose sessions say when it is. */
-  timed?: boolean
 }) {
   return (
     <>
       <Field label="Title" required={Boolean(meeting)}>
         <Input name="title" defaultValue={meeting?.title ?? ''} required={Boolean(meeting)} />
       </Field>
-      {timed ? <WhenFields startsAt={meeting?.startsAt} endsAt={meeting?.endsAt} timeZone={timeZone} /> : null}
+      <WhenFields startsAt={meeting?.startsAt} endsAt={meeting?.endsAt} timeZone={timeZone} />
 
       {/* The same pickers as a series' roster and projects. Empty lists draw nothing. */}
       <CheckList

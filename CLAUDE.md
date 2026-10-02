@@ -66,7 +66,7 @@ Local database: `docker run -d --name mm-dev-db -e POSTGRES_USER=mm -e POSTGRES_
 - An agenda's candidates and generated blocks come only from `lib/agenda/candidates.ts` and `generated.ts`. A change to either needs a case in `test/candidate-rules.test.ts`.
 - A meeting row is created only by `lib/meetings/prep.ts`, `lib/meetings/log.ts` or by hand. Nothing creates meetings from the calendar on its own; a Granola note with no meeting to match makes one through `meetingFromNote` in `prep.ts`.
 - A note with `meeting_id` null is unfiled: it has no context, nothing is run on it, and it is listed only in the Inbox. `meetingOf()` in `lib/notes/notes.ts` is how code that needs a note's meeting gets it.
-- A meeting with sessions takes its times from them (`syncSpan` in `meetings.ts`); its own agenda is not added to and nothing is placed on it.
+- A meeting with sessions keeps its own start and end; its agenda is its sessions', and nothing is placed on it.
 - Nothing processing proposes reaches `items`, `documents` or `meetings` until the proposal is accepted. No test calls a model or the network: tests pass a fake `Extractor` and a faked Granola.
 - Much of `lib/oauth`, `lib/mcp` and `lib/auth` was lifted from `../Meeter`; that repo is the reference for the integrations still to come (Granola, Todoist, Google Calendar).
 

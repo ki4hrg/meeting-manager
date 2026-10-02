@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NotFoundError, ValidationError } from '../lib/core/types'
+import { NotFoundError } from '../lib/core/types'
 import {
   attachToEvent,
   createMeeting,
@@ -740,48 +740,34 @@ describe('meetings', () => {
     expect(listed!.sessions).toEqual((await getMeeting(db, retreat.id)).sessions)
   })
 
-  it('a meeting with sessions runs from the first one’s start to the last one’s end', async () => {
+  it('a meeting with sessions keeps its own start and end, whatever its sessions do', async () => {
     const { parish } = await makeWorld()
     const retreat = await createMeeting(db, actor, {
       contextId: parish.id,
-      title: 'Retreat',
-      startsAt: new Date('2026-10-01T14:00:00Z'),
-      endsAt: new Date('2026-10-01T15:00:00Z'),
+      title: 'Planning retreat',
+      startsAt: new Date('2026-10-07T13:00:00Z'),
+      endsAt: new Date('2026-10-09T22:00:00Z'),
     })
-    const span = async () => {
-      const { startsAt, endsAt } = await getMeeting(db, retreat.id)
-      return [startsAt?.toISOString(), endsAt?.toISOString()]
-    }
-
-    const one = await createMeeting(db, actor, {
+    const day = await createMeeting(db, actor, {
       contextId: parish.id,
       title: 'Day one',
       parentMeetingId: retreat.id,
       startsAt: new Date('2026-10-07T14:00:00Z'),
       endsAt: new Date('2026-10-07T22:00:00Z'),
     })
-    expect(await span()).toEqual(['2026-10-07T14:00:00.000Z', '2026-10-07T22:00:00.000Z'])
+    await updateMeeting(db, actor, day.id, { endsAt: new Date('2026-10-07T23:00:00Z') })
+    await updateMeeting(db, actor, retreat.id, { endsAt: new Date('2026-10-10T18:00:00Z') })
 
-    // A session with no end counts for an hour; an undated one not at all.
-    const two = await createMeeting(db, actor, {
+    const after = await getMeeting(db, retreat.id)
+    expect(after.startsAt).toEqual(new Date('2026-10-07T13:00:00Z'))
+    expect(after.endsAt).toEqual(new Date('2026-10-10T18:00:00Z'))
+    // Listed as the whole event.
+    const upcoming = await listMeetings(db, {
       contextId: parish.id,
-      title: 'Day two',
-      parentMeetingId: retreat.id,
-      startsAt: new Date('2026-10-08T14:00:00Z'),
+      when: 'upcoming',
+      topLevelOnly: true,
+      now: new Date('2026-10-01T00:00:00Z'),
     })
-    await createMeeting(db, actor, { contextId: parish.id, title: 'Some time', parentMeetingId: retreat.id })
-    expect(await span()).toEqual(['2026-10-07T14:00:00.000Z', '2026-10-08T15:00:00.000Z'])
-
-    await updateMeeting(db, actor, two.id, { endsAt: new Date('2026-10-08T21:00:00Z') })
-    expect(await span()).toEqual(['2026-10-07T14:00:00.000Z', '2026-10-08T21:00:00.000Z'])
-
-    // Its own times are its sessions'.
-    await expect(
-      updateMeeting(db, actor, retreat.id, { startsAt: new Date('2026-10-01T14:00:00Z') }),
-    ).rejects.toThrow(ValidationError)
-    await updateMeeting(db, actor, retreat.id, { title: 'Parish retreat' })
-
-    await deleteMeeting(db, actor, one.id)
-    expect(await span()).toEqual(['2026-10-08T14:00:00.000Z', '2026-10-08T21:00:00.000Z'])
+    expect(upcoming.map((m) => m.title)).toEqual(['Planning retreat'])
   })
 })

@@ -65,10 +65,8 @@ function minutesFrom(value: string): number | null {
 }
 
 /* When a meeting form says it starts and ends, in the user's zone. No start is
-   an undated stub, and a stub has no end. A form with no times at all (a
-   meeting whose sessions say when it is) changes neither. */
+   an undated stub, and a stub has no end. */
 function timesFrom(formData: FormData, timeZone: string | null) {
-  if (!formData.has('startsAt')) return {}
   const value = field(formData, 'startsAt')
   if (value === '') return { startsAt: null, endsAt: null }
   const end = field(formData, 'endsAt')

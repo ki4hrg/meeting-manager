@@ -482,8 +482,8 @@ export const prepMeetingTool = defineTool({
     'Otherwise a new meeting from title, starts_at, ends_at, people, projects, group and ' +
     'series (no starts_at makes a stub); this one creates a meeting on every call, so pass ' +
     'idempotency_key. With session_of, that new meeting is a session of a multi-day meeting, ' +
-    "starting with its people, group and projects; the meeting's own times then span its " +
-    'sessions, and what is aimed at it goes on its next session. Items aimed at the meeting ' +
+    'starting with its people, group and projects; the meeting keeps its own times, its ' +
+    'agenda is its sessions, and what is aimed at it goes on its next session. Items aimed at the meeting ' +
     'or its series are placed. Returns what get_meeting returns.',
   scope: 'meetings:write',
   input: z.object({

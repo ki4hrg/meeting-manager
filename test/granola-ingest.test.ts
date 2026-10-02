@@ -324,6 +324,20 @@ describe('the Inbox', () => {
     expect(await countUnfiledNotes(db)).toBe(1)
   })
 
+  it('holds a note in no folder at all, as Granola sends it with or without the field', async () => {
+    const { granola, ingest } = await setUp()
+    const bare = noteId()
+    const empty = noteId()
+    const noField = note({ id: bare, title: 'No folder' })
+    delete noField.folder_membership
+    granola.script.notes[bare] = noField
+    granola.script.notes[empty] = note({ id: empty, title: 'Empty folders', folder_membership: [] })
+
+    expect(await ingest(bare)).toMatchObject({ kind: 'held', reason: 'unbound' })
+    expect(await ingest(empty)).toMatchObject({ kind: 'held', reason: 'unbound' })
+    expect((await listUnfiledNotes(db)).map((held) => held.title).sort()).toEqual(['Empty folders', 'No folder'])
+  })
+
   it('files a note with no bound folder on the meeting made for its calendar event', async () => {
     const { diocese, granola, ingest } = await setUp()
     const prepped = await createMeeting(db, actor, {

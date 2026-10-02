@@ -1,9 +1,8 @@
 /*
  * Meetings: created lazily, stubs or dated, solo or multi-day sessions.
  *
- * A meeting with sessions is their rollup: it runs from its first dated
- * session's start to its last one's end, and its times follow theirs rather
- * than being set on it.
+ * A meeting with sessions keeps its own start and end, so it shows as the
+ * whole event wherever meetings are listed; its agenda is its sessions'.
  */
 
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
@@ -168,37 +167,6 @@ export function isOver(
   if (!meeting.startsAt) return false
   const end = meeting.endsAt ?? new Date(meeting.startsAt.getTime() + DEFAULT_MINUTES * 60_000)
   return end < now
-}
-
-/**
- * Set a meeting's times to span its dated sessions. A meeting whose sessions
- * are all undated, or that has none, keeps its own.
- */
-export async function syncSpan(exec: Executor, meetingId: string): Promise<void> {
-  const [span] = await exec
-    .select({
-      startsAt: sql<Date | null>`min(${meetings.startsAt})`.mapWith(meetings.startsAt),
-      endsAt: sql<Date | null>`max(coalesce(${meetings.endsAt}, ${meetings.startsAt} + interval '${sql.raw(String(DEFAULT_MINUTES))} minutes'))`.mapWith(
-        meetings.endsAt,
-      ),
-    })
-    .from(meetings)
-    .where(and(eq(meetings.parentMeetingId, meetingId), sql`${meetings.startsAt} is not null`))
-  if (!span?.startsAt) return
-  await exec
-    .update(meetings)
-    .set({ startsAt: span.startsAt, endsAt: span.endsAt, updatedAt: new Date() })
-    .where(eq(meetings.id, meetingId))
-}
-
-/* Whether a meeting has a dated session, and so takes its times from them. */
-async function hasDatedSessions(exec: Executor, meetingId: string): Promise<boolean> {
-  const [row] = await exec
-    .select({ id: meetings.id })
-    .from(meetings)
-    .where(and(eq(meetings.parentMeetingId, meetingId), sql`${meetings.startsAt} is not null`))
-    .limit(1)
-  return Boolean(row)
 }
 
 export async function getMeeting(exec: Executor, id: string): Promise<MeetingView> {
@@ -493,7 +461,6 @@ export async function createMeeting(
       )
     }
 
-    if (input.parentMeetingId) await syncSpan(tx, input.parentMeetingId)
     return getMeeting(tx, m!.id)
   })
 }
@@ -533,10 +500,6 @@ export async function updateMeeting(
   if (start && end && end < start) {
     throw new ValidationError('End time must not be before start time.')
   }
-  const timed = input.startsAt !== undefined || input.endsAt !== undefined
-  if (timed && (await hasDatedSessions(exec, id))) {
-    throw new ValidationError('This meeting runs when its sessions do. Change their times instead.')
-  }
 
   const patch: Partial<typeof meetings.$inferInsert> = {}
 
@@ -556,7 +519,6 @@ export async function updateMeeting(
       .update(meetings)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(meetings.id, id))
-    if (timed && m.parentMeetingId) await syncSpan(tx, m.parentMeetingId)
     return getMeeting(tx, id)
   })
 }
@@ -654,7 +616,6 @@ export async function attachToEvent(
       .update(meetings)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(meetings.id, id))
-    if (m.parentMeetingId) await syncSpan(tx, m.parentMeetingId)
     return getMeeting(tx, id)
   })
 }
@@ -679,13 +640,10 @@ export async function deleteMeeting(
   _actor: ActorContext,
   id: string,
 ): Promise<void> {
-  const m = await getMeeting(exec, id)
-  await inTransaction(exec, async (tx) => {
-    await tx.delete(meetings).where(eq(meetings.id, id))
-    /* Cascade deletes sessions via parent_meeting_id, and sets item.target_meeting_id and
-       item.origin_meeting_id to null via the foreign key's onDelete: 'set null' */
-    if (m.parentMeetingId) await syncSpan(tx, m.parentMeetingId)
-  })
+  await getMeeting(exec, id)
+  await exec.delete(meetings).where(eq(meetings.id, id))
+  /* Cascade deletes sessions via parent_meeting_id, and sets item.target_meeting_id and
+     item.origin_meeting_id to null via the foreign key's onDelete: 'set null' */
 }
 
 export async function previousOccurrence(

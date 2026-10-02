@@ -13,7 +13,8 @@
  *
  * A folder feeds exactly one context (`bindings`, kind `granola_folder`), and
  * that binding is the only thing that says which context a note belongs to. A
- * note in no bound folder is not read at all. A binding may also name one of
+ * note in no folder at all, or in no bound one, is held for the Inbox
+ * (`unfiled.ts`) until John files it. A binding may also name one of
  * that context's projects, which the meetings its notes are filed on take.
  */
 
