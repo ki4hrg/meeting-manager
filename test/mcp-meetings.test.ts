@@ -583,6 +583,8 @@ describe('edit_agenda', () => {
       line_id: aob,
       text: 'Any other business',
       minutes: 10,
+      description: 'Anything not on the list',
+      leader: 'me',
       private_note: 'keep it short',
       pinned_start: '09:20',
     })
@@ -596,8 +598,12 @@ describe('edit_agenda', () => {
       minutes: 10,
       pinned_start: '09:20',
       start: '09:20',
+      description: 'Anything not on the list',
+      leader: { id: expect.any(String), name: 'John' },
       private_note: 'keep it short',
     })
+    view = await edit({ op: 'update_line', line_id: aob, leader: null, description: null })
+    expect(lineOf(view, 'Any other business')).toMatchObject({ leader: null, description: null })
     view = await edit({ op: 'update_line', line_id: aob, pinned_start: null, private_note: null })
     expect(lineOf(view, 'Any other business')).toMatchObject({
       pinned_start: null,

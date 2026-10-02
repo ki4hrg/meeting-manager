@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { NotFoundError, ValidationError } from '../lib/core/types'
 import {
   getAgenda,
   addSection,
@@ -77,6 +78,42 @@ describe('agenda operations', () => {
       expect(node1.lines).toHaveLength(1)
       expect(node1.lines[0]!.text).toBe('Discussion')
     }
+  })
+
+  it('a line carries a public description and a leader; a section carries neither', async () => {
+    const { parish, sarah, john } = await makeWorld()
+    const [meeting] = await db.insert(meetings).values({ contextId: parish.id, title: 'Council' }).returning()
+
+    const sectionId = await addSection(db, actor, meeting!.id, { title: 'Reports' })
+    const lineId = await addLine(db, actor, meeting!.id, {
+      text: 'Treasurer',
+      sectionId,
+      description: '  Q3 figures\n- the budget  ',
+      leaderPersonId: sarah.id,
+    })
+    let [line] = (await getAgenda(db, meeting!.id)).nodes.flatMap((node) =>
+      node.type === 'section' ? node.lines : [node],
+    )
+    expect(line).toMatchObject({
+      description: 'Q3 figures\n- the budget',
+      leader: { id: sarah.id, name: 'Sarah Jones', isSelf: false },
+    })
+
+    await updateLine(db, actor, lineId, { leaderPersonId: john.id, description: '' })
+    ;[line] = (await getAgenda(db, meeting!.id)).nodes.flatMap((node) =>
+      node.type === 'section' ? node.lines : [node],
+    )
+    expect(line).toMatchObject({ description: null, leader: { id: john.id, isSelf: true } })
+    await updateLine(db, actor, lineId, { leaderPersonId: null })
+    ;[line] = (await getAgenda(db, meeting!.id)).nodes.flatMap((node) =>
+      node.type === 'section' ? node.lines : [node],
+    )
+    expect(line!.leader).toBeNull()
+
+    await expect(updateLine(db, actor, sectionId, { description: 'no' })).rejects.toThrow(ValidationError)
+    await expect(
+      addLine(db, actor, meeting!.id, { text: 'x', leaderPersonId: '00000000-0000-4000-8000-000000000000' }),
+    ).rejects.toThrow(NotFoundError)
   })
 
   it('refuses a line without text or item', async () => {

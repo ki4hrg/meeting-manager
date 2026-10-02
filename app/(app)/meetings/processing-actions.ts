@@ -1,5 +1,6 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { after } from 'next/server'
 import { fromLocalInput, parseDay } from '@/lib/core/dates'
@@ -7,6 +8,7 @@ import { normalise } from '@/lib/core/match'
 import { AppError, ValidationError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { ProposalPayload, ProposedParty } from '@/lib/db/schema'
+import { dismissHeldNote, fileHeldNote } from '@/lib/connect/granola/unfiled'
 import { createPerson } from '@/lib/directory/people'
 import { resolveParty, resolvePerson } from '@/lib/directory/resolve'
 import { ITEM_KINDS } from '@/lib/items/items'
@@ -14,7 +16,7 @@ import { PROCESS_NOTES, kick } from '@/lib/jobs'
 import { logMeeting } from '@/lib/meetings/log'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
-import { getNote, moveNote, saveNote } from '@/lib/notes/notes'
+import { getNote, meetingOf, moveNote, saveNote } from '@/lib/notes/notes'
 import {
   acceptProposal,
   approveAll,
@@ -26,7 +28,7 @@ import {
 } from '@/lib/processing/proposals'
 import { queueRun, reprocessMeeting } from '@/lib/processing/run'
 import { act, field, type ActionResult } from '@/lib/web/action'
-import { currentContext } from '@/lib/web/context'
+import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 /*
  * Server actions for logging a meeting, the review screen and its notes.
@@ -97,17 +99,13 @@ export async function logMeetingAction(formData: FormData): Promise<ActionResult
     }
 
     const starts = field(formData, 'startsAt')
-    const length = field(formData, 'length')
-    const minutes = length === '' ? null : Number(length)
-    if (minutes !== null && (!Number.isInteger(minutes) || minutes < 0)) {
-      throw new ValidationError('Minutes are a whole number.')
-    }
+    const ends = field(formData, 'endsAt')
 
     const { meeting } = await logMeeting(db, actor, {
       contextId: await contextId(),
       title: field(formData, 'title') || undefined,
       startsAt: starts === '' ? null : fromLocalInput(starts, user.timeZone),
-      minutes,
+      endsAt: starts === '' || ends === '' ? null : fromLocalInput(ends, user.timeZone),
       personIds: [...new Set(personIds)],
       groupId: field(formData, 'groupId') || null,
       projectIds: values(formData, 'projectIds'),
@@ -150,9 +148,37 @@ export async function reprocessAction(formData: FormData): Promise<ActionResult>
 export async function moveNoteAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     const note = await getNote(db, field(formData, 'noteId'))
-    await ownMeeting(note.meetingId)
+    await ownMeeting(meetingOf(note))
     const to = await ownMeeting(field(formData, 'meetingId'))
     await moveNote(db, actor, note.id, to.id)
+  })
+}
+
+// ─── the Inbox ───────────────────────────────────────────────────────────────
+
+/*
+ * A held note belongs to no context, so these two take any note that is still
+ * unfiled; one already filed is refused by the domain functions. Filing goes
+ * where the form says, the selected context unless another is picked, and
+ * then follows the note to its review there.
+ */
+
+export async function fileNoteAction(formData: FormData): Promise<ActionResult> {
+  let to = { contextId: '', meetingId: '' }
+  const result = await act(async (actor) => {
+    const chosen = field(formData, 'contextId') || (await contextId())
+    const { meetingId } = await fileHeldNote(db, actor, field(formData, 'noteId'), chosen)
+    to = { contextId: chosen, meetingId }
+    processSoon()
+  })
+  if (result.error) return result
+  ;(await cookies()).set(CONTEXT_COOKIE, to.contextId, contextCookieOptions)
+  redirect(`/meetings/${to.meetingId}/review`)
+}
+
+export async function dismissNoteAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await dismissHeldNote(db, actor, field(formData, 'noteId'))
   })
 }
 

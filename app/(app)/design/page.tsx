@@ -4,6 +4,8 @@ import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
+import { UnfiledCard } from '@/components/meetings/UnfiledCard'
+import { WhenInputs } from '@/components/meetings/WhenInputs'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
@@ -306,6 +308,40 @@ export default function DesignPage() {
         </CardGrid>
       </Section>
 
+      <Section title="Unfiled">
+        <CardGrid>
+          <UnfiledCard
+            note={{
+              id: '00000000-0000-4000-8000-000000000000',
+              title: 'Corridor chat',
+              startsAt: new Date('2026-10-01T15:00:00Z'),
+              endsAt: null,
+              attendees: [{ email: 'sarah@example.test', name: 'Sarah Jones' }],
+              receivedAt: new Date('2026-10-01T15:40:00Z'),
+            }}
+            contexts={[
+              { id: 'a', name: 'Parish' },
+              { id: 'b', name: 'Diocese' },
+            ]}
+            current="a"
+            timeZone={null}
+          />
+          <UnfiledCard
+            note={{
+              id: '00000000-0000-4000-8000-000000000001',
+              title: null,
+              startsAt: null,
+              endsAt: null,
+              attendees: [],
+              receivedAt: new Date('2026-10-01T15:40:00Z'),
+            }}
+            contexts={[{ id: 'a', name: 'Parish' }]}
+            current="a"
+            timeZone={null}
+          />
+        </CardGrid>
+      </Section>
+
       <Section title="Form">
         <Card padding="md" className="max-w-xl">
           <div className="flex flex-col gap-4">
@@ -324,6 +360,7 @@ export default function DesignPage() {
             <Field label="Detail">
               <Textarea name="detail" rows={3} />
             </Field>
+            <WhenInputs starts="2026-10-07T09:00" ends="2026-10-09T17:00" />
           </div>
         </Card>
       </Section>

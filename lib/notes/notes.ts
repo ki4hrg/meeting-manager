@@ -5,6 +5,10 @@
  * A note belongs to one meeting and a meeting can hold several. Its content
  * hash is what a processing run is keyed on, so saving the same content twice
  * changes nothing and asks for no new run.
+ *
+ * A Granola note from a folder that feeds no context arrives unfiled: no
+ * meeting, so no context, and nothing is run on it. It waits in the Inbox
+ * until John files it (`lib/connect/granola/unfiled.ts`).
  */
 
 import { createHash } from 'node:crypto'
@@ -16,12 +20,15 @@ import {
   type ActorContext,
   type Executor,
 } from '../core/types'
-import { meetings, notes, proposals, type NoteAttendee } from '../db/schema'
+import { meetings, notes, proposals, type NoteAttendee, type NoteFiling } from '../db/schema'
 
 export type Note = typeof notes.$inferSelect
 
 export type NoteInput = {
-  meetingId: string
+  /** Null holds the note unfiled. */
+  meetingId: string | null
+  /** When it was and which event it recorded, for filing it later. */
+  filing?: NoteFiling | null
   source: 'pasted' | 'granola'
   externalId?: string | null
   title?: string | null
@@ -50,19 +57,27 @@ export function hashNote(input: {
     .digest('hex')
 }
 
+/** The meeting a note is filed on. Nothing is done to an unfiled note until it is filed. */
+export function meetingOf(note: Pick<Note, 'meetingId'>): string {
+  if (!note.meetingId) throw new ValidationError('That note is not filed yet.')
+  return note.meetingId
+}
+
 export async function getNote(exec: Executor, id: string): Promise<Note> {
   const [row] = await exec.select().from(notes).where(eq(notes.id, id)).limit(1)
   if (!row) throw new NotFoundError('Note', id)
   return row
 }
 
+export type FiledNote = Note & { meetingId: string }
+
 /** A meeting's notes, oldest first. */
-export async function listNotes(exec: Executor, meetingId: string): Promise<Note[]> {
-  return exec
+export async function listNotes(exec: Executor, meetingId: string): Promise<FiledNote[]> {
+  return (await exec
     .select()
     .from(notes)
     .where(eq(notes.meetingId, meetingId))
-    .orderBy(asc(notes.createdAt), asc(notes.id))
+    .orderBy(asc(notes.createdAt), asc(notes.id))) as FiledNote[]
 }
 
 /** The note Granola knows by this id, wherever it is filed. */
@@ -86,7 +101,8 @@ export async function findNoteByExternalId(
  * new row.
  *
  * A note that already exists stays on the meeting it is filed on, whatever
- * `meetingId` says: John may have moved it to a session since it arrived.
+ * `meetingId` says: John may have moved it to a session since it arrived. An
+ * unfiled one is filed by a `meetingId`, and otherwise stays unfiled.
  */
 export async function saveNote(
   exec: Executor,
@@ -109,10 +125,14 @@ export async function saveNote(
     const existing = externalId ? await findNoteByExternalId(tx, input.source, externalId) : null
 
     if (existing) {
-      if (existing.contentHash === contentHash) return { note: existing, changed: false }
+      const filing = existing.meetingId === null && input.meetingId !== null
+      if (filing) await assertMeeting(tx, input.meetingId!)
+      if (existing.contentHash === contentHash && !filing) return { note: existing, changed: false }
       const [note] = await tx
         .update(notes)
         .set({
+          ...(filing ? { meetingId: input.meetingId, dismissedAt: null } : {}),
+          ...(existing.meetingId === null && input.filing ? { filing: input.filing } : {}),
           ...content,
           contentHash,
           title: blankToNull(input.title) ?? existing.title,
@@ -124,17 +144,13 @@ export async function saveNote(
       return { note: note!, changed: true }
     }
 
-    const [meeting] = await tx
-      .select({ id: meetings.id })
-      .from(meetings)
-      .where(eq(meetings.id, input.meetingId))
-      .limit(1)
-    if (!meeting) throw new NotFoundError('Meeting', input.meetingId)
+    if (input.meetingId !== null) await assertMeeting(tx, input.meetingId)
 
     const [note] = await tx
       .insert(notes)
       .values({
         meetingId: input.meetingId,
+        filing: input.filing ?? null,
         source: input.source,
         externalId,
         title: blankToNull(input.title),
@@ -146,6 +162,15 @@ export async function saveNote(
       .returning()
     return { note: note!, changed: true }
   })
+}
+
+async function assertMeeting(exec: Executor, meetingId: string) {
+  const [meeting] = await exec
+    .select({ id: meetings.id })
+    .from(meetings)
+    .where(eq(meetings.id, meetingId))
+    .limit(1)
+  if (!meeting) throw new NotFoundError('Meeting', meetingId)
 }
 
 /**
@@ -168,12 +193,13 @@ export async function moveNote(
   return inTransaction(exec, async (tx) => {
     const note = await getNote(tx, noteId)
     if (note.meetingId === meetingId) return note
+    const fromId = meetingOf(note)
 
     const rows = await tx
       .select({ id: meetings.id, parentMeetingId: meetings.parentMeetingId })
       .from(meetings)
-      .where(inArray(meetings.id, [note.meetingId, meetingId]))
-    const from = rows.find((row) => row.id === note.meetingId)
+      .where(inArray(meetings.id, [fromId, meetingId]))
+    const from = rows.find((row) => row.id === fromId)
     const to = rows.find((row) => row.id === meetingId)
     if (!to) throw new NotFoundError('Meeting', meetingId)
     if (!from || (from.parentMeetingId ?? from.id) !== (to.parentMeetingId ?? to.id)) {
@@ -194,7 +220,7 @@ export async function moveNote(
       .where(
         and(
           eq(proposals.noteId, noteId),
-          eq(proposals.meetingId, note.meetingId),
+          eq(proposals.meetingId, fromId),
           ne(proposals.status, 'accepted'),
         ),
       )

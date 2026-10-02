@@ -2,6 +2,24 @@
 
 Updated 2026-10-02. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
 
+## Usability gaps before phase 4 (2026-10-02)
+
+Three gaps John raised after using phase 3. On branch `claude/festive-clarke-eiv954`, not yet deployed. Migration `0005` adds `agenda_lines.description` and `leader_person_id`, makes `notes.meeting_id` nullable, and adds `notes.filing` and `notes.dismissed_at`.
+
+- **Agenda lines carry a description and a leader.** The description is public: it goes out in the agenda copy and the brief, under the line, while the private note stays in the brief only. The leader is any person in the directory, John included ("Me" on screen), and follows the line text as `— Name`. A section has neither. Edited in the line's modal; over MCP as `description` and `leader` on `set_agenda` and `edit_agenda`. Not yet in the recap.
+- **The Inbox holds Granola notes that no folder filed.** A note in no bound folder, or in folders bound to two contexts, used to be dropped. Now it is filed on the meeting already made for its calendar event if there is one (in whichever context), and otherwise saved with no meeting: no context, no run. The Inbox lists these under Meetings whichever context is selected, and the home tile counts them. File puts one in a context (the selected one, or a pick when there are several), matching or making its meeting there exactly as a bound folder would, queues its run, and opens its review in that context. Dismiss hides it; a later delivery updates it without bringing it back, and binding its folder files it. The reconcile job now lists every recent note on the account, not just bound folders. MCP: `list_unfiled_notes`, `file_note` (`dismiss: true` to wave one away). Code: `lib/connect/granola/unfiled.ts`, `placeNote` in `ingest.ts`.
+- **Start and end, and sessions as a rollup.** Every meeting form (new, edit, session, Log) takes a start and an end instead of a start and minutes; moving the start carries the end, and a start with no end gets an hour. A meeting with sessions is their rollup: its times span its dated sessions (`syncSpan`, kept on every session write; setting the parent's own times is refused), its page lists each session with its own editable agenda instead of an agenda and suggestions of its own, Copy brief and Copy agenda give the sessions one after another, follow-ups and "since last time" read across its sessions, its lookahead does not list its own sessions, and an item aimed at it is placed on its next session that is not over. `prep_meeting` takes `session_of` to make a session over MCP.
+
+**Decisions made without John**
+
+- An unbound note whose calendar event already has a meeting is filed there without asking, in that meeting's context. Nothing looser (time, people) is used without a folder.
+- Unfiled notes show in every context's Inbox: they have no context, so nothing crosses. Only their title, time and attendees are shown before filing.
+- Filing a note opens its review rather than the meeting page.
+- A meeting's own agenda lines from before it had sessions stay and are shown above the sessions; nothing new is placed there.
+- The leader is a person, not a group or free text.
+
+**How it was checked:** `pnpm test` (551 tests, 35 files), `pnpm typecheck`, `pnpm lint`. A production build walked in Playwright in light, dark and phone width: the Inbox, filing into another context, the rollup page, the line modal, the session form's end following its start.
+
 ## Phase 3: complete
 
 Everything below was pushed to `main` on 2026-10-01 and deployed. John confirmed on 2026-10-02 that the deploy, a real Granola note, a real extraction and the extraction eval all check out. `pnpm test` passes (537 tests, 35 files); `pnpm typecheck` and `pnpm lint` are clean. Migrations `0003` and `0004` run at boot on deploy.
@@ -69,7 +87,6 @@ Phases 0, 1 and 2 are complete and deployed. The app is usable for capture and f
 - **A 1:1 places only `with` items.** `Q: … @bishop` in the top-bar quick-add makes the bishop the owner, so it is suggested in his 1:1, one click away, rather than placed. Captured from his page it is `with` and places itself. The spec says `with`; say if owner items should place themselves in a 1:1 too.
 - **Project suggestions include items raised with people who are not attending.** That is the spec's rule (project match). It may want narrowing.
 - **The brief marks kinds as `[question, Sarah]`,** not `Q:`, because `Q:`/`A:`/`D:` lines in Granola's notepad are parsed as new captures in phase 3.
-- **The meeting form takes a start and a length,** not an end time.
 - **`users.time_zone` cannot be set in the app.** It is null, so everything uses the process `TZ` (compose sets America/Chicago). A field on Settings is small.
 - **Quick-add no longer disables while saving** (a disabled submit swallowed Enter on fast entry). A tab closed within a moment of Enter could lose that line.
 - **Settings is linked twice,** from the context switcher and the account menu.

@@ -1,4 +1,10 @@
-/* Meetings: created lazily, stubs or dated, solo or multi-day sessions. */
+/*
+ * Meetings: created lazily, stubs or dated, solo or multi-day sessions.
+ *
+ * A meeting with sessions is their rollup: it runs from its first dated
+ * session's start to its last one's end, and its times follow theirs rather
+ * than being set on it.
+ */
 
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import {
@@ -38,7 +44,7 @@ export type MeetingView = {
   blocks: BlockSettings
   people: { id: string; name: string }[]
   projects: { id: string; name: string }[]
-  sessions: { id: string; title: string; startsAt: Date | null }[]
+  sessions: { id: string; title: string; startsAt: Date | null; endsAt: Date | null }[]
 }
 
 // ─── reading ─────────────────────────────────────────────────────────────────
@@ -98,6 +104,7 @@ async function loadViews(
       id: meetings.id,
       title: meetings.title,
       startsAt: meetings.startsAt,
+      endsAt: meetings.endsAt,
       parentMeetingId: meetings.parentMeetingId,
     })
     .from(meetings)
@@ -120,10 +127,10 @@ async function loadViews(
     byMeetingProjects.set(row.meetingId, list)
   }
 
-  const byParent = new Map<string, { id: string; title: string; startsAt: Date | null }[]>()
+  const byParent = new Map<string, MeetingView['sessions']>()
   for (const row of sessionRows) {
     const list = byParent.get(row.parentMeetingId!) ?? []
-    list.push({ id: row.id, title: row.title, startsAt: row.startsAt })
+    list.push({ id: row.id, title: row.title, startsAt: row.startsAt, endsAt: row.endsAt })
     byParent.set(row.parentMeetingId!, list)
   }
 
@@ -161,6 +168,37 @@ export function isOver(
   if (!meeting.startsAt) return false
   const end = meeting.endsAt ?? new Date(meeting.startsAt.getTime() + DEFAULT_MINUTES * 60_000)
   return end < now
+}
+
+/**
+ * Set a meeting's times to span its dated sessions. A meeting whose sessions
+ * are all undated, or that has none, keeps its own.
+ */
+export async function syncSpan(exec: Executor, meetingId: string): Promise<void> {
+  const [span] = await exec
+    .select({
+      startsAt: sql<Date | null>`min(${meetings.startsAt})`.mapWith(meetings.startsAt),
+      endsAt: sql<Date | null>`max(coalesce(${meetings.endsAt}, ${meetings.startsAt} + interval '${sql.raw(String(DEFAULT_MINUTES))} minutes'))`.mapWith(
+        meetings.endsAt,
+      ),
+    })
+    .from(meetings)
+    .where(and(eq(meetings.parentMeetingId, meetingId), sql`${meetings.startsAt} is not null`))
+  if (!span?.startsAt) return
+  await exec
+    .update(meetings)
+    .set({ startsAt: span.startsAt, endsAt: span.endsAt, updatedAt: new Date() })
+    .where(eq(meetings.id, meetingId))
+}
+
+/* Whether a meeting has a dated session, and so takes its times from them. */
+async function hasDatedSessions(exec: Executor, meetingId: string): Promise<boolean> {
+  const [row] = await exec
+    .select({ id: meetings.id })
+    .from(meetings)
+    .where(and(eq(meetings.parentMeetingId, meetingId), sql`${meetings.startsAt} is not null`))
+    .limit(1)
+  return Boolean(row)
 }
 
 export async function getMeeting(exec: Executor, id: string): Promise<MeetingView> {
@@ -455,6 +493,7 @@ export async function createMeeting(
       )
     }
 
+    if (input.parentMeetingId) await syncSpan(tx, input.parentMeetingId)
     return getMeeting(tx, m!.id)
   })
 }
@@ -494,6 +533,10 @@ export async function updateMeeting(
   if (start && end && end < start) {
     throw new ValidationError('End time must not be before start time.')
   }
+  const timed = input.startsAt !== undefined || input.endsAt !== undefined
+  if (timed && (await hasDatedSessions(exec, id))) {
+    throw new ValidationError('This meeting runs when its sessions do. Change their times instead.')
+  }
 
   const patch: Partial<typeof meetings.$inferInsert> = {}
 
@@ -508,12 +551,14 @@ export async function updateMeeting(
   if (input.groupId !== undefined) patch.groupId = input.groupId
   if (input.blocks !== undefined) patch.blocks = input.blocks
 
-  await exec
-    .update(meetings)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(meetings.id, id))
-
-  return getMeeting(exec, id)
+  return inTransaction(exec, async (tx) => {
+    await tx
+      .update(meetings)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(meetings.id, id))
+    if (timed && m.parentMeetingId) await syncSpan(tx, m.parentMeetingId)
+    return getMeeting(tx, id)
+  })
 }
 
 export async function setMeetingPeople(
@@ -604,12 +649,14 @@ export async function attachToEvent(
   if (input.endsAt !== undefined) patch.endsAt = input.endsAt
   if (input.seriesId !== undefined) patch.seriesId = input.seriesId
 
-  await exec
-    .update(meetings)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(meetings.id, id))
-
-  return getMeeting(exec, id)
+  return inTransaction(exec, async (tx) => {
+    await tx
+      .update(meetings)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(meetings.id, id))
+    if (m.parentMeetingId) await syncSpan(tx, m.parentMeetingId)
+    return getMeeting(tx, id)
+  })
 }
 
 export async function detachFromEvent(
@@ -632,10 +679,13 @@ export async function deleteMeeting(
   _actor: ActorContext,
   id: string,
 ): Promise<void> {
-  await getMeeting(exec, id)
-  await exec.delete(meetings).where(eq(meetings.id, id))
-  /* Cascade deletes sessions via parent_meeting_id, and sets item.target_meeting_id and
-     item.origin_meeting_id to null via the foreign key's onDelete: 'set null' */
+  const m = await getMeeting(exec, id)
+  await inTransaction(exec, async (tx) => {
+    await tx.delete(meetings).where(eq(meetings.id, id))
+    /* Cascade deletes sessions via parent_meeting_id, and sets item.target_meeting_id and
+       item.origin_meeting_id to null via the foreign key's onDelete: 'set null' */
+    if (m.parentMeetingId) await syncSpan(tx, m.parentMeetingId)
+  })
 }
 
 export async function previousOccurrence(

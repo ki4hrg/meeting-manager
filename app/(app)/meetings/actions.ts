@@ -64,14 +64,18 @@ function minutesFrom(value: string): number | null {
   return minutes
 }
 
-/* When a meeting form says it starts and how long it runs, in the user's zone.
-   No start is an undated stub, and a stub has no end. */
+/* When a meeting form says it starts and ends, in the user's zone. No start is
+   an undated stub, and a stub has no end. A form with no times at all (a
+   meeting whose sessions say when it is) changes neither. */
 function timesFrom(formData: FormData, timeZone: string | null) {
+  if (!formData.has('startsAt')) return {}
   const value = field(formData, 'startsAt')
   if (value === '') return { startsAt: null, endsAt: null }
-  const startsAt = fromLocalInput(value, timeZone)
-  const length = minutesFrom(field(formData, 'length'))
-  return { startsAt, endsAt: length ? new Date(startsAt.getTime() + length * 60_000) : null }
+  const end = field(formData, 'endsAt')
+  return {
+    startsAt: fromLocalInput(value, timeZone),
+    endsAt: end === '' ? null : fromLocalInput(end, timeZone),
+  }
 }
 
 // ─── meetings ────────────────────────────────────────────────────────────────
@@ -276,7 +280,9 @@ export async function updateLineAction(formData: FormData): Promise<ActionResult
   return act(async (actor) => {
     await updateLine(db, actor, field(formData, 'id'), {
       text: field(formData, 'text'),
-      // A section has no private note, and its form sends none.
+      // A section has no description, leader or private note, and its form sends none.
+      ...(formData.has('description') ? { description: field(formData, 'description') } : {}),
+      ...(formData.has('leaderPersonId') ? { leaderPersonId: field(formData, 'leaderPersonId') || null } : {}),
       ...(formData.has('privateNote') ? { privateNote: field(formData, 'privateNote') } : {}),
       ...(formData.has('minutes') ? { minutes: minutesFrom(field(formData, 'minutes')) } : {}),
       pinnedStart: field(formData, 'pinnedStart') || null,

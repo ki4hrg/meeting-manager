@@ -19,7 +19,7 @@ import {
   type ActorContext,
   type Executor,
 } from '../core/types'
-import { agendaLines, itemEvents, items, meetingDismissals, meetings } from '../db/schema'
+import { agendaLines, itemEvents, items, meetingDismissals, meetings, people } from '../db/schema'
 import { listItems, type ItemView } from '../items/items'
 import { parseOutline } from './outline'
 import { parseClock, scheduleAgenda } from './schedule'
@@ -29,6 +29,8 @@ export type AgendaLine = {
   text: string // what to show: the override text, else the item's text
   ownText: string | null // the override as stored (null on an item line with no override)
   item: ItemView | null // the live item, when the line references one
+  description: string | null // public: goes out with the agenda
+  leader: { id: string; name: string; isSelf: boolean } | null
   privateNote: string | null
   minutes: number | null
   pinnedStart: string | null // 'HH:MM'
@@ -90,6 +92,17 @@ export async function getAgenda(
     ]),
   )
 
+  const leaderIds = [...new Set(rows.flatMap((row) => (row.leaderPersonId ? [row.leaderPersonId] : [])))]
+  const leaders = new Map(
+    (leaderIds.length === 0
+      ? []
+      : await exec
+          .select({ id: people.id, name: people.name, isSelf: people.isSelf })
+          .from(people)
+          .where(inArray(people.id, leaderIds))
+    ).map((person) => [person.id, person]),
+  )
+
   const discussed = new Set(
     itemIds.length === 0
       ? []
@@ -115,6 +128,8 @@ export async function getAgenda(
       text: row.text ?? item?.text ?? '',
       ownText: row.text,
       item,
+      description: row.description,
+      leader: row.leaderPersonId ? (leaders.get(row.leaderPersonId) ?? null) : null,
       privateNote: row.privateNote,
       minutes: row.minutes,
       pinnedStart: row.pinnedStart,
@@ -235,6 +250,12 @@ async function assertSectionOf(exec: Executor, sectionId: string, meetingId: str
   }
 }
 
+/* A leader is anyone in the directory: people are global, so no context check. */
+async function assertPerson(exec: Executor, personId: string) {
+  const [person] = await exec.select({ id: people.id }).from(people).where(eq(people.id, personId)).limit(1)
+  if (!person) throw new NotFoundError('Person', personId)
+}
+
 // ─── writing ─────────────────────────────────────────────────────────────────
 
 /** Add a section. Returns its id. */
@@ -265,6 +286,8 @@ export async function addLine(
     text?: string | null
     itemId?: string
     sectionId?: string | null
+    description?: string | null
+    leaderPersonId?: string | null
     privateNote?: string | null
     minutes?: number | null
     position?: number
@@ -281,6 +304,7 @@ export async function addLine(
   return inTransaction(exec, async (tx) => {
     const meeting = await loadMeeting(tx, meetingId)
     if (sectionId) await assertSectionOf(tx, sectionId, meetingId)
+    if (input.leaderPersonId) await assertPerson(tx, input.leaderPersonId)
 
     if (itemId) {
       const [item] = await tx
@@ -312,6 +336,8 @@ export async function addLine(
         sectionId,
         text,
         itemId: itemId ?? null,
+        description: input.description?.trim() || null,
+        leaderPersonId: input.leaderPersonId || null,
         privateNote: input.privateNote?.trim() || null,
         minutes: input.minutes ?? null,
       },
@@ -331,6 +357,8 @@ export async function updateLine(
   lineId: string,
   input: {
     text?: string | null
+    description?: string | null
+    leaderPersonId?: string | null
     privateNote?: string | null
     minutes?: number | null
     pinnedStart?: string | null
@@ -352,6 +380,15 @@ export async function updateLine(
       }
       if (!text && !row.itemId) throw new ValidationError('Enter some text.')
       patch.text = text
+    }
+    const lineOnly = input.description != null || input.leaderPersonId != null
+    if (row.isSection && lineOnly) {
+      throw new ValidationError('A section has a title, minutes and a pinned start, nothing else.')
+    }
+    if (input.description !== undefined) patch.description = input.description?.trim() || null
+    if (input.leaderPersonId !== undefined) {
+      if (input.leaderPersonId) await assertPerson(tx, input.leaderPersonId)
+      patch.leaderPersonId = input.leaderPersonId || null
     }
     if (input.privateNote !== undefined) patch.privateNote = input.privateNote?.trim() || null
     if (input.minutes !== undefined) {

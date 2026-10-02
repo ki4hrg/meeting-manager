@@ -47,7 +47,7 @@ A single `items` table. Only `context` and `text` are required.
 - **`item_parties`**: a person or a group, with role `owner` (owes the action/answer) or `with` (raise it with them; on an item John owns, the party it is owed to). Several allowed.
 - **`item_events`** logs every step: created, discussed in meeting X, note added, converted, answered, completed, spawned. A topic discussed but unfinished stays open with a "discussed" event.
 - Questions and actions share one shape and appear together in a single "owed" list per person, group and project.
-- Items with no party, project or target sit in a per-context **Inbox**.
+- Items with no party, project or target sit in a per-context **Inbox**. The Inbox also holds the Granola notes no folder filed (see Drop-ins): they belong to no context until filed, so they show whichever context is selected.
 
 ### People, groups, contexts
 
@@ -81,12 +81,13 @@ The bishop case: capture "ask @bishop about X" over several weeks. The bishop's 
 
 - Google Calendar is a read-only feed. A meeting row exists only when John preps it, a note arrives for it, or he logs it by hand.
 - `series` holds a roster, default projects, group, a standing agenda skeleton and generated-block defaults. A calendar recurring event maps to a series; a calendar maps to a context.
-- `parent_meeting_id` (one level) keeps multi-day sessions.
+- `parent_meeting_id` (one level) keeps multi-day sessions. *(2026-10-02)* A meeting with sessions is their rollup: its times span its dated sessions and are not set on it, its page shows each session's agenda in turn (no agenda or suggestions of its own), the brief and agenda copy are the sessions one after another, follow-ups and the recap draw on all its sessions, and an item aimed at it goes to its next session that is not over.
+- *(2026-10-02)* A meeting's time is a start and an end, not a start and a length; the end may be days later.
 - **Stub to calendar** *(review)*: an undated stub can be attached to a calendar event, and the tool suggests it when a new event's people match. Attendee matching uses the series roster as well as invitees, since in-person 1:1s often have none.
 - **Drop-ins** *(review)*:
   - A Granola note with no calendar match creates a meeting itself. If people or context are unknown, the review screen asks for them first, then runs matching against their open items.
   - **Log a meeting:** pick people, paste or type notes, and run the same processing. Covers unrecorded conversations and is the fallback if Granola fails.
-  - Notes outside mapped Granola folders are ignored; any auto-created meeting can be discarded.
+  - *(2026-10-02)* A note outside mapped Granola folders, or in folders mapped to two contexts, is filed on the meeting already made for its calendar event if there is one, wherever it is; otherwise it is held in the **Inbox**, in no context and unprocessed, until John files it into a context (which then matches or makes its meeting there as a mapped folder would) or dismisses it. Any auto-created meeting can be discarded.
   - A folder maps to a context, or to one project in it; a note from a project's folder puts that project on its meeting. A subfolder follows the nearest mapped folder above it.
 
 ### Tables (about 30)
@@ -107,7 +108,7 @@ One pipeline; every stage is optional, with no rail.
 | Export | Optional | Optional | Optional | Recap to attendees |
 
 - **Capture:** global quick-add (`@person #project`, kind prefix optional, everything optional) and MCP `capture_item`.
-- **Agenda:** two levels (section, line). A line is free text or a reference to a live item, with public text and a private note.
+- **Agenda:** two levels (section, line). A line is free text or a reference to a live item, with public text, a public description, a leader (any person, John included) and a private note. The description and leader go out in the brief and the agenda copy; the private note only in the brief.
 - **Timing (optional):** minutes per line, computed start times, pinned starts, overflow flagged.
 - **Generated blocks**, computed on render, defaults set on the series (on for project/committee meetings, off for 1:1s and drop-ins):
   - *Follow-ups due:* what attending people and groups owe, from placed items.
@@ -195,7 +196,7 @@ Deploy per the global notes: image built in Actions and pushed to GHCR, compose 
 8. **Series aligned with recurring meetings** *(asked for 2026-10-01)*. Today a series and a calendar recurring event are joined only when "make a series" is pressed on one of the event's occurrences (`series.calendar_series_id`); a series made by hand never finds its calendar event, and a recurring event never suggests its series. To think through: offering a series for a recurring event the first time it is prepped; linking an existing series to a recurring event; whether the roster and the title follow the calendar or stay John's; what a changed or split recurrence (Google issues a new recurring id) does to the link; and whether a series' "next" comes from the calendar rather than from the last meeting row.
 9. **Gaps noted in use** *(John, 2026-10-01)*.
    - **Adding attendees to a meeting.** A meeting's people should be editable after it is made: add or remove a participant on the meeting page, including someone not yet in the directory. To settle: whether a change on one occurrence is offered to the series roster, and whether people added by hand survive a calendar event whose invitees differ.
-   - **A public description on agenda lines.** A line has its text and a private note only John sees; there is nowhere for detail the attendees should read. Add a public description that goes out in the agenda and the recap, kept apart from the private note, which still never leaves.
+   - **A public description on agenda lines.** *Done 2026-10-02, with a leader per line; it goes out in the agenda and the brief, not yet the recap.* A line has its text and a private note only John sees; there is nowhere for detail the attendees should read. Add a public description that goes out in the agenda and the recap, kept apart from the private note, which still never leaves.
    - **Markdown in long text.** Description and long-text fields generally (item detail, resolution, project description, agenda line description and private note, documents, notes) should accept Markdown and render it, with one renderer shared by the screens and by the brief, agenda and recap exports.
 10. **Installable as a PWA** *(John, 2026-10-01)*. A web app manifest (name, icons, theme colours for light and dark, standalone display) and a service worker, so the app installs to a phone's home screen and a desktop dock and opens without browser chrome. To settle: what, if anything, works offline (the minimum is an offline page; capture queued offline is a larger piece), and whether quick-add gets a home-screen shortcut or share target.
 11. **Later:** Google Doc publish and comment harvesting, Gmail drafts, per-meeting block toggles, group list addresses, a clock-only companion view.

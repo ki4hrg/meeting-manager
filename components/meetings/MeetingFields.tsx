@@ -1,6 +1,7 @@
 import { CheckList } from '@/components/ui/CheckList'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { toLocalInput } from '@/lib/core/dates'
+import { WhenInputs } from './WhenInputs'
 
 type Option = { id: string; name: string }
 
@@ -21,7 +22,7 @@ type Current = {
   series: Option | null
 }
 
-/** When a meeting is: a start on the user's clock and a length. Both empty is an undated stub. */
+/** When a meeting is: a start and an end on the user's clock. Both empty is an undated stub. */
 export function WhenFields({
   startsAt,
   endsAt,
@@ -31,20 +32,11 @@ export function WhenFields({
   endsAt?: Date | null
   timeZone: string | null
 }) {
-  const length = startsAt && endsAt ? Math.round((endsAt.getTime() - startsAt.getTime()) / 60_000) : ''
   return (
-    <div className="grid grid-cols-[1fr_6rem] gap-3">
-      <Field label="Starts">
-        <Input
-          name="startsAt"
-          type="datetime-local"
-          defaultValue={startsAt ? toLocalInput(startsAt, timeZone) : ''}
-        />
-      </Field>
-      <Field label="Minutes">
-        <Input name="length" type="number" min={0} step={5} inputMode="numeric" defaultValue={length} />
-      </Field>
-    </div>
+    <WhenInputs
+      starts={startsAt ? toLocalInput(startsAt, timeZone) : ''}
+      ends={endsAt ? toLocalInput(endsAt, timeZone) : ''}
+    />
   )
 }
 
@@ -53,17 +45,20 @@ export function MeetingFields({
   meeting,
   choices,
   timeZone,
+  timed = true,
 }: {
   meeting?: Current
   choices: MeetingChoices
   timeZone: string | null
+  /** False for a meeting whose sessions say when it is. */
+  timed?: boolean
 }) {
   return (
     <>
       <Field label="Title" required={Boolean(meeting)}>
         <Input name="title" defaultValue={meeting?.title ?? ''} required={Boolean(meeting)} />
       </Field>
-      <WhenFields startsAt={meeting?.startsAt} endsAt={meeting?.endsAt} timeZone={timeZone} />
+      {timed ? <WhenFields startsAt={meeting?.startsAt} endsAt={meeting?.endsAt} timeZone={timeZone} /> : null}
 
       {/* The same pickers as a series' roster and projects. Empty lists draw nothing. */}
       <CheckList

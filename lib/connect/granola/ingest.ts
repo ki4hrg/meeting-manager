@@ -4,15 +4,17 @@
  *
  * In order, and the order is the design:
  *
- *   1. **Which context.** Only the folder says: the note's folders, or the
- *      nearest folder above each, are looked up in this account's bindings. No
- *      bound folder and the note is ignored, unread. Folders bound to two
- *      contexts and it is left where it is, for John to sort out in Granola.
- *      Everything after this step looks inside that one context and nowhere
- *      else. A folder bound to a project also names that project.
- *   2. **Already here.** A note Granola has sent before is updated where it is
+ *   1. **Already here.** A note Granola has sent before is updated where it is
  *      filed, whatever else has changed since: John may have moved it to a
- *      session, or moved its meeting.
+ *      session, or moved its meeting, or filed it from the Inbox.
+ *   2. **Which context.** Only the folder says: the note's folders, or the
+ *      nearest folder above each, are looked up in this account's bindings.
+ *      Everything after this step looks inside that one context and nowhere
+ *      else. A folder bound to a project also names that project. A note in no
+ *      bound folder, or in folders bound to two contexts, is filed only on the
+ *      meeting John already made for its calendar event, wherever that is;
+ *      failing that it is held unfiled, in no context, for the Inbox, and
+ *      nothing is run on it until John files it there.
  *   3. **Its calendar event.** The meeting that holds the same event id.
  *   4. **Its time.** Failing that, the one meeting that was going on when the
  *      note was started and whose people do not contradict the note's.
@@ -27,6 +29,9 @@
  * made for it. The same content twice saves nothing and queues nothing; edited
  * content is a new version and a new run. Nothing is processed here: the
  * caller kicks the job.
+ *
+ * Filing a held note from the Inbox runs steps 3 to 5 in the context John
+ * picks, from what was kept on the note when it arrived (`unfiled.ts`).
  *
  * Matching is deliberately narrow. A note filed on the wrong meeting cannot be
  * taken off it, while a drop-in made in error can simply be deleted.
@@ -43,6 +48,7 @@ import {
   people,
   personEmails,
   type NoteAttendee,
+  type NoteFiling,
 } from '../../db/schema'
 import { meetingFromNote } from '../../meetings/prep'
 import { findSeriesByCalendar } from '../../meetings/series'
@@ -73,15 +79,22 @@ export type IngestOutcome =
       /** A processing run was queued, so the job is worth kicking. */
       queued: boolean
     }
-  | { kind: 'ignored'; reason: 'unbound' | 'ambiguous' | 'empty' }
+  | {
+      /** In the Inbox, unfiled: its folders name no one context. */
+      kind: 'held'
+      noteId: string
+      reason: 'unbound' | 'ambiguous'
+      changed: boolean
+    }
+  | { kind: 'ignored'; reason: 'empty' }
 
 /** The sentence kept on the delivery. */
 export function describeOutcome(outcome: IngestOutcome): string {
-  if (outcome.kind === 'ignored') {
+  if (outcome.kind === 'ignored') return 'The note has nothing in it yet.'
+  if (outcome.kind === 'held') {
     return {
-      unbound: 'The note is in no folder that feeds a context.',
-      ambiguous: 'The note is in folders that feed different contexts.',
-      empty: 'The note has nothing in it yet.',
+      unbound: 'In the Inbox: the note is in no folder that feeds a context.',
+      ambiguous: 'In the Inbox: the note is in folders that feed different contexts.',
     }[outcome.reason]
   }
   if (!outcome.changed) return 'Already held, unchanged.'
@@ -195,10 +208,9 @@ function namedAttendees(note: GranolaNote): NoteAttendee[] {
   return [...byEmail.values()]
 }
 
-/* The note's people who are already in the directory, without John: he is at
-   every meeting and never a row on one. */
-async function knownPeople(exec: Executor, note: GranolaNote): Promise<string[]> {
-  const emails = attendeesOf(note)
+/* The people at these addresses who are already in the directory, without
+   John: he is at every meeting and never a row on one. */
+export async function knownPeople(exec: Executor, emails: string[]): Promise<string[]> {
   if (emails.length === 0) return []
   const rows = await exec
     .select({ personId: personEmails.personId })
@@ -217,6 +229,17 @@ function moment(value: string | null | undefined): Date | null {
 /** When the conversation began: the event's start, else when the note was started. */
 export function startedAt(note: GranolaNote): Date | null {
   return moment(note.calendar_event?.scheduled_start_time) ?? moment(note.created_at)
+}
+
+/** When the note says it was and which event it recorded: all that finding its meeting reads. */
+export function filingOf(note: GranolaNote, lines: GranolaTranscriptLine[]): NoteFiling {
+  const start = startedAt(note)
+  const end = moment(note.calendar_event?.scheduled_end_time) ?? moment(lines.at(-1)?.end_time)
+  return {
+    startsAt: start?.toISOString() ?? null,
+    endsAt: start && end && end > start ? end.toISOString() : null,
+    calendarEventId: note.calendar_event?.calendar_event_id?.trim() || null,
+  }
 }
 
 /* Who said each line, as well as Granola knows: a name, an anonymous label, or
@@ -260,10 +283,10 @@ type Target = { meetingId: string; via: 'event' | 'time' }
 async function findMeeting(
   exec: Executor,
   contextId: string,
-  note: GranolaNote,
+  filing: NoteFiling,
   personIds: string[],
 ): Promise<{ target: Target | null; eventTaken: boolean }> {
-  const eventId = note.calendar_event?.calendar_event_id?.trim() || null
+  const eventId = filing.calendarEventId
 
   let eventTaken = false
   if (eventId) {
@@ -280,7 +303,7 @@ async function findMeeting(
     eventTaken = !!held
   }
 
-  const start = startedAt(note)
+  const start = moment(filing.startsAt)
   if (!start) return { target: null, eventTaken }
 
   const under = await exec
@@ -337,7 +360,79 @@ export type IngestDeps = {
   loadTranscript: () => Promise<GranolaTranscriptLine[]>
 }
 
-function isUniqueViolation(err: unknown): boolean {
+/**
+ * The meeting a note goes on in this context: the one it records, or one made
+ * for it. The folders' projects join that meeting; a binding names a project
+ * of its own context, and the meeting is in that context.
+ */
+export async function placeNote(
+  tx: Executor,
+  actor: ActorContext,
+  input: {
+    contextId: string
+    projectIds: string[]
+    filing: NoteFiling
+    personIds: string[]
+    title: string | null
+  },
+): Promise<{ meetingId: string; via: 'event' | 'time' | 'new' }> {
+  const { contextId, filing, personIds } = input
+  let meetingId: string
+  let via: 'event' | 'time' | 'new'
+
+  const { target, eventTaken } = await findMeeting(tx, contextId, filing, personIds)
+  if (target) {
+    meetingId = target.meetingId
+    via = target.via
+  } else {
+    const start = moment(filing.startsAt) ?? new Date()
+    const eventId = filing.calendarEventId
+    /* The event becomes this meeting's only when no meeting anywhere has it;
+       its series comes along only when that series is here too. */
+    const claim = eventId && !eventTaken ? eventId : undefined
+    const recurring = claim ? OCCURRENCE.exec(claim)?.[1] : undefined
+    const series = recurring ? await findSeriesByCalendar(tx, recurring) : null
+
+    const end = moment(filing.endsAt)
+    const meeting = await meetingFromNote(tx, actor, {
+      contextId,
+      title: input.title,
+      startsAt: start,
+      endsAt: end && end > start ? end : null,
+      personIds,
+      calendarEventId: claim,
+      seriesId: series?.contextId === contextId ? series.id : undefined,
+    })
+    meetingId = meeting.id
+    via = 'new'
+  }
+
+  if (input.projectIds.length > 0) {
+    await tx
+      .insert(meetingProjects)
+      .values(input.projectIds.map((projectId) => ({ meetingId, projectId })))
+      .onConflictDoNothing()
+  }
+  return { meetingId, via }
+}
+
+/* The meeting already made for this calendar event, in whichever context. */
+async function meetingForEvent(exec: Executor, eventId: string | null): Promise<string | null> {
+  if (!eventId) return null
+  const [held] = await exec
+    .select({ id: meetings.id })
+    .from(meetings)
+    .where(eq(meetings.calendarEventId, eventId))
+    .limit(1)
+  return held?.id ?? null
+}
+
+/** One arrival of a note at a time; see `ingestNote`. */
+export async function lockNote(tx: Executor, externalId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`granola:${externalId}`}, 0))`)
+}
+
+export function isUniqueViolation(err: unknown): boolean {
   let current: unknown = err
   for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
     if ((current as Error & { code?: string }).code === '23505') return true
@@ -348,8 +443,8 @@ function isUniqueViolation(err: unknown): boolean {
 
 /**
  * File one note, as fetched. `deps` reach back to Granola for what the note
- * does not carry; the transcript is asked for only once the note is known to
- * belong somewhere.
+ * does not carry. Every note with something in it lands somewhere: on a
+ * meeting, or held in the Inbox.
  */
 export async function ingestNote(
   exec: Executor,
@@ -364,7 +459,6 @@ export async function ingestNote(
     note.folder_membership ?? [],
     deps.loadFolders,
   )
-  if (home.kind !== 'bound') return { kind: 'ignored', reason: home.kind }
 
   const lines = await deps.loadTranscript()
   const content = {
@@ -377,64 +471,43 @@ export async function ingestNote(
   if (!content.body && !content.summary && !content.transcript) {
     return { kind: 'ignored', reason: 'empty' }
   }
+  const filing = filingOf(note, lines)
+  const title = note.title?.trim() || note.calendar_event?.event_title?.trim() || null
 
   const file = () =>
     inTransaction(exec, async (tx): Promise<IngestOutcome> => {
-      let meetingId: string
-      let via: 'note' | 'event' | 'time' | 'new'
+      let meetingId: string | null = null
+      let via: 'note' | 'event' | 'time' | 'new' = 'note'
 
       /* One arrival of a note at a time. The webhook and the reconcile can
          both bring a new note at the same moment, and each would make a
          meeting for it before either could see the other's. Held until this
          commits, so the second looks only once the first has filed. */
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`granola:${note.id}`}, 0))`)
+      await lockNote(tx, note.id)
 
       const held = await findNoteByExternalId(tx, GRANOLA, note.id)
-      if (held) {
+      if (held?.meetingId) {
         meetingId = held.meetingId
-        via = 'note'
+      } else if (home.kind === 'bound') {
+        const placed = await placeNote(tx, actor, {
+          contextId: home.contextId,
+          projectIds: home.projectIds,
+          filing,
+          personIds: await knownPeople(tx, attendeesOf(note)),
+          title,
+        })
+        meetingId = placed.meetingId
+        via = placed.via
       } else {
-        const personIds = await knownPeople(tx, note)
-        const { target, eventTaken } = await findMeeting(tx, home.contextId, note, personIds)
-        if (target) {
-          meetingId = target.meetingId
-          via = target.via
-        } else {
-          const start = startedAt(note) ?? new Date()
-          const eventId = note.calendar_event?.calendar_event_id?.trim() || null
-          /* The event becomes this meeting's only when no meeting anywhere has
-             it; its series comes along only when that series is here too. */
-          const claim = eventId && !eventTaken ? eventId : undefined
-          const recurring = claim ? OCCURRENCE.exec(claim)?.[1] : undefined
-          const series = recurring ? await findSeriesByCalendar(tx, recurring) : null
-
-          const end =
-            moment(note.calendar_event?.scheduled_end_time) ?? moment(lines.at(-1)?.end_time)
-          const meeting = await meetingFromNote(tx, actor, {
-            contextId: home.contextId,
-            title: note.title?.trim() || note.calendar_event?.event_title?.trim() || null,
-            startsAt: start,
-            endsAt: end && end > start ? end : null,
-            personIds,
-            calendarEventId: claim,
-            seriesId: series?.contextId === home.contextId ? series.id : undefined,
-          })
-          meetingId = meeting.id
-          via = 'new'
-        }
-
-        /* The folder's projects join the meeting. A binding names a project of
-           its own context, and the meeting is in that context. */
-        if (home.projectIds.length > 0) {
-          await tx
-            .insert(meetingProjects)
-            .values(home.projectIds.map((projectId) => ({ meetingId, projectId })))
-            .onConflictDoNothing()
-        }
+        /* No folder says where. The meeting John made for this very event
+           says it instead; nothing looser than that does. */
+        meetingId = await meetingForEvent(tx, filing.calendarEventId)
+        via = 'event'
       }
 
       const saved = await saveNote(tx, actor, {
         meetingId,
+        filing,
         source: GRANOLA,
         externalId: note.id,
         title: note.title,
@@ -442,6 +515,16 @@ export async function ingestNote(
         externalUpdatedAt: moment(note.updated_at),
         attendees: namedAttendees(note),
       })
+
+      if (saved.note.meetingId === null) {
+        return {
+          kind: 'held',
+          noteId: saved.note.id,
+          reason: home.kind === 'ambiguous' ? 'ambiguous' : 'unbound',
+          changed: saved.changed,
+        }
+      }
+
       /* Asked for even when nothing changed: null when this version has its
          run, which is every time but the one where an earlier attempt saved
          the note and died before queueing. */
@@ -546,7 +629,7 @@ export async function completeDelivery(
       ? ['failed', result.failed]
       : 'ignored' in result
         ? ['ignored', result.ignored]
-        : [result.kind === 'filed' ? 'processed' : 'ignored', describeOutcome(result)]
+        : [result.kind === 'ignored' ? 'ignored' : 'processed', describeOutcome(result)]
 
   await exec
     .update(integrationEvents)

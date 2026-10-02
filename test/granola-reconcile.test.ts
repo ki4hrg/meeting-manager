@@ -41,7 +41,7 @@ describe('reconcile', () => {
     expect(summariseReconcile(result)).toBe('1 seen · 1 filed')
   })
 
-  it('asks only for bound folders, and never fetches a note outside them', async () => {
+  it('lists the whole account, and holds a note outside the bound folders for the Inbox', async () => {
     const { granola } = await setUp()
     const stray = noteId()
     const unfiled = noteId()
@@ -50,14 +50,20 @@ describe('reconcile', () => {
 
     const result = await reconcileGranola(db, now)
 
-    expect(result).toEqual({ seen: 0, filed: 0, queued: 0, failed: 0 })
-    expect(granola.calls).toHaveLength(1)
+    // Held, not filed on a meeting, and nothing queued.
+    expect(result).toEqual({ seen: 2, filed: 2, queued: 0, failed: 0 })
     const asked = new URL(`https://x${granola.calls[0]!.split(' ')[1]}`)
     expect(asked.pathname).toBe('/v1/notes')
-    expect(asked.searchParams.get('folder_id')).toBe(PARISH)
+    expect(asked.searchParams.get('folder_id')).toBeNull()
     expect(asked.searchParams.get('page_size')).toBe('30')
     expect(asked.searchParams.get('updated_after')).toBe(new Date(now.getTime() - LOOKBACK_MS).toISOString())
     expect(await db.select().from(meetings)).toEqual([])
+    expect((await db.select().from(notes)).map((row) => row.meetingId)).toEqual([null, null])
+
+    // A second pass finds both held as they stand.
+    granola.calls.length = 0
+    expect(await reconcileGranola(db, now)).toMatchObject({ seen: 2, filed: 0 })
+    expect(granola.calls).toHaveLength(1)
   })
 
   it('does not reach behind its window', async () => {
@@ -160,15 +166,16 @@ describe('reconcile', () => {
     expect(summariseReconcile(result)).toBe('1 seen · 1 filed · 1 failed')
   })
 
-  it('with no account, or no bound folder, asks Granola nothing', async () => {
+  it('with no account asks Granola nothing; with no bound folder it still looks', async () => {
     const granola = fakeGranola()
     expect(await reconcileGranola(db, now)).toEqual({ seen: 0, filed: 0, queued: 0, failed: 0 })
+    expect(granola.calls).toEqual([])
 
     await makeWorld()
     await connect()
     granola.calls.length = 0
     expect(await reconcileGranola(db, now)).toEqual({ seen: 0, filed: 0, queued: 0, failed: 0 })
-    expect(granola.calls).toEqual([])
+    expect(granola.calls).toHaveLength(1)
     expect(summariseReconcile({ seen: 0, filed: 0, queued: 0, failed: 0 })).toBe('Nothing new.')
   })
 

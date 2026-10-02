@@ -99,6 +99,8 @@ const agendaLineArg = z
     text: z.string().min(1).optional().describe('Free text, or the wording to show for an item.'),
     item_id: z.uuid().optional().describe('The item this line raises.'),
     minutes: minutes.optional(),
+    description: z.string().optional().describe('Public: goes out with the agenda.'),
+    leader: z.string().min(1).optional().describe('Who leads it: a person by name or id, or "me".'),
     private_note: z.string().optional(),
     pinned_start: pinnedStart.optional(),
   })
@@ -203,6 +205,8 @@ function lineOut(line: AgendaLine) {
     minutes: line.minutes,
     pinned_start: line.pinnedStart,
     start: line.start,
+    description: line.description,
+    leader: line.leader ? { id: line.leader.id, name: line.leader.name } : null,
     private_note: line.privateNote,
     ...(line.overrunMinutes ? { overrun_minutes: line.overrunMinutes } : {}),
   }
@@ -337,6 +341,8 @@ async function meetingView(exec: Executor, id: string, clock: Clock) {
         title: session.title,
         starts_at: session.startsAt?.toISOString() ?? null,
         starts_at_local: localOf(session.startsAt, clock),
+        ends_at: session.endsAt?.toISOString() ?? null,
+        ends_at_local: localOf(session.endsAt, clock),
       })),
       blocks: blocksOut(meeting.blocks),
     },
@@ -475,8 +481,10 @@ export const prepMeetingTool = defineTool({
     'series: its next occurrence, created with the standing agenda if nobody has prepped one. ' +
     'Otherwise a new meeting from title, starts_at, ends_at, people, projects, group and ' +
     'series (no starts_at makes a stub); this one creates a meeting on every call, so pass ' +
-    'idempotency_key. Items aimed at the meeting or its series are placed. Returns what ' +
-    'get_meeting returns.',
+    'idempotency_key. With session_of, that new meeting is a session of a multi-day meeting, ' +
+    "starting with its people, group and projects; the meeting's own times then span its " +
+    'sessions, and what is aimed at it goes on its next session. Items aimed at the meeting ' +
+    'or its series are placed. Returns what get_meeting returns.',
   scope: 'meetings:write',
   input: z.object({
     context: contextArg,
@@ -488,12 +496,36 @@ export const prepMeetingTool = defineTool({
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
     group: z.string().min(1).optional().describe('Group name or id.'),
+    session_of: z.uuid().optional().describe('The meeting this is a session of.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
     write(context, 'prep_meeting', input, async (tx) => {
       const { actor } = context
       const clock = await clockFor(tx, context)
+      if (input.session_of) {
+        if (input.person || input.series || input.context || input.group || input.people || input.projects) {
+          throw new ValidationError('A session takes a title and times; the rest comes from its meeting.')
+        }
+        if (!input.title) throw new ValidationError('A session needs a title.')
+        const parent = await getMeeting(tx, input.session_of)
+        const session = await prepMeeting(
+          tx,
+          actor,
+          {
+            contextId: parent.contextId,
+            parentMeetingId: parent.id,
+            title: input.title,
+            startsAt: input.starts_at ? momentFrom(input.starts_at, clock) : null,
+            endsAt: input.ends_at ? momentFrom(input.ends_at, clock) : null,
+            groupId: parent.group?.id,
+            personIds: parent.people.map((person) => person.id),
+            projectIds: parent.projects.map((project) => project.id),
+          },
+          clock.now,
+        )
+        return meetingView(tx, session.id, clock)
+      }
       const explicit =
         input.title !== undefined ||
         input.starts_at !== undefined ||
@@ -714,11 +746,14 @@ async function buildAgenda(
 
   const put = async (line: AgendaLineInput, sectionId: string | null) => {
     const existing = line.item_id ? placed.get(line.item_id) : undefined
+    const leaderPersonId = line.leader ? (await resolvePerson(tx, line.leader)).id : undefined
     if (existing) {
       // Already on the agenda: its line moves, keeping whatever is not restated.
       await moveLine(tx, actor, existing, { sectionId, position: LAST })
       await updateLine(tx, actor, existing, {
         text: line.text,
+        description: line.description,
+        leaderPersonId,
         privateNote: line.private_note,
         minutes: line.minutes,
         pinnedStart: line.pinned_start,
@@ -729,6 +764,8 @@ async function buildAgenda(
       text: line.text,
       itemId: line.item_id,
       sectionId,
+      description: line.description,
+      leaderPersonId,
       privateNote: line.private_note,
       minutes: line.minutes,
     })
@@ -755,7 +792,8 @@ export const setAgendaTool = defineTool({
     'Write a whole agenda in one call. Either outline: text as it was written, where headings ' +
     '(or top-level bullets) become sections, what is under them lines, a trailing number ' +
     'minutes ("Budget 15") and text under a line its private note. Or lines (loose, first) and ' +
-    'sections: [{ title, lines: [{ text, item_id, minutes, private_note, pinned_start }] }], ' +
+    'sections: [{ title, lines: [{ text, item_id, minutes, description, leader, private_note, ' +
+    'pinned_start }] }], ' +
     'where a line is free text, an item, or an item shown in other wording. replace (the ' +
     'default) clears the free-text lines and sections first; items already placed are never ' +
     'dropped: one named in the input moves to where it is named, the rest stay loose above. ' +
@@ -805,7 +843,7 @@ const EDIT_OPS = [
 
 type EditOp = (typeof EDIT_OPS)[number]
 
-const LINE_FIELDS = ['text', 'minutes', 'private_note', 'pinned_start'] as const
+const LINE_FIELDS = ['text', 'minutes', 'description', 'leader', 'private_note', 'pinned_start'] as const
 const EDIT_FIELDS = [
   'line_id',
   'item_id',
@@ -826,7 +864,7 @@ const EDIT_TAKES: Record<EditOp, { needs: EditField[]; allows: readonly EditFiel
   remove_line: { needs: ['line_id'], allows: [] },
   place_item: {
     needs: ['item_id'],
-    allows: ['section_id', 'position', 'minutes', 'private_note', 'pinned_start'],
+    allows: ['section_id', 'position', 'minutes', 'description', 'leader', 'private_note', 'pinned_start'],
   },
   dismiss_item: { needs: ['item_id'], allows: [] },
   restore_item: { needs: ['item_id'], allows: [] },
@@ -838,7 +876,8 @@ export const editAgendaTool = defineTool({
   description:
     'One small change to an agenda, chosen by op. add_line: text, or item_id, or both (the ' +
     'item in other wording); as_section makes it a section titled text. update_line: change ' +
-    'text, minutes, private_note or pinned_start of line_id (a section too); null clears. ' +
+    'text, minutes, description (public), leader (a person, or "me"), private_note or ' +
+    'pinned_start of line_id (a section takes text, minutes and pinned_start); null clears. ' +
     'move_line: line_id to position (0 is first; omitted is last) in section_id (null is the ' +
     'top level; omitted keeps where it is). remove_line: line_id; a section goes with its ' +
     'lines, and an item taken off is dismissed for this meeting. place_item: put item_id on ' +
@@ -856,6 +895,8 @@ export const editAgendaTool = defineTool({
     section_id: z.uuid().nullable().optional().describe('The section to put it in; null is the top level.'),
     position: z.number().int().min(0).optional().describe('Place among its siblings, from 0.'),
     minutes: minutes.nullable().optional(),
+    description: z.string().nullable().optional().describe('Public: goes out with the agenda.'),
+    leader: z.string().min(1).nullable().optional().describe('A person by name or id, or "me".'),
     private_note: z.string().nullable().optional(),
     pinned_start: pinnedStart.nullable().optional().describe('HH:MM: starts then, whatever precedes it.'),
     idempotency_key: idempotencyKey,
@@ -880,6 +921,11 @@ export const editAgendaTool = defineTool({
       }
 
       const lineFields = {
+        description: input.description,
+        leaderPersonId:
+          input.leader === undefined || input.leader === null
+            ? input.leader
+            : (await resolvePerson(tx, input.leader)).id,
         privateNote: input.private_note,
         minutes: input.minutes,
         pinnedStart: input.pinned_start,
@@ -900,7 +946,13 @@ export const editAgendaTool = defineTool({
 
       if (op === 'add_line') {
         if (input.as_section) {
-          if (input.item_id || input.section_id || input.private_note != null) {
+          if (
+            input.item_id ||
+            input.section_id ||
+            input.private_note != null ||
+            input.description != null ||
+            input.leader != null
+          ) {
             throw new ValidationError('A section has a title, minutes and a pinned start, nothing else.')
           }
           const sectionId = await addSection(tx, actor, id, {
@@ -918,6 +970,8 @@ export const editAgendaTool = defineTool({
             text: input.text,
             itemId: input.item_id,
             sectionId: input.section_id,
+            description: lineFields.description,
+            leaderPersonId: lineFields.leaderPersonId,
             privateNote: input.private_note,
             minutes: input.minutes,
             position: input.position,
@@ -933,6 +987,9 @@ export const editAgendaTool = defineTool({
         }
         if (row.isSection && input.private_note != null) {
           throw new ValidationError('A section has no private note.')
+        }
+        if (row.isSection && (input.description != null || input.leader != null)) {
+          throw new ValidationError('A section has a title, minutes and a pinned start, nothing else.')
         }
         await updateLine(tx, actor, row.id, { text: input.text, ...lineFields })
       } else if (op === 'move_line') {

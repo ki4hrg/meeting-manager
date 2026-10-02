@@ -6,6 +6,9 @@
  *   - Only open items in the meeting's own context are ever looked at.
  *   - Placed without asking: items aimed at this meeting or at its series, and,
  *     in a 1:1, what John wants to raise with the other person.
+ *   - A meeting with sessions has no agenda of its own to fill: nothing is
+ *     placed on it, and what is aimed at it goes to its next session, the
+ *     first one that is not over.
  *   - Suggested: items matched through one of the meeting's projects or its
  *     group. A person match alone is not enough in a larger meeting; those sit
  *     under "more" and are never placed for him.
@@ -15,6 +18,7 @@
  */
 
 import { and, asc, eq, gte, isNull, sql } from 'drizzle-orm'
+import { isOver } from '../meetings/meetings'
 import {
   NotFoundError,
   ValidationError,
@@ -73,6 +77,20 @@ async function isNextOccurrence(
   return next?.id === meeting.id
 }
 
+/* A meeting's sessions, in the order they run; the undated last. */
+async function sessionsOf(exec: Executor, meetingId: string) {
+  return exec
+    .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt })
+    .from(meetings)
+    .where(eq(meetings.parentMeetingId, meetingId))
+    .orderBy(sql`${meetings.startsAt} asc nulls last`, asc(meetings.createdAt))
+}
+
+/** The session of a multi-day meeting that what is aimed at the whole meeting goes to. */
+export async function nextSession(exec: Executor, meetingId: string, now: Date): Promise<string | null> {
+  return (await sessionsOf(exec, meetingId)).find((session) => !isOver(session, now))?.id ?? null
+}
+
 const GROUP_ORDER = { project: 0, group: 1, person: 2 } as const
 
 function sorted(map: Map<string, CandidateGroup>): CandidateGroup[] {
@@ -127,6 +145,13 @@ export async function getCandidates(
   const solo = attendeeIds.size === 1 ? [...attendeeIds][0]! : null
   const groupName = groupRow[0]?.name ?? ''
   const next = await isNextOccurrence(exec, meeting, now)
+  /* What is aimed at the whole of a multi-day meeting comes here when this is
+     its next session; the meeting itself, having sessions, takes none of it. */
+  const rollup = (await sessionsOf(exec, meeting.id)).length > 0
+  const parentAim =
+    meeting.parentMeetingId && (await nextSession(exec, meeting.parentMeetingId, now)) === meeting.id
+      ? meeting.parentMeetingId
+      : null
 
   // The one query for items, and it is bound to the meeting's context.
   const open = await listItems(exec, { contextId: meeting.contextId, open: true })
@@ -144,7 +169,8 @@ export async function getCandidates(
       (party) => party.type === 'person' && !party.isSelf && attendeeIds.has(party.id),
     )
     const aimedHere =
-      item.targetMeetingId === meeting.id ||
+      (item.targetMeetingId === meeting.id && !rollup) ||
+      (parentAim !== null && item.targetMeetingId === parentAim) ||
       (next && item.targetSeriesId !== null && item.targetSeriesId === meeting.seriesId)
     const raiseWithSolo =
       solo !== null &&
@@ -162,7 +188,8 @@ export async function getCandidates(
     }
 
     if (aimedHere || raiseWithSolo) {
-      toPlace.push(item)
+      // Its sessions take these; the meeting over them places nothing.
+      if (!rollup) toPlace.push(item)
     } else if (viaProject) {
       push(suggested, { type: 'project', id: item.project!.id, name: item.project!.name }, item)
     } else if (viaGroup) {
@@ -196,7 +223,10 @@ async function appendItemLines(exec: Executor, meetingId: string, itemIds: strin
     .values(itemIds.map((itemId, index) => ({ meetingId, itemId, position: from + index })))
 }
 
-/** Put everything that places itself on the agenda. Running it again places nothing. */
+/**
+ * Put everything that places itself on the agenda. Running it again places
+ * nothing, and neither does running it on a meeting with sessions.
+ */
 export async function placeAutomatic(
   exec: Executor,
   _actor: ActorContext,
@@ -204,6 +234,7 @@ export async function placeAutomatic(
   now: Date = new Date(),
 ): Promise<number> {
   return inTransaction(exec, async (tx) => {
+    if ((await sessionsOf(tx, meetingId)).length > 0) return 0
     const { toPlace } = await getCandidates(tx, meetingId, now)
     await appendItemLines(
       tx,

@@ -4,7 +4,8 @@
  * The brief is John's own: the agenda with planned start times, his private
  * notes, who owes what, and the generated blocks. It is pasted into Granola's
  * notepad before the meeting. The public agenda is what can be sent round: no
- * private notes, nothing about who owes what.
+ * private notes, nothing about who owes what. A line's description and its
+ * leader go out in both.
  *
  * Both are built once as a small outline and written out twice, as Markdown
  * (text/plain) and as HTML (text/html), so a paste keeps its headings and
@@ -15,7 +16,7 @@
  * brief must not read as a list of new items.
  */
 
-import { formatClock, formatDay, formatTime, formatWeekday, todayIn } from '../core/dates'
+import { formatClock, formatDay, formatSpan, formatTime, todayIn } from '../core/dates'
 import type { ItemView } from '../items/items'
 import type { Agenda, AgendaLine } from './lines'
 import type { GeneratedBlocks } from './types'
@@ -28,6 +29,8 @@ export type BriefInput = {
     people: Array<{ name: string }>
   }
   agenda: Agenda
+  /** A multi-day meeting's sessions, in order: its agenda is theirs, one after another. */
+  sessions?: Array<{ title: string; startsAt: Date | null; endsAt: Date | null; agenda: Agenda }>
   blocks: GeneratedBlocks
   timeZone?: string | null | undefined
   /** 'YYYY-MM-DD' in the user's zone; decides whether dates carry a year. */
@@ -45,6 +48,14 @@ export type Part =
 const leaf = (text: string): Entry => ({ text, sub: [] })
 
 const minutes = (value: number | null) => (value ? ` (${value} min)` : '')
+const led = (line: AgendaLine) => (line.leader ? ` — ${line.leader.name}` : '')
+/* Text written across several lines, as one bullet per line. A Markdown
+   bullet's own marker is dropped: the line is already a bullet here. */
+const rows = (text: string | null) =>
+  (text ?? '')
+    .split('\n')
+    .map((row) => row.trim().replace(/^[-*•]\s+/, ''))
+    .filter(Boolean)
 const at = (start: string | null) => (start ? `${formatClock(start)} · ` : '')
 
 /* What an item line says beyond its text: its kind when something is owed, who owes it, and by when. */
@@ -61,11 +72,7 @@ function tag(item: ItemView | null, today: string): string {
 function header(input: BriefInput, today: string): Part[] {
   const { meeting, agenda, timeZone } = input
   const facts: string[] = []
-  if (meeting.startsAt) {
-    facts.push(formatWeekday(todayIn(timeZone, meeting.startsAt), today))
-    const from = formatTime(meeting.startsAt, timeZone)
-    facts.push(meeting.endsAt ? `${from} – ${formatTime(meeting.endsAt, timeZone)}` : from)
-  }
+  if (meeting.startsAt) facts.push(formatSpan(meeting.startsAt, meeting.endsAt ?? null, timeZone, today))
   if (agenda.overflowMinutes > 0) facts.push(`${agenda.overflowMinutes} min over`)
   if (meeting.people.length > 0) facts.push(meeting.people.map((person) => person.name).join(', '))
 
@@ -75,23 +82,46 @@ function header(input: BriefInput, today: string): Part[] {
 }
 
 function agendaParts(input: BriefInput, today: string, opts: { private: boolean }): Part[] {
-  const { agenda } = input
-  if (agenda.nodes.length === 0) return []
+  const sessions = input.sessions ?? []
+  if (sessions.length === 0) return agendaOf(input.agenda, 'Agenda', null, today, opts)
+  /* The meeting's own lines, from before it had sessions, then each session's. */
+  return [
+    ...agendaOf(input.agenda, 'Agenda', null, today, opts),
+    ...sessions.flatMap((session) =>
+      agendaOf(
+        session.agenda,
+        session.title,
+        session.startsAt ? formatSpan(session.startsAt, session.endsAt, input.timeZone, today) : null,
+        today,
+        { ...opts, keepEmpty: true },
+      ),
+    ),
+  ]
+}
+
+function agendaOf(
+  agenda: Agenda,
+  title: string,
+  when: string | null,
+  today: string,
+  opts: { private: boolean; keepEmpty?: boolean },
+): Part[] {
+  if (agenda.nodes.length === 0 && !opts.keepEmpty) return []
 
   const entry = (line: AgendaLine): Entry => ({
-    text: `${at(line.start)}${line.text}${opts.private ? tag(line.item, today) : ''}${minutes(line.minutes)}`,
-    sub:
-      opts.private && line.privateNote
-        ? line.privateNote
-            .split('\n')
-            .map((row) => row.trim())
-            .filter(Boolean)
-            .map((row, index) => leaf(index === 0 ? `Note: ${row}` : row))
-        : [],
+    text: `${at(line.start)}${line.text}${led(line)}${opts.private ? tag(line.item, today) : ''}${minutes(line.minutes)}`,
+    sub: [
+      ...rows(line.description).map(leaf),
+      ...(opts.private
+        ? rows(line.privateNote).map((row, index) => leaf(index === 0 ? `Note: ${row}` : row))
+        : []),
+    ],
   })
 
-  const parts: Part[] = [
-    { type: 'h2', text: 'Agenda' },
+  const parts: Part[] = [{ type: 'h2', text: title }]
+  if (when) parts.push({ type: 'p', text: when })
+  if (agenda.nodes.length === 0) return parts
+  parts.push(
     {
       type: 'list',
       entries: agenda.nodes.map((node) =>
@@ -104,7 +134,7 @@ function agendaParts(input: BriefInput, today: string, opts: { private: boolean 
             },
       ),
     },
-  ]
+  )
 
   if (agenda.end && agenda.totalMinutes > 0) {
     parts.push({ type: 'p', text: `Ends ${formatClock(agenda.end)} · ${agenda.totalMinutes} min planned` })

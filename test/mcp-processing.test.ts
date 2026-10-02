@@ -1,7 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { documents, meetings, processingRuns, proposals, users } from '../lib/db/schema'
+import { documents, meetings, notes, processingRuns, proposals, users } from '../lib/db/schema'
 import { listItems } from '../lib/items/items'
 import { addProposals } from '../lib/processing/proposals'
 import { processQueued } from '../lib/processing/run'
@@ -575,6 +575,49 @@ describe('process_meeting', () => {
       'That meeting has no notes to process',
     )
     expect(await db.select().from(processingRuns)).toHaveLength(0)
+  })
+})
+
+describe('the Inbox', () => {
+  /* A note as an unbound Granola delivery leaves it: on no meeting, with when it was. */
+  async function held(title: string) {
+    const [note] = await db
+      .insert(notes)
+      .values({
+        meetingId: null,
+        source: 'granola',
+        externalId: `not_${title.padEnd(14, '0').slice(0, 14)}`,
+        title,
+        body: 'D: Keep the hall',
+        contentHash: title,
+        filing: { startsAt: '2026-09-29T19:00:00.000Z', endsAt: null, calendarEventId: null },
+        attendees: [{ email: 'sarah@example.test', name: 'Sarah' }],
+      })
+      .returning()
+    return note!
+  }
+
+  it('lists what waits, files one into a context and dismisses another', async () => {
+    const one = await held('Hallway')
+    const two = await held('Parking lot')
+
+    const waiting = await ok<{ notes: { id: string; title: string; starts_at_local: string }[] }>(
+      'list_unfiled_notes',
+      {},
+    )
+    expect(waiting.notes.map((note) => note.title).sort()).toEqual(['Hallway', 'Parking lot'])
+    expect(waiting.notes[0]!.starts_at_local).toBe('Tue, Sep 29, 2:00 PM')
+
+    expect(await refusal('file_note', { id: one.id })).toMatch(/context/i)
+    const filed = await ok<{ meeting: Meeting; via: string }>('file_note', { id: one.id, context: 'Parish' })
+    expect(filed.via).toBe('new')
+    expect(filed.meeting).toMatchObject({ context_id: world.parish.id, title: 'Hallway' })
+    expect(filed.meeting.people.map((person) => person.id)).toEqual([world.sarah.id])
+    expect(await db.select().from(processingRuns)).toHaveLength(1)
+
+    expect(await ok('file_note', { id: two.id, dismiss: true })).toEqual({ dismissed: true })
+    expect((await ok<{ notes: unknown[] }>('list_unfiled_notes', {})).notes).toEqual([])
+    expect(await refusal('file_note', { id: one.id, context: 'Diocese' })).toMatch(/already filed/)
   })
 })
 

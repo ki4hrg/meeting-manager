@@ -151,6 +151,26 @@ describe('logMeeting', () => {
     await expect(
       logMeeting(db, actor, { ...base, notes: 'chat', startsAt: new Date('nonsense') }),
     ).rejects.toThrow(ValidationError)
+    await expect(
+      logMeeting(db, actor, {
+        ...base,
+        notes: 'chat',
+        startsAt: new Date('2026-09-29T14:00:00Z'),
+        endsAt: new Date('2026-09-29T13:00:00Z'),
+      }),
+    ).rejects.toThrow(ValidationError)
     await nothingWritten()
+  })
+
+  it('takes an end, which may be days after the start', async () => {
+    const w = await makeWorld()
+    const { meeting } = await logMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id],
+      notes: 'chat',
+      startsAt: new Date('2026-09-28T14:00:00Z'),
+      endsAt: new Date('2026-09-30T22:00:00Z'),
+    })
+    expect(meeting.endsAt).toEqual(new Date('2026-09-30T22:00:00Z'))
   })
 })

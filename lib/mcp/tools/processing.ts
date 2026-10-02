@@ -30,6 +30,7 @@ import {
   resolveProject,
 } from '../../directory/resolve'
 import { PROCESS_NOTES, kick } from '../../jobs'
+import { dismissHeldNote, fileHeldNote, listUnfiledNotes } from '../../connect/granola/unfiled'
 import { logMeeting } from '../../meetings/log'
 import { getMeeting, type MeetingView } from '../../meetings/meetings'
 import { listNotes } from '../../notes/notes'
@@ -328,6 +329,66 @@ export const processMeetingTool = defineTool({
       }
     })
     kickProcessing()
+    return result
+  },
+})
+
+// ─── the Inbox ───────────────────────────────────────────────────────────────
+
+export const listUnfiledNotesTool = defineTool({
+  name: 'list_unfiled_notes',
+  title: 'List unfiled notes',
+  description:
+    'Granola notes waiting in the Inbox: from no folder that feeds a context, or from folders ' +
+    'that feed two, and not on a meeting made for their calendar event. They belong to no ' +
+    'context yet and nothing has been processed. Each has its title, when it was and who the ' +
+    'note names. File one with file_note.',
+  scope: 'meetings:read',
+  input: z.object({}),
+  annotations: { readOnlyHint: true },
+  handler: async (_input, context) => {
+    const clock = await clockFor(context.exec, context)
+    return {
+      notes: (await listUnfiledNotes(context.exec)).map((note) => ({
+        id: note.id,
+        title: note.title,
+        starts_at: note.startsAt?.toISOString() ?? null,
+        starts_at_local: localOf(note.startsAt, clock),
+        ends_at: note.endsAt?.toISOString() ?? null,
+        attendees: note.attendees,
+      })),
+    }
+  },
+})
+
+export const fileNoteTool = defineTool({
+  name: 'file_note',
+  title: 'File a note from the Inbox',
+  description:
+    'File an unfiled note in a context: on the meeting there that holds its calendar event, ' +
+    'else the one that was under way when it started, else a meeting of its own with the ' +
+    'people it names who are in the directory. It is then processed like any arriving note. ' +
+    'Or dismiss: true takes it out of the Inbox. Returns the meeting it was filed on.',
+  scope: 'meetings:write',
+  input: z.object({
+    id: z.uuid().describe('Note id, from list_unfiled_notes.'),
+    context: z.string().min(1).optional().describe('Context name or id. Needed when there are several.'),
+    dismiss: z.boolean().optional(),
+    idempotency_key: idempotencyKey,
+  }),
+  handler: async (input, context) => {
+    const result = await write(context, 'file_note', input, async (tx) => {
+      if (input.dismiss) {
+        if (input.context) throw new ValidationError('A dismissed note goes to no context.')
+        await dismissHeldNote(tx, context.actor, input.id)
+        return { dismissed: true }
+      }
+      const clock = await clockFor(tx, context)
+      const target = await inferContext(tx, { context: input.context })
+      const { meetingId, via } = await fileHeldNote(tx, context.actor, input.id, target.id)
+      return { meeting: meetingOut(await getMeeting(tx, meetingId), clock), via }
+    })
+    if (!input.dismiss) kickProcessing()
     return result
   },
 })
@@ -643,6 +704,8 @@ export const renderRecapTool = defineTool({
 export const processingTools = [
   logMeetingTool,
   processMeetingTool,
+  listUnfiledNotesTool,
+  fileNoteTool,
   listProposalsTool,
   resolveProposalTool,
   renderRecapTool,

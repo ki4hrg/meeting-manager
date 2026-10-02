@@ -41,7 +41,7 @@ import {
 import { findSelf } from '../directory/people'
 import { isOpen, listItems, type ItemView } from '../items/items'
 import { getMeeting, type MeetingView } from '../meetings/meetings'
-import { getNote, listNotes } from '../notes/notes'
+import { getNote, listNotes, meetingOf } from '../notes/notes'
 import { addProposals, cleanPayload, fingerprintOf, type ProposalDraft } from './proposals'
 import type { ExtractionInput, ExtractionOutput, Extractor, VerbatimLine } from './types'
 import { parseVerbatim, resolveVerbatim } from './verbatim'
@@ -63,10 +63,12 @@ async function getRun(exec: Executor, id: string): Promise<Run> {
 /**
  * Queue a run for the note as it stands. Null when this version of the note
  * already has one, whatever became of it: the same content is not processed
- * twice unless `reprocessMeeting` asks.
+ * twice unless `reprocessMeeting` asks. Null too while the note is unfiled.
  */
 export async function queueRun(exec: Executor, noteId: string): Promise<Run | null> {
   const note = await getNote(exec, noteId)
+  // An unfiled note has no context to be read against; it is run once filed.
+  if (note.meetingId === null) return null
   const [row] = await exec
     .insert(processingRuns)
     .values({ noteId, contentHash: note.contentHash })
@@ -167,7 +169,7 @@ function handledText(payload: ProposalPayload, itemText: Map<string, string>): s
  */
 export async function buildExtractionInput(exec: Executor, noteId: string): Promise<ExtractionInput> {
   const note = await getNote(exec, noteId)
-  const meeting = await getMeeting(exec, note.meetingId)
+  const meeting = await getMeeting(exec, meetingOf(note))
   const timeZone = await userTimeZone(exec)
   const self = await findSelf(exec)
 
@@ -385,7 +387,7 @@ export async function processRun(
       return await finish(exec, runId, { status: 'done', error: 'The note changed before this ran.' })
     }
 
-    const meeting = await getMeeting(exec, note.meetingId)
+    const meeting = await getMeeting(exec, meetingOf(note))
     const where = { meetingId: meeting.id, noteId: note.id, runId }
 
     const lines: VerbatimLine[] = parseVerbatim(note.body)
