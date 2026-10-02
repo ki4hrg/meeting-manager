@@ -87,6 +87,7 @@ The bishop case: capture "ask @bishop about X" over several weeks. The bishop's 
   - A Granola note with no calendar match creates a meeting itself. If people or context are unknown, the review screen asks for them first, then runs matching against their open items.
   - **Log a meeting:** pick people, paste or type notes, and run the same processing. Covers unrecorded conversations and is the fallback if Granola fails.
   - Notes outside mapped Granola folders are ignored; any auto-created meeting can be discarded.
+  - A folder maps to a context, or to one project in it; a note from a project's folder puts that project on its meeting. A subfolder follows the nearest mapped folder above it.
 
 ### Tables (about 30)
 

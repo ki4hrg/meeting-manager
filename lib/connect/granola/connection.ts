@@ -13,13 +13,15 @@
  *
  * A folder feeds exactly one context (`bindings`, kind `granola_folder`), and
  * that binding is the only thing that says which context a note belongs to. A
- * note in no bound folder is not read at all.
+ * note in no bound folder is not read at all. A binding may also name one of
+ * that context's projects, which the meetings its notes are filed on take.
  */
 
 import { and, eq, sql } from 'drizzle-orm'
 import { NotFoundError, ValidationError, type Executor } from '../../core/types'
 import { bindings, connections } from '../../db/schema'
 import { getContext } from '../../directory/contexts'
+import { getProject } from '../../projects/projects'
 import { absoluteUrl } from '../../oauth/config'
 import {
   ConnectionError,
@@ -246,17 +248,27 @@ export async function disconnectGranola(exec: Executor, connectionId: string): P
 // ─── folders ─────────────────────────────────────────────────────────────────
 
 /**
- * Feed a folder into a context. A folder feeds one context, so binding it
- * again moves it: notes already filed stay where they are.
+ * Feed a folder into a context, or into one project of it. A folder feeds one
+ * place, so binding it again moves it: notes already filed stay where they are.
  */
 export async function bindFolder(
   exec: Executor,
-  input: { connectionId: string; folderId: string; name: string; contextId: string },
+  input: {
+    connectionId: string
+    folderId: string
+    name: string
+    contextId: string
+    projectId?: string | null
+  },
 ): Promise<Binding> {
   const folderId = input.folderId.trim()
   if (folderId === '') throw new ValidationError('Pick a folder.')
   await granolaKey(exec, input.connectionId)
   await getContext(exec, input.contextId)
+  const projectId = input.projectId || null
+  if (projectId && (await getProject(exec, projectId)).contextId !== input.contextId) {
+    throw new ValidationError('That project is in another context.')
+  }
 
   const name = input.name.trim() || folderId
   /* One statement on the unique key, so a folder is never bound twice. */
@@ -268,10 +280,11 @@ export async function bindFolder(
       externalId: folderId,
       name,
       contextId: input.contextId,
+      projectId,
     })
     .onConflictDoUpdate({
       target: [bindings.connectionId, bindings.kind, bindings.externalId],
-      set: { contextId: input.contextId, name, projectId: null },
+      set: { contextId: input.contextId, name, projectId },
     })
     .returning()
   return row!

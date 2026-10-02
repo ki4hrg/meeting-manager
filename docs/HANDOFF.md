@@ -1,10 +1,10 @@
-# Handoff: phase 3 built and pushed
+# Handoff: phase 3 deployed and verified
 
-Updated 2026-10-01 (evening). Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+Updated 2026-10-02. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
 
-## Phase 3: built in the working tree
+## Phase 3: complete
 
-Everything below was pushed to `main` on 2026-10-01, which deploys it; the deploy itself has not been checked. `pnpm test` passes (535 tests, 35 files); `pnpm typecheck` and `pnpm lint` are clean. Migrations `0003` and `0004` run at boot on deploy.
+Everything below was pushed to `main` on 2026-10-01 and deployed. John confirmed on 2026-10-02 that the deploy, a real Granola note, a real extraction and the extraction eval all check out. `pnpm test` passes (537 tests, 35 files); `pnpm typecheck` and `pnpm lint` are clean. Migrations `0003` and `0004` run at boot on deploy.
 
 **What exists**
 
@@ -12,7 +12,7 @@ Everything below was pushed to `main` on 2026-10-01, which deploys it; the deplo
 - **Unknown attendees:** addresses a Granola note names that the directory does not have are kept on the note and shown as amber pills at the top of the review screen (`lib/notes/attendees.ts`, `components/processing/UnknownAttendee.tsx`). Each is named as a new person, given to an existing one, or skipped; a named person joins the meeting. Not exposed over MCP.
 - **Pipeline:** `lib/notes`, `lib/processing` (`verbatim.ts` parses `D:` `Q:` `A:` `T:` lines by code; `extract.ts` and `prompt.ts` call the model behind the `Extractor` seam in `types.ts`; `run.ts` queues and processes; `proposals.ts` holds accept, edit, reject, undo, approve all), `lib/meetings/log.ts`, `lib/documents`. Nothing reaches `items`, `documents` or `meetings` before a proposal is accepted. A rejected proposal's row is kept, which is how a rejection is remembered.
 - **Jobs:** `lib/jobs` with `process-notes` (every 60 s) and `granola-reconcile` (every 15 min), started from `instrumentation.ts`. `WORKER=off` keeps the timers off.
-- **Granola:** `lib/connect/granola` (client, signature, connection and folder bindings, ingest, webhook, reconcile), `app/api/webhooks/granola`, a Granola section on Settings. **The API key is pasted on Settings, not read from the environment**; compose passes only the optional `GRANOLA_WEBHOOK_SECRET`. A folder binds to a context; subfolders inherit. A note with no meeting to match makes its own through `meetingFromNote` in `lib/meetings/prep.ts`.
+- **Granola:** `lib/connect/granola` (client, signature, connection and folder bindings, ingest, webhook, reconcile), `app/api/webhooks/granola`, a Granola section on Settings. **The API key is pasted on Settings, not read from the environment**; compose passes only the optional `GRANOLA_WEBHOOK_SECRET`. A folder binds to a context, or to one project in it (added 2026-10-02): a note arriving from a project's folder puts that project on the meeting it is filed on, alongside any it has; a re-delivered note changes nothing. Subfolders inherit from the nearest bound folder, so a subfolder bound to the whole context names no project. A note with no meeting to match makes its own through `meetingFromNote` in `lib/meetings/prep.ts`.
 - **Screens:** Log (a modal on `/meetings`), `/meetings/[id]/review`, `/meetings/[id]/recap`, documents on the project hub, a pending-review badge on meeting cards, Review and Recap buttons on the meeting page. Server actions are in `app/(app)/meetings/processing-actions.ts`.
 - **Recap:** `lib/agenda/recap.ts`, computed on demand, drawn only from items placed on the agenda or originating in the meeting.
 - **MCP:** `log_meeting`, `process_meeting`, `list_proposals`, `resolve_proposal`, `render_recap` in `lib/mcp/tools/processing.ts`.
@@ -23,29 +23,15 @@ Everything below was pushed to `main` on 2026-10-01, which deploys it; the deplo
 
 - Leak and context rules read line by line: the recap, the move, the feed routing, the proposal accept path, the processing server actions, and Granola's `contextForFolders`, `findMeeting` and `ingestNote`.
 - Browser (Playwright, production builds, light, dark and phone width): the move flows; Log, review, recap, documents and the badge; the Granola section of Settings against a faked Granola host.
-- **Never run against a real model or real Granola.** There is no key on the dev machine. Dockhand now has `ANTHROPIC_API_KEY` and `EXTRACTION_MODEL=claude-opus-5-5` (John, 2026-10-01); compose's fallback when unset is `claude-fable-5-1`.
+- **Real model and real Granola** checked by John on the deployed instance (2026-10-02). Dockhand has `ANTHROPIC_API_KEY` and `EXTRACTION_MODEL=claude-opus-5-5` (John, 2026-10-01); compose's fallback when unset is `claude-fable-5-1`.
 
-**First steps next session**
-
-1. Confirm the deploy: the Actions run, the image revision against git HEAD, and that migrations `0003` and `0004` ran at boot.
-2. On the deployed instance: paste the Granola key on Settings, bind a folder, and watch one real note arrive. The assumptions listed below are what to look at if it does not.
-3. Log a meeting with prose notes and watch a real extraction: the "Running" state, agenda-line summaries and the recap's summary have never been seen.
-4. `scripts/extraction-eval.ts` against the four fixtures in `test/fixtures/extraction/` needs a key; prompt quality is unverified.
-
-**Granola assumptions, untested** (shapes come from Meeter's copy of the API spec)
-
-- The note body is read from `private_notes_markdown`, else `private_notes_text`. If neither exists, bodies are empty and no verbatim line is read.
-- The webhook payload's note id is looked for in several places, then by pattern. A miss means waiting for the reconcile.
-- `calendar_event.calendar_event_id` is assumed to equal Google's event id, `<recurring id>_<date>` for an occurrence.
-- Webhook registration is attempted only when `PUBLIC_BASE_URL` is https; without it, notes arrive by the 15-minute reconcile.
-
-**Decisions made without John, to confirm**
+**Decisions made without John, confirmed 2026-10-02**
 
 - A meeting that has produced items, an accepted proposal or a document cannot be moved. A series move takes the occurrences that can go; the rest stay, detached, and a toast gives the count.
 - Log a meeting allows no people and no group (titled "Meeting"). Logged with no time, it starts and ends now, so it lists under Past.
 - In a recap John appears as an owner of what he owes. Recap lines end in `[action]` or `[question]`.
 - The public agenda's lookahead lists every dated item on the meeting's projects, as the spec says; the recap's lists only what the meeting raised.
-- Granola: a note in folders bound to two contexts is ignored; an undated stub is never matched by time; a re-delivered note stays on the meeting it was filed on, even after a folder is rebound; binding a folder files up to three days of its notes.
+- Granola: a note in folders bound to two contexts is ignored (two projects in one context are both put on the meeting); an undated stub is never matched by time; a re-delivered note stays on the meeting it was filed on, even after a folder is rebound; binding a folder files up to three days of its notes.
 - The model is sent every open item of the context that names an attendee, is on one of the meeting's projects or is on its agenda, plus the whole people directory by name.
 - The extraction request turns on Anthropic's server-side refusal fallback, so a declined request may be served by another model while the run records the configured one.
 

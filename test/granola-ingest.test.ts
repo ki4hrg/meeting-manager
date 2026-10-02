@@ -301,6 +301,66 @@ describe('folders', () => {
     expect((await getMeeting(db, filed(await ingest(next)).meetingId)).contextId).toBe(diocese.id)
   })
 
+  it("puts a project-bound folder's project on the meeting, alongside what it has", async () => {
+    const { parish, retreat, campaign, tom, granola, ingest, account } = await setUp()
+    const child = folder('fol_retreat0000000', 'Retreat', PARISH)
+    const loose = folder('fol_loose00000000', 'Loose', child.id)
+    granola.script.folders.push(child, loose)
+    await bindFolder(db, { connectionId: account.id, folderId: child.id, name: 'Retreat', contextId: parish.id, projectId: retreat.id })
+
+    // A drop-in made for the note takes the project.
+    const first = noteId()
+    granola.script.notes[first] = note({ id: first, folder_membership: [child] })
+    const made = await getMeeting(db, filed(await ingest(first)).meetingId)
+    expect(made.contextId).toBe(parish.id)
+    expect(made.projects.map((project) => project.id)).toEqual([retreat.id])
+
+    // A prepped meeting keeps its projects and gains the folder's.
+    const prepped = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Planning',
+      startsAt: new Date('2026-10-03T15:00:00Z'),
+      calendarEventId: 'evt_planning',
+      personIds: [tom.id],
+      projectIds: [campaign.id],
+    })
+    const second = noteId()
+    granola.script.notes[second] = note({
+      id: second,
+      folder_membership: [child],
+      calendar_event: {
+        event_title: 'Planning',
+        invitees: [],
+        organiser: null,
+        calendar_event_id: 'evt_planning',
+        scheduled_start_time: '2026-10-03T15:00:00Z',
+        scheduled_end_time: '2026-10-03T16:00:00Z',
+      },
+    })
+    expect(filed(await ingest(second))).toMatchObject({ via: 'event', meetingId: prepped.id })
+    expect((await getMeeting(db, prepped.id)).projects.map((project) => project.id).sort()).toEqual(
+      [retreat.id, campaign.id].sort(),
+    )
+
+    // A subfolder bound to the whole context names no project.
+    await bindFolder(db, { connectionId: account.id, folderId: loose.id, name: 'Loose', contextId: parish.id })
+    const third = noteId()
+    granola.script.notes[third] = note({ id: third, created_at: '2026-10-05T15:00:00Z', folder_membership: [loose] })
+    expect((await getMeeting(db, filed(await ingest(third)).meetingId)).projects).toEqual([])
+  })
+
+  it('refuses a project from another context, and binding again clears the project', async () => {
+    const { parish, diocese, retreat, account } = await setUp()
+    await expect(
+      bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: diocese.id, projectId: retreat.id }),
+    ).rejects.toThrow(ValidationError)
+
+    await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: parish.id, projectId: retreat.id })
+    await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: parish.id })
+    const [bound] = (await listFolderBindings(db, { connectionId: account.id })).filter((one) => one.externalId === PARISH)
+    expect(bound).toMatchObject({ contextId: parish.id, projectId: null })
+  })
+
   it('binds a folder to one context, and binding again moves it', async () => {
     const { parish, diocese, account } = await setUp()
     await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: diocese.id })

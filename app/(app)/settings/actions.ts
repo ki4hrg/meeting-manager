@@ -69,15 +69,24 @@ export async function disconnectGranolaAction(formData: FormData): Promise<Actio
   })
 }
 
-/** Feed a folder into the chosen context; with no context chosen, into none. */
+/**
+ * Feed a folder into the chosen context, or one of its projects
+ * (`<context>:<project>`); with nothing chosen, into none.
+ */
 export async function setFolderContextAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
     const connectionId = field(formData, 'connectionId')
     const folderId = field(formData, 'folderId')
-    const contextId = field(formData, 'contextId')
+    const [contextId, projectId] = field(formData, 'contextId').split(':')
 
     if (contextId) {
-      await bindFolder(db, { connectionId, folderId, name: field(formData, 'name'), contextId })
+      await bindFolder(db, {
+        connectionId,
+        folderId,
+        name: field(formData, 'name'),
+        contextId,
+        projectId: projectId || null,
+      })
       reconcileSoon()
     } else {
       await unbindFolder(db, { connectionId, folderId })

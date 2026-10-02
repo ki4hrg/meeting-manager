@@ -9,7 +9,7 @@
  *      bound folder and the note is ignored, unread. Folders bound to two
  *      contexts and it is left where it is, for John to sort out in Granola.
  *      Everything after this step looks inside that one context and nowhere
- *      else.
+ *      else. A folder bound to a project also names that project.
  *   2. **Already here.** A note Granola has sent before is updated where it is
  *      filed, whatever else has changed since: John may have moved it to a
  *      session, or moved its meeting.
@@ -19,6 +19,9 @@
  *   5. **A meeting of its own.** Otherwise the note makes one, through
  *      `meetingFromNote`, with whoever of its attendees is already in the
  *      directory. Nobody is added to the directory from here.
+ *
+ * A note arriving for the first time puts its folders' projects on the
+ * meeting it is filed on, alongside any it already has; nothing is taken off.
  *
  * Then the note is saved and a run queued, in the same commit as any meeting
  * made for it. The same content twice saves nothing and queues nothing; edited
@@ -35,6 +38,7 @@ import { inTransaction, type ActorContext, type Executor } from '../../core/type
 import {
   integrationEvents,
   meetingPeople,
+  meetingProjects,
   meetings,
   people,
   personEmails,
@@ -96,17 +100,23 @@ export function granolaActor(source: 'webhook' | 'job'): ActorContext {
 
 // ─── which context ───────────────────────────────────────────────────────────
 
-export type FolderHome = { kind: 'bound'; contextId: string } | { kind: 'unbound' } | { kind: 'ambiguous' }
+export type FolderHome =
+  | { kind: 'bound'; contextId: string; projectIds: string[] }
+  | { kind: 'unbound' }
+  | { kind: 'ambiguous' }
 
 /* Far deeper than Granola nests; stops a cycle in what it sends from looping. */
 const MAX_DEPTH = 20
 
 /**
- * The one context a note's folders feed, on this account.
+ * The one context a note's folders feed, on this account, and the projects
+ * they name in it.
  *
  * A folder with no binding of its own takes its nearest bound ancestor's,
- * which is how Granola itself treats a folder filter. Two folders that lead to
- * different contexts settle nothing: the note is not filed on a guess.
+ * which is how Granola itself treats a folder filter: a folder bound to the
+ * whole context under one bound to a project names no project. Two folders
+ * that lead to different contexts settle nothing: the note is not filed on a
+ * guess. Two projects in the one context are both named.
  *
  * `loadFolders` is the account's whole folder list, asked for only when a
  * folder's parent has to be looked further up than the note itself says.
@@ -122,7 +132,7 @@ export async function contextForFolders(
   const bound = new Map(
     (await listFolderBindings(exec, { connectionId })).map((binding) => [
       binding.externalId,
-      binding.contextId,
+      binding,
     ]),
   )
   if (bound.size === 0) return { kind: 'unbound' }
@@ -133,12 +143,14 @@ export async function contextForFolders(
   let loaded = false
 
   const contexts = new Set<string>()
+  const projects = new Set<string>()
   for (const folder of folders) {
     let current: string | null = folder.id
     for (let depth = 0; current && depth < MAX_DEPTH; depth++) {
-      const contextId = bound.get(current)
-      if (contextId) {
-        contexts.add(contextId)
+      const binding = bound.get(current)
+      if (binding) {
+        contexts.add(binding.contextId)
+        if (binding.projectId) projects.add(binding.projectId)
         break
       }
       if (!parentOf.has(current) && !loaded) {
@@ -151,7 +163,7 @@ export async function contextForFolders(
 
   if (contexts.size === 0) return { kind: 'unbound' }
   if (contexts.size > 1) return { kind: 'ambiguous' }
-  return { kind: 'bound', contextId: [...contexts][0]! }
+  return { kind: 'bound', contextId: [...contexts][0]!, projectIds: [...projects] }
 }
 
 // ─── what the note says ──────────────────────────────────────────────────────
@@ -409,6 +421,15 @@ export async function ingestNote(
           })
           meetingId = meeting.id
           via = 'new'
+        }
+
+        /* The folder's projects join the meeting. A binding names a project of
+           its own context, and the meeting is in that context. */
+        if (home.projectIds.length > 0) {
+          await tx
+            .insert(meetingProjects)
+            .values(home.projectIds.map((projectId) => ({ meetingId, projectId })))
+            .onConflictDoNothing()
         }
       }
 

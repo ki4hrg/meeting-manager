@@ -15,17 +15,24 @@ import {
 } from '@/lib/connect/granola/connection'
 import { db } from '@/lib/db'
 import type { Context } from '@/lib/directory/contexts'
+import { listProjects } from '@/lib/projects/projects'
 import { allContexts } from '@/lib/web/context'
 import { connectGranolaAction, disconnectGranolaAction, setFolderContextAction } from './actions'
 
 type Row = { id: string; name: string; depth: number; inherited: string | null }
 
+/* Where a folder feeds: a context, or one of its projects. */
+type Place = { value: string; label: string }
+
+const placeOf = (binding: Binding) =>
+  binding.projectId ? `${binding.contextId}:${binding.projectId}` : binding.contextId
+
 /* Folders as a tree, parents before their children, each child knowing the
-   context it takes from the nearest bound folder above it. */
+   place it takes from the nearest bound folder above it. */
 function folderRows(
   folders: GranolaFolder[],
   boundTo: Map<string, string>,
-  contextName: (id: string) => string | null,
+  placeName: (value: string) => string | null,
 ): Row[] {
   const ids = new Set(folders.map((folder) => folder.id))
   const byName = (a: GranolaFolder, b: GranolaFolder) => a.name.localeCompare(b.name)
@@ -44,7 +51,7 @@ function folderRows(
       if (depth > 10 || rows.some((row) => row.id === folder.id)) continue
       rows.push({ id: folder.id, name: folder.name, depth, inherited })
       const own = boundTo.get(folder.id)
-      walk(folder.id, depth + 1, own ? contextName(own) : inherited)
+      walk(folder.id, depth + 1, own ? placeName(own) : inherited)
     }
   }
   walk(null, 0, null)
@@ -52,15 +59,15 @@ function folderRows(
 }
 
 /* One account: who it is, whether notes arrive as they are made, and which
-   context each of its folders feeds. */
+   context or project each of its folders feeds. */
 async function Account({
   account,
   bindings,
-  contexts,
+  places,
 }: {
   account: GranolaAccount
   bindings: Binding[]
-  contexts: Context[]
+  places: Place[]
 }) {
   /* Asked of Granola on every load, so it can fail; the page must not. The
      folders already bound are still listed, from what was stored. */
@@ -80,11 +87,11 @@ async function Account({
     }
   }
 
-  const boundTo = new Map(bindings.map((binding) => [binding.externalId, binding.contextId]))
+  const boundTo = new Map(bindings.map((binding) => [binding.externalId, placeOf(binding)]))
   const rows = folderRows(
     folders,
     boundTo,
-    (id) => contexts.find((context) => context.id === id)?.name ?? null,
+    (value) => places.find((place) => place.value === value)?.label ?? null,
   )
 
   return (
@@ -125,7 +132,7 @@ async function Account({
       {rows.length > 0 ? (
         <ul className="mt-3 divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-700 dark:border-gray-700">
           {rows.map((folder) => {
-            const contextId = boundTo.get(folder.id) ?? ''
+            const place = boundTo.get(folder.id) ?? ''
             return (
               <li key={folder.id} className="flex items-center gap-3 py-2 last:pb-0">
                 <span
@@ -141,19 +148,19 @@ async function Account({
                   </span>
                 </span>
                 <ActionSelect
-                  key={contextId}
+                  key={place}
                   action={setFolderContextAction}
                   fields={{ connectionId: account.id, folderId: folder.id, name: folder.name }}
                   name="contextId"
-                  value={contextId}
+                  value={place}
                   label={`Context for ${folder.name}`}
-                  className="!w-36 shrink-0 !py-1.5 sm:!w-44"
+                  className="!w-40 shrink-0 !py-1.5 sm:!w-56"
                 >
                   {/* Unbound, a folder follows the one above it. */}
                   <option value="">{folder.inherited ? `↳ ${folder.inherited}` : '—'}</option>
-                  {contexts.map((context) => (
-                    <option key={context.id} value={context.id}>
-                      {context.name}
+                  {places.map((one) => (
+                    <option key={one.value} value={one.value}>
+                      {one.label}
                     </option>
                   ))}
                 </ActionSelect>
@@ -166,12 +173,29 @@ async function Account({
   )
 }
 
+/* Each context, then its projects under it. A finished project is offered
+   only while a folder still feeds it. */
+async function placesFor(contexts: Context[], bindings: Binding[]): Promise<Place[]> {
+  const bound = new Set(bindings.flatMap((binding) => binding.projectId ?? []))
+  const projects = await Promise.all(contexts.map((context) => listProjects(db, context.id)))
+  return contexts.flatMap((context, i) => [
+    { value: context.id, label: context.name },
+    ...projects[i]!
+      .filter((project) => project.status !== 'done' || bound.has(project.id))
+      .map((project) => ({
+        value: `${context.id}:${project.id}`,
+        label: `${context.name} › ${project.name}`,
+      })),
+  ])
+}
+
 export async function Granola() {
   const [accounts, bindings, contexts] = await Promise.all([
     listGranolaAccounts(db),
     listFolderBindings(db),
     allContexts(),
   ])
+  const places = await placesFor(contexts, bindings)
 
   return (
     <Section
@@ -199,7 +223,7 @@ export async function Granola() {
               key={account.id}
               account={account}
               bindings={bindings.filter((binding) => binding.connectionId === account.id)}
-              contexts={contexts}
+              places={places}
             />
           ))}
         </div>
