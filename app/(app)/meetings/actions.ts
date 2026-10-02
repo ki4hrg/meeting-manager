@@ -1,5 +1,6 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { dismissCandidate, placeItem, restoreCandidate } from '@/lib/agenda/candidates'
 import {
@@ -22,9 +23,11 @@ import {
   setMeetingProjects,
   updateMeeting,
 } from '@/lib/meetings/meetings'
+import { moveMeeting } from '@/lib/meetings/move'
 import {
   attachStub,
   findEvent,
+  findOccurrences,
   prepFromEvent,
   prepMeeting,
   prepWithGroup,
@@ -32,7 +35,7 @@ import {
   seriesFromEvent,
 } from '@/lib/meetings/prep'
 import { act, field, type ActionResult } from '@/lib/web/action'
-import { currentContext } from '@/lib/web/context'
+import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 async function contextId(): Promise<string> {
   const context = await currentContext()
@@ -145,6 +148,36 @@ export async function deleteMeetingAction(formData: FormData): Promise<ActionRes
   return result
 }
 
+/* Select the context a meeting lives in, then open it there. */
+async function openIn(contextId: string, meetingId: string): Promise<never> {
+  ;(await cookies()).set(CONTEXT_COOKIE, contextId, contextCookieOptions)
+  redirect(`/meetings/${meetingId}`)
+}
+
+/** Move a meeting to another context and follow it there. */
+export async function moveMeetingAction(formData: FormData): Promise<ActionResult> {
+  const id = field(formData, 'id')
+  let contextId = ''
+  const result = await act(async (actor) => {
+    const to = field(formData, 'contextId')
+    if (to === '') throw new ValidationError('Pick a context.')
+    contextId = (await moveMeeting(db, actor, id, to)).contextId
+  })
+  if (result.error) return result
+  return openIn(contextId, id)
+}
+
+/** A meeting opened while another context is selected: switch to its own. */
+export async function openMeetingAction(formData: FormData): Promise<ActionResult> {
+  const id = field(formData, 'id')
+  let contextId = ''
+  const result = await act(async () => {
+    contextId = (await getMeeting(db, id)).contextId
+  })
+  if (result.error) return result
+  return openIn(contextId, id)
+}
+
 /** Switch one generated block on or off for this meeting, whatever its series says. */
 export async function toggleBlockAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
@@ -216,7 +249,9 @@ export async function seriesFromEventAction(formData: FormData): Promise<ActionR
   return act(async () => {
     const context = await contextId()
     const event = await findEvent(db, context, field(formData, 'eventId'))
-    await seriesFromEvent(db, { contextId: context, event })
+    // Occurrences already prepped join the series, and the feed says which they are.
+    const occurrences = event.seriesId ? await findOccurrences(db, context, event.seriesId) : []
+    await seriesFromEvent(db, { contextId: context, event, occurrences })
   })
 }
 

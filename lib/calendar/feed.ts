@@ -1,6 +1,7 @@
 /*
- * The calendar feed: Google Calendar events from every calendar bound to a
- * context, as single occurrences, with attendees matched to people.
+ * The calendar feed: Google Calendar events from every bound calendar, as
+ * single occurrences, with attendees matched to people, and each shown in the
+ * one context it belongs to.
  *
  * Read-only and never stored. A meeting row exists only once John preps one
  * (docs/SPEC.md, "Meetings are light and created lazily").
@@ -14,9 +15,9 @@ import {
 } from '../connect/connections'
 import { fetchGoogleCalendarEvents, type GoogleCalendarEvent } from '../connect/google/calendar'
 import { fromLocalInput } from '../core/dates'
-import { isNull } from 'drizzle-orm'
+import { inArray, isNull } from 'drizzle-orm'
 import type { Executor } from '../core/types'
-import { personEmails, users } from '../db/schema'
+import { meetings, personEmails, series, users } from '../db/schema'
 import { findSelf } from '../directory/people'
 
 export interface CalendarEvent {
@@ -33,7 +34,7 @@ export interface CalendarEvent {
 }
 
 interface CacheEntry {
-  events: CalendarEvent[]
+  events: BoundEvent[]
   expiresAt: number
 }
 
@@ -90,35 +91,35 @@ async function userTimeZone(exec: Executor): Promise<string | null> {
   return row?.timeZone ?? null
 }
 
-/**
- * The events of a context's bound calendars in a range, soonest first.
+/* An event as a bound calendar holds it, with the context that calendar is bound to. */
+export type BoundEvent = { event: CalendarEvent; contextId: string }
+
+type Range = {
+  from: Date
+  to: Date
+  /** Where all-day events begin. John's own zone when not given. */
+  timeZone?: string | null
+}
+
+/*
+ * Every bound calendar in a range, whichever context it is bound to: a meeting
+ * can be moved out of its calendar's context, so one context's list can need
+ * another's calendar.
  *
  * One calendar failing does not fail the feed: the failure is recorded on its
  * connection, the other calendars are still listed, and the partial answer is
  * not cached.
  */
-export async function listEvents(
+async function fetchBound(
   exec: Executor,
-  {
-    contextId,
-    from,
-    to,
-    timeZone,
-  }: {
-    contextId: string
-    from: Date
-    to: Date
-    /** Where all-day events begin. John's own zone when not given. */
-    timeZone?: string | null
-  },
-  /* `fetchEvents` stands in for Google, for tests; no token is asked for then. */
+  { from, to, timeZone }: Range,
   deps?: { fetchEvents?: FetchEvents },
-): Promise<CalendarEvent[]> {
-  const cacheKey = `${contextId}|${from.toISOString()}|${to.toISOString()}`
+): Promise<BoundEvent[]> {
+  const cacheKey = `${from.toISOString()}|${to.toISOString()}`
   const cached = feedCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) return cached.events
 
-  const binds = await listBindings(exec, { contextId })
+  const binds = await listBindings(exec)
   if (binds.length === 0) return []
 
   const zone = timeZone === undefined ? await userTimeZone(exec) : timeZone
@@ -128,9 +129,10 @@ export async function listEvents(
     emailToPersonId.set(row.email.toLowerCase(), row.personId)
   }
 
-  /* Keyed by event id: an event on two bound calendars (John's own and a
-     shared one he is invited from) is one event, and one meeting. */
-  const byId = new Map<string, CalendarEvent>()
+  /* Keyed by context and event id: an event on two calendars bound to one
+     context (John's own and a shared one he is invited from) is one event
+     there, and one meeting. */
+  const seen = new Map<string, BoundEvent>()
   /* By connection, since several calendars share one: a calendar that worked
      must not clear the error another calendar of the same account just set. */
   const failed = new Set<string>()
@@ -146,7 +148,8 @@ export async function listEvents(
       for (const event of fetched) {
         if (!event.id || event.status === 'cancelled') continue
         if (event.eventType && NOT_MEETINGS.has(event.eventType)) continue
-        if (byId.has(event.id)) continue
+        const key = `${binding.contextId}|${event.id}`
+        if (seen.has(key)) continue
 
         const startsAt = moment(event.start, zone)
         if (!startsAt) continue
@@ -155,25 +158,28 @@ export async function listEvents(
         // What John has declined is not on his calendar as far as prep goes.
         if (attendees.some((att) => att.self && att.responseStatus === 'declined')) continue
 
-        byId.set(event.id, {
-          calendarId: binding.externalId,
-          eventId: event.id,
-          seriesId: event.recurringEventId || null,
-          title: event.summary || '(Untitled)',
-          startsAt,
-          endsAt: moment(event.end, zone),
-          allDay: !event.start?.dateTime,
-          attendees: attendees
-            // Not John, and not the room.
-            .filter((att) => !att.self && !att.resource)
-            .map((att) => ({
-              personId: att.email ? emailToPersonId.get(att.email.toLowerCase()) : undefined,
-              email: att.email || '',
-              name: att.displayName || null,
-              declined: att.responseStatus === 'declined',
-            })),
-          location: event.location || null,
-          htmlLink: event.htmlLink || null,
+        seen.set(key, {
+          contextId: binding.contextId,
+          event: {
+            calendarId: binding.externalId,
+            eventId: event.id,
+            seriesId: event.recurringEventId || null,
+            title: event.summary || '(Untitled)',
+            startsAt,
+            endsAt: moment(event.end, zone),
+            allDay: !event.start?.dateTime,
+            attendees: attendees
+              // Not John, and not the room.
+              .filter((att) => !att.self && !att.resource)
+              .map((att) => ({
+                personId: att.email ? emailToPersonId.get(att.email.toLowerCase()) : undefined,
+                email: att.email || '',
+                name: att.displayName || null,
+                declined: att.responseStatus === 'declined',
+              })),
+            location: event.location || null,
+            htmlLink: event.htmlLink || null,
+          },
         })
       }
     } catch (err) {
@@ -185,9 +191,78 @@ export async function listEvents(
     if (!failed.has(connectionId)) await clearConnectionError(exec, connectionId)
   }
 
-  const events = [...byId.values()].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+  const events = [...seen.values()].sort(
+    (a, b) => a.event.startsAt.getTime() - b.event.startsAt.getTime(),
+  )
   if (failed.size === 0) feedCache.set(cacheKey, { events, expiresAt: Date.now() + CACHE_TTL_MS })
   return events
+}
+
+/**
+ * What a context's own bound calendars hold in a range, soonest first. This is
+ * the calendars as they are; `listEventsIn` is where each event belongs.
+ */
+export async function listEvents(
+  exec: Executor,
+  { contextId, ...range }: Range & { contextId: string },
+  /* `fetchEvents` stands in for Google, for tests; no token is asked for then. */
+  deps?: { fetchEvents?: FetchEvents },
+): Promise<CalendarEvent[]> {
+  const bound = await fetchBound(exec, range, deps)
+  return bound.filter((one) => one.contextId === contextId).map((one) => one.event)
+}
+
+/**
+ * The events that belong in a context, out of everything the calendars hold.
+ *
+ * An event lives where its meeting does; with no meeting yet, where the series
+ * its recurring event maps to does; failing both, in the context its calendar
+ * is bound to. So a meeting moved out of its calendar's context takes its
+ * event with it, the next occurrences of a moved series follow the series, and
+ * neither is offered a second time where it came from.
+ */
+export async function eventsHere(
+  exec: Executor,
+  contextId: string,
+  bound: BoundEvent[],
+): Promise<CalendarEvent[]> {
+  if (bound.length === 0) return []
+  const eventIds = [...new Set(bound.map((one) => one.event.eventId))]
+  const seriesIds = [...new Set(bound.flatMap((one) => (one.event.seriesId ? [one.event.seriesId] : [])))]
+
+  const [prepped, mapped] = await Promise.all([
+    exec
+      .select({ eventId: meetings.calendarEventId, contextId: meetings.contextId })
+      .from(meetings)
+      .where(inArray(meetings.calendarEventId, eventIds)),
+    seriesIds.length === 0
+      ? []
+      : exec
+          .select({ seriesId: series.calendarSeriesId, contextId: series.contextId })
+          .from(series)
+          .where(inArray(series.calendarSeriesId, seriesIds)),
+  ])
+  const meetingHome = new Map(prepped.map((row) => [row.eventId!, row.contextId]))
+  const seriesHome = new Map(mapped.map((row) => [row.seriesId!, row.contextId]))
+
+  const here = new Map<string, CalendarEvent>()
+  for (const { event, contextId: boundTo } of bound) {
+    const home =
+      meetingHome.get(event.eventId) ??
+      (event.seriesId ? seriesHome.get(event.seriesId) : undefined) ??
+      boundTo
+    if (home === contextId && !here.has(event.eventId)) here.set(event.eventId, event)
+  }
+  return [...here.values()].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+}
+
+/** The feed as one context sees it: every event that belongs there, soonest first. */
+export async function listEventsIn(
+  exec: Executor,
+  { contextId, ...range }: Range & { contextId: string },
+  deps?: { fetchEvents?: FetchEvents },
+): Promise<CalendarEvent[]> {
+  return eventsHere(exec, contextId, await fetchBound(exec, range, deps))
 }
 
 /**

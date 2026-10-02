@@ -60,17 +60,23 @@ function encryptionKey(): string {
   return key
 }
 
-function seal(tokens: GoogleTokens): string {
-  return JSON.stringify(encrypt(JSON.stringify(tokens), encryptionKey()))
+/* What goes in `connections.credentials`, whatever the provider keeps there.
+   Exported for the providers that are not Google (lib/connect/granola), which
+   read their own rows; nothing outside lib/connect should call these. */
+export function sealCredentials(value: unknown): string {
+  return JSON.stringify(encrypt(JSON.stringify(value), encryptionKey()))
 }
 
-function unseal(blob: string): GoogleTokens | null {
+export function unsealCredentials<T>(blob: string): T | null {
   try {
-    return JSON.parse(decrypt(JSON.parse(blob) as EncryptedData, encryptionKey())) as GoogleTokens
+    return JSON.parse(decrypt(JSON.parse(blob) as EncryptedData, encryptionKey())) as T
   } catch {
     return null
   }
 }
+
+const seal = (tokens: GoogleTokens) => sealCredentials(tokens)
+const unseal = (blob: string) => unsealCredentials<GoogleTokens>(blob)
 
 // ─── reading ─────────────────────────────────────────────────────────────────
 

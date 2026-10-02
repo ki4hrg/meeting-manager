@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { ActionButton, FormModal } from '@/components/forms'
+import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { SkeletonEditor } from '@/components/series/SkeletonEditor'
 import { Card, CardGrid, CardHeader, LinkCard, Section } from '@/components/ui/Card'
 import { CheckList } from '@/components/ui/CheckList'
@@ -21,11 +22,13 @@ import { listPeople } from '@/lib/directory/people'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
 import { getSeries } from '@/lib/meetings/series'
 import { listProjects } from '@/lib/projects/projects'
-import { requireContext, viewer } from '@/lib/web/context'
+import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import {
   addSeriesPeopleAction,
   addSeriesProjectsAction,
   deleteSeriesAction,
+  moveSeriesAction,
+  openSeriesAction,
   prepNextInSeriesAction,
   removeSeriesPersonAction,
   removeSeriesProjectAction,
@@ -53,7 +56,14 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
     if (err instanceof NotFoundError) notFound()
     throw err
   })
-  if (series.contextId !== context.id) notFound()
+  /* As a meeting does: with another context selected, only its name and the
+     way to where it lives. */
+  const contexts = await allContexts()
+  if (series.contextId !== context.id) {
+    const home = contexts.find((one) => one.id === series.contextId)
+    if (!home) notFound()
+    return <LivesIn title={series.name} context={home} action={openSeriesAction} id={series.id} />
+  }
 
   const groups = await listGroups(db, context.id)
   const onRoster = new Set(series.people.map((person) => person.id))
@@ -122,6 +132,11 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                 </Select>
               </Field>
             </FormModal>
+            <MoveTo
+              action={moveSeriesAction}
+              id={series.id}
+              contexts={contexts.filter((one) => one.id !== context.id)}
+            />
             <FormModal
               action={deleteSeriesAction}
               title={`Delete ${series.name}?`}

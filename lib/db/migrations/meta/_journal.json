@@ -22,6 +22,20 @@
       "when": 1790875705641,
       "tag": "0002_melted_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790885700948,
+      "tag": "0003_light_harrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790904459866,
+      "tag": "0004_modern_marrow",
+      "breakpoints": true
     }
   ]
 }

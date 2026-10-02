@@ -23,6 +23,7 @@ import {
   type Executor,
 } from '../core/types'
 import {
+  agendaLines,
   groups,
   itemEvents,
   itemParties,
@@ -935,4 +936,93 @@ export async function addNote(
     await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id))
     await logEvent(tx, actor, id, 'note', { text: note })
   })
+}
+
+// ─── taking a step back ──────────────────────────────────────────────────────
+
+/* What undoing an accepted proposal needs (lib/processing/proposals.ts). They
+   live here so every write to items and item_events stays in this file. */
+
+/**
+ * Remove an item that was made by mistake, as long as nothing has happened to
+ * it since: its history is exactly `made`, nothing came out of it and it is on
+ * no agenda. Otherwise it is refused, because the item has a life of its own
+ * by now. A row that is already gone is not an error.
+ */
+export async function takeBackItem(
+  exec: Executor,
+  id: string,
+  made: ItemEventType[],
+): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const [row] = await tx.select().from(items).where(eq(items.id, id)).for('update').limit(1)
+    if (!row) return
+
+    const events = await tx
+      .select({ type: itemEvents.type })
+      .from(itemEvents)
+      .where(eq(itemEvents.itemId, id))
+    const happened = events.map((event) => event.type).sort()
+    if (happened.join() !== [...made].sort().join()) {
+      throw new ValidationError(
+        'This item has changed since it was accepted. Change it from its own page instead.',
+      )
+    }
+
+    const [child] = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(sql`${items.parentItemId} = ${id} or ${items.supersededByItemId} = ${id}`)
+      .limit(1)
+    if (child) {
+      throw new ValidationError('Something has come out of this item since it was accepted.')
+    }
+
+    const [placed] = await tx
+      .select({ id: agendaLines.id })
+      .from(agendaLines)
+      .where(eq(agendaLines.itemId, id))
+      .limit(1)
+    if (placed) {
+      throw new ValidationError('This item is on an agenda. Take it off before undoing.')
+    }
+
+    if (row.parentItemId) {
+      // The parent's history said it spawned this; it no longer did.
+      await tx
+        .delete(itemEvents)
+        .where(
+          and(
+            eq(itemEvents.itemId, row.parentItemId),
+            eq(itemEvents.type, 'spawned'),
+            sql`${itemEvents.data}->>'itemId' = ${id}`,
+          ),
+        )
+    }
+    await tx.delete(items).where(eq(items.id, id))
+  })
+}
+
+/** Take one entry (a note, a "discussed") back out of an item's history. */
+export async function removeItemEvent(exec: Executor, itemId: string, eventId: string): Promise<void> {
+  await exec
+    .delete(itemEvents)
+    .where(and(eq(itemEvents.id, eventId), eq(itemEvents.itemId, itemId)))
+}
+
+/**
+ * Put a reopened item back exactly as it stood before it was closed, when that
+ * was not simply "open" (a question waiting on its answer, say). `reopenItem`
+ * has already written the history.
+ */
+export async function restoreItemState(
+  exec: Executor,
+  id: string,
+  before: { status: ItemStatus; resolution: string | null; closedAt: Date | null },
+): Promise<ItemView> {
+  await exec
+    .update(items)
+    .set({ ...before, updatedAt: new Date() })
+    .where(eq(items.id, id))
+  return getItem(exec, id)
 }

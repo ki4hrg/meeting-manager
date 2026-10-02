@@ -9,7 +9,7 @@ const config = [
      worktrees), so without this the failure is local-only, which is the worst
      kind: `pnpm lint` is the documented command and it stops agreeing with the
      job that gates the image. */
-  { ignores: ['.next/**', '.claude/**', 'node_modules/**', 'dist/**', 'next-env.d.ts'] },
+  { ignores: ['.next/**', '.next-*/**', '.claude/**', 'node_modules/**', 'dist/**', 'next-env.d.ts'] },
   ...coreWebVitals,
   ...typescript,
 ]

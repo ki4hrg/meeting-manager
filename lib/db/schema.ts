@@ -3,8 +3,8 @@
  *
  * Sign-in, the OAuth authorization server, and the domain model through phase 2
  * (docs/SPEC.md): contexts, the directory, projects, items, series, meetings
- * and agendas, and the calendar connection. Notes, processing and the Todoist
- * links arrive with their phases.
+ * and agendas, the calendar connection, and notes and processing. The Todoist
+ * links arrive with their phase.
  *
  * Conventions: snake_case in Postgres, camelCase in TypeScript.
  */
@@ -645,4 +645,226 @@ export const bindings = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('bindings_external_key').on(t.connectionId, t.kind, t.externalId)],
+)
+
+// ─── notes and processing ────────────────────────────────────────────────────
+
+/*
+ * What was written down at a meeting: pasted by hand ("Log a meeting") or
+ * delivered by Granola. A meeting can hold several. The note belongs to the
+ * meeting, so it travels with it and is never listed across contexts.
+ */
+/* Someone a note names by address: Granola's attendees and the event's invitees. */
+export type NoteAttendee = { email: string; name: string | null }
+
+export const notes = pgTable(
+  'notes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    /* 'pasted' or 'granola'. */
+    source: text('source').notNull(),
+    /* Granola's note id. */
+    externalId: text('external_id'),
+    title: text('title'),
+    /* John's own words: the pasted text, or Granola's notepad
+       (`private_notes_markdown`). Verbatim lines are read from here only. */
+    body: text('body').notNull().default(''),
+    /* Granola's generated summary and transcript; null for a pasted note. */
+    summary: text('summary'),
+    transcript: text('transcript'),
+    /* sha256 over body, summary and transcript: what a processing run is keyed on. */
+    contentHash: text('content_hash').notNull(),
+    externalUpdatedAt: timestamp('external_updated_at', { withTimezone: true }),
+    /* Who the note says was there, as it arrived. The ones not in the directory
+       are offered at review; one John waves away is taken off this list. */
+    attendees: jsonb('attendees').$type<NoteAttendee[]>().notNull().default([]),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('notes_external_key')
+      .on(t.source, t.externalId)
+      .where(sql`${t.externalId} is not null`),
+    index('notes_meeting_idx').on(t.meetingId),
+  ],
+)
+
+export const runStatus = pgEnum('run_status', ['queued', 'running', 'done', 'failed'])
+
+/* What a run concluded about the meeting as a whole. */
+export type RunOutput = {
+  summary: string | null
+  /* A summary per agenda line that was discussed. */
+  lines: { lineId: string; summary: string }[]
+}
+
+/*
+ * One pass over one version of a note. Keyed by note and content hash, so a
+ * re-delivered note is not processed twice and an edited one is.
+ */
+export const processingRuns = pgTable(
+  'processing_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => notes.id, { onDelete: 'cascade' }),
+    contentHash: text('content_hash').notNull(),
+    status: runStatus('status').notNull().default('queued'),
+    /* The model that ran, or null when only the verbatim lines were read. */
+    model: text('model'),
+    attempts: integer('attempts').notNull().default(0),
+    error: text('error'),
+    output: jsonb('output').$type<RunOutput>(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('processing_runs_key').on(t.noteId, t.contentHash),
+    index('processing_runs_status_idx').on(t.status),
+  ],
+)
+
+export const proposalStatus = pgEnum('proposal_status', ['pending', 'accepted', 'rejected'])
+
+/* A party as extraction saw it. `name` is what the note said; the ids are set
+   when it resolved to a row. A party with neither id is asked for at review. */
+export type ProposedParty = {
+  role: 'owner' | 'with'
+  name: string
+  personId?: string
+  groupId?: string
+}
+
+/*
+ * What a proposal would do once accepted. Everything in a payload belongs to
+ * the meeting's context; a payload is never carried to another one.
+ */
+export type ProposalPayload =
+  | {
+      type: 'item'
+      kind: 'topic' | 'question' | 'action' | 'decision'
+      text: string
+      detail?: string | null
+      /* A question that was answered in the meeting, or how a topic ended. */
+      resolution?: string | null
+      parties: ProposedParty[]
+      projectId?: string | null
+      dueOn?: string | null
+      parentItemId?: string | null
+    }
+  | {
+      type: 'update'
+      itemId: string
+      change: 'complete' | 'answer' | 'drop' | 'note' | 'discussed'
+      /* The answer, the outcome or the note's text. */
+      text?: string | null
+    }
+  | {
+      /* Drafted content from the scratchpad, kept whole. */
+      type: 'document'
+      title: string
+      body: string
+      projectId?: string | null
+    }
+  | {
+      /* A follow-up conversation to schedule: an undated meeting with these people. */
+      type: 'stub'
+      title: string
+      people: { name: string; personId?: string }[]
+    }
+
+/* What accepting a proposal made or changed, kept so it can be undone. */
+export type ProposalResult = {
+  itemId?: string
+  documentId?: string
+  meetingId?: string
+  /* For an update: the item's fields before it. */
+  before?: { status: string; resolution: string | null; closedAt: string | null }
+  /* The item_events row an update wrote. */
+  eventId?: string
+}
+
+/*
+ * One thing processing suggests. Nothing reaches the real tables until it is
+ * accepted. The fingerprint is unique per meeting and a rejected row is kept,
+ * so a re-delivered or edited note proposes only what is new.
+ */
+export const proposals = pgTable(
+  'proposals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    noteId: uuid('note_id').references(() => notes.id, { onDelete: 'set null' }),
+    runId: uuid('run_id').references(() => processingRuns.id, { onDelete: 'set null' }),
+    status: proposalStatus('status').notNull().default('pending'),
+    fingerprint: text('fingerprint').notNull(),
+    payload: jsonb('payload').$type<ProposalPayload>().notNull(),
+    /* A verbatim line (`D:` `Q:` `A:` `T:`): the wording is John's and is not the model's to change. */
+    verbatim: boolean('verbatim').notNull().default(false),
+    /* The owner was inferred with low confidence: highlighted, and left out of approve-all. */
+    lowConfidence: boolean('low_confidence').notNull().default(false),
+    /* The agenda line this came up under, when the model could tell. */
+    agendaLineId: uuid('agenda_line_id').references(() => agendaLines.id, { onDelete: 'set null' }),
+    position: integer('position').notNull().default(0),
+    result: jsonb('result').$type<ProposalResult>(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('proposals_fingerprint_key').on(t.meetingId, t.fingerprint),
+    index('proposals_meeting_idx').on(t.meetingId, t.status),
+  ],
+)
+
+/* A working document: drafted content saved whole, shown on its project's hub. */
+export const documents = pgTable(
+  'documents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contextId: uuid('context_id')
+      .notNull()
+      .references(() => contexts.id),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    meetingId: uuid('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    /* Markdown. */
+    body: text('body').notNull().default(''),
+    ...timestamps,
+  },
+  (t) => [
+    index('documents_project_idx').on(t.projectId),
+    index('documents_context_idx').on(t.contextId),
+  ],
+)
+
+/*
+ * Every delivery from an outside service, claimed by its id before any work is
+ * done so a repeat is recognised. The payload is kept for the reconcile job
+ * and for looking at what went wrong.
+ */
+export const integrationEvents = pgTable(
+  'integration_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    provider: text('provider').notNull(),
+    /* The service's delivery id. */
+    externalId: text('external_id').notNull(),
+    type: text('type').notNull(),
+    payload: jsonb('payload').notNull().default({}),
+    /* 'received', 'processed', 'ignored' or 'failed'. */
+    status: text('status').notNull().default('received'),
+    detail: text('detail'),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('integration_events_delivery_key').on(t.provider, t.externalId),
+    index('integration_events_received_idx').on(t.receivedAt),
+  ],
 )

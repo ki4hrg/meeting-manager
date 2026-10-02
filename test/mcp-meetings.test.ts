@@ -2,9 +2,9 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { agendaLines, meetingDismissals, meetings, series, users } from '../lib/db/schema'
-import { listItems } from '../lib/items/items'
+import { createItem, listItems } from '../lib/items/items'
 import { db, resetBetweenTests } from './helpers/db'
-import { makeWorld } from './helpers/fixtures'
+import { actor, makeWorld } from './helpers/fixtures'
 import { connect, dataOf, identityFor, makeUser, textOf, type ConnectedClient } from './helpers/mcp'
 
 resetBetweenTests()
@@ -762,6 +762,113 @@ describe('update_meeting', () => {
 
     expect(await refusal('update_meeting', { id: meeting.id, people: ['staff'] })).toContain(
       'No person matches staff',
+    )
+  })
+})
+
+describe('moving between contexts', () => {
+  it('update_meeting with context moves the meeting and says where it went', async () => {
+    const parishItem = await capture({ context: 'Parish', text: 'parish matter', with: ['bishop'] })
+    const dioceseItem = await capture({ context: 'Diocese', text: 'diocese matter', with: ['bishop'] })
+    const { meeting } = await ok<View>('prep_meeting', {
+      context: 'Parish',
+      title: 'Bishop',
+      people: ['bishop'],
+      projects: ['retreat'],
+      group: 'staff',
+    })
+    await ok<View>('edit_agenda', { id: meeting.id, op: 'add_line', text: 'Typed', private_note: 'mine' })
+    const aimed = await capture({ context: 'Parish', text: 'aimed', target_meeting: meeting.id })
+
+    // The move comes first: the project named with it is the diocese's.
+    const moved = await ok<View & { context: Named }>('update_meeting', {
+      id: meeting.id,
+      context: 'diocese',
+      projects: ['synod'],
+    })
+    expect(moved.context).toEqual({ id: world.diocese.id, name: 'Diocese' })
+    expect(moved.meeting).toMatchObject({
+      id: meeting.id,
+      context_id: world.diocese.id,
+      people: [{ id: world.bishop.id, name: 'Bishop Wright' }],
+      projects: [{ id: world.synod.id, name: 'Synod' }],
+      group: null,
+    })
+    expect(shape(moved)).toEqual(['Typed'])
+    expect(lineOf(moved, 'Typed').private_note).toBe('mine')
+    expect(moved.candidates.to_place.map((item) => item.id)).toEqual([dioceseItem.id])
+    const offered = [
+      ...moved.candidates.suggested,
+      ...moved.candidates.more,
+    ].flatMap((group) => group.items.map((item) => item.id))
+    expect(offered).not.toContain(parishItem.id)
+    expect(offered).not.toContain(aimed.id)
+
+    const left = await listItems(db, { contextId: world.parish.id, open: true })
+    expect(left.map((item) => item.id).sort()).toEqual([parishItem.id, aimed.id].sort())
+    expect(left.every((item) => item.targetMeetingId === null)).toBe(true)
+    const parish = await ok<{ meetings: Meeting[] }>('list_meetings', { context: 'Parish', when: 'stubs' })
+    expect(parish.meetings).toEqual([])
+  })
+
+  it('refuses in words when the meeting has produced items, or the context is unknown', async () => {
+    const { meeting } = await ok<View>('prep_meeting', { context: 'Parish', title: 'Vestry', people: ['sarah'] })
+    await createItem(db, actor, {
+      contextId: world.parish.id,
+      text: 'came out of it',
+      originMeetingId: meeting.id,
+    })
+
+    expect(await refusal('update_meeting', { id: meeting.id, context: 'Diocese', title: 'Renamed' })).toContain(
+      'Vestry has produced items here, and they do not move. It stays.',
+    )
+    expect(await refusal('update_meeting', { id: meeting.id, context: 'Nowhere' })).toContain(
+      'No single context matches Nowhere',
+    )
+    const [row] = await db.select().from(meetings).where(eq(meetings.id, meeting.id))
+    expect(row).toMatchObject({ contextId: world.parish.id, title: 'Vestry' })
+  })
+
+  it('update_series with move_to moves the series and reports what moved and what stayed', async () => {
+    const weekly = (
+      await ok<{ series: Series }>('create_series', {
+        context: 'Parish',
+        name: 'Weekly',
+        people: ['sarah'],
+        projects: ['retreat'],
+        group: 'staff',
+        skeleton: [{ title: 'Standing', lines: [{ text: 'Diary', minutes: 5 }] }],
+      })
+    ).series
+    const held = (
+      await ok<View>('prep_meeting', { context: 'Parish', series: 'Weekly', title: 'Held', starts_at: '2020-01-07T09:00' })
+    ).meeting
+    await createItem(db, actor, { contextId: world.parish.id, text: 'from it', originMeetingId: held.id })
+    const next = (await ok<View>('prep_meeting', { context: 'Parish', series: 'Weekly' })).meeting
+
+    const result = await ok<{ series: Series; moved: Meeting[]; stayed: Meeting[] }>('update_series', {
+      series: 'Weekly',
+      move_to: 'Diocese',
+      projects: ['synod'],
+    })
+    expect(result.series).toMatchObject({
+      id: weekly.id,
+      context_id: world.diocese.id,
+      group: null,
+      people: [{ id: world.sarah.id, name: 'Sarah Jones' }],
+      projects: [{ id: world.synod.id, name: 'Synod' }],
+      skeleton: [{ title: 'Standing', lines: [{ text: 'Diary', minutes: 5 }] }],
+    })
+    expect(result.moved.map((meeting) => [meeting.id, meeting.context_id, meeting.series?.id])).toEqual([
+      [next.id, world.diocese.id, weekly.id],
+    ])
+    expect(result.stayed.map((meeting) => [meeting.id, meeting.context_id, meeting.series])).toEqual([
+      [held.id, world.parish.id, null],
+    ])
+
+    await ok('create_series', { context: 'Parish', name: 'Weekly' })
+    expect(await refusal('update_series', { series: 'Weekly', context: 'Parish', move_to: 'Diocese' })).toContain(
+      'There is already a series called Weekly in Diocese.',
     )
   })
 })

@@ -1,7 +1,14 @@
 import { ActionSelect } from '@/components/ActionSelect'
 import { CopyButton } from '@/components/CopyButton'
+import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
+import { MeetingCard } from '@/components/meetings/MeetingCard'
+import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { FormModal, IconAction } from '@/components/forms'
+import { PartyPicker } from '@/components/processing/PartyPicker'
+import { PendingBadge } from '@/components/processing/PendingBadge'
+import { ProposalCard } from '@/components/processing/ProposalCard'
+import { RunState } from '@/components/processing/RunState'
 import { Button } from '@/components/ui/Button'
 import { Card, CardGrid, CardHeader, LinkCard, Section, Tile } from '@/components/ui/Card'
 import { CheckList } from '@/components/ui/CheckList'
@@ -26,6 +33,8 @@ import {
 } from '@/components/ui/StatusBadge'
 import type { MeetingView } from '@/lib/meetings/meetings'
 import type { UpcomingEntry } from '@/lib/meetings/prep'
+import type { ProposalView } from '@/lib/processing/proposals'
+import type { Run } from '@/lib/processing/run'
 import { sampleAction } from './actions'
 import { Interactive } from './interactive'
 
@@ -66,6 +75,80 @@ const EVENT: UpcomingEntry = {
   series: null,
   stubs: [{ id: 'sample', title: 'Bishop Wright' } as MeetingView],
 }
+
+/* Proposals as the review screen draws them. Their buttons are live actions
+   and refuse: none of these is in the database. */
+const PROPOSAL: ProposalView = {
+  id: 'sample',
+  meetingId: 'sample',
+  noteId: null,
+  runId: null,
+  status: 'pending',
+  payload: {
+    type: 'item',
+    kind: 'action',
+    text: 'Send the revised budget to the treasurer',
+    detail: 'Before the finance committee meets.',
+    parties: [
+      { role: 'owner', name: 'Sarah Jones', personId: 'sarah' },
+      { role: 'with', name: 'the treasurer' },
+    ],
+    dueOn: TOMORROW,
+  },
+  verbatim: false,
+  lowConfidence: true,
+  position: 0,
+  parties: [
+    { role: 'owner', name: 'Sarah Jones', type: 'person', id: 'sarah', unresolved: false },
+    { role: 'with', name: 'the treasurer', type: null, id: null, unresolved: true },
+  ],
+  unresolved: ['the treasurer'],
+  project: { id: 'sample', name: 'Budget' },
+  agendaLine: null,
+  item: null,
+  parent: null,
+  made: null,
+  result: null,
+  resolvedAt: null,
+  createdAt: new Date('2026-10-01T15:00:00Z'),
+}
+const PROPOSALS: ProposalView[] = [
+  PROPOSAL,
+  {
+    ...PROPOSAL,
+    payload: { type: 'item', kind: 'decision', text: 'The retreat moves to the second week of May', parties: [] },
+    verbatim: true,
+    lowConfidence: false,
+    parties: [],
+    unresolved: [],
+    project: null,
+    agendaLine: { id: 'sample', text: 'Retreat dates' },
+  },
+  {
+    ...PROPOSAL,
+    status: 'accepted',
+    payload: {
+      type: 'document',
+      title: 'Retreat agenda, first draft',
+      body: 'Friday\nArrive and supper\nCompline\n\nSaturday\nMorning session',
+      projectId: 'sample',
+    },
+    lowConfidence: false,
+    parties: [],
+    unresolved: [],
+  },
+]
+const RUN = {
+  id: 'sample',
+  noteId: 'sample',
+  contentHash: '',
+  model: null,
+  attempts: 1,
+  output: null,
+  startedAt: null,
+  finishedAt: null,
+  createdAt: new Date('2026-10-01T15:00:00Z'),
+} satisfies Partial<Run>
 
 export default function DesignPage() {
   return (
@@ -297,6 +380,81 @@ export default function DesignPage() {
             </ActionSelect>
           </div>
         </Card>
+      </Section>
+
+      <Section title="Moving">
+        <Card>
+          <div className="flex flex-col gap-4">
+            <MoveTo
+              action={sampleAction}
+              id="sample"
+              contexts={[
+                { id: 'a', name: 'Parish' },
+                { id: 'b', name: 'Diocese' },
+              ]}
+            />
+            <LivesIn title="Coffee with the bishop" context={{ id: 'b', name: 'Diocese' }} action={sampleAction} id="sample" />
+          </div>
+        </Card>
+      </Section>
+
+      <Section title="Review">
+        <div className="flex flex-col gap-4">
+          <Card>
+            <div className="flex flex-wrap items-center gap-2">
+              <RunState run={{ ...RUN, status: 'done', error: null }} meetingId="sample" />
+              <RunState
+                run={{ ...RUN, status: 'failed', error: 'The model did not answer.' }}
+                meetingId="sample"
+              />
+            </div>
+          </Card>
+          <CardGrid>
+            {PROPOSALS.map((proposal, index) => (
+              <ProposalCard
+                key={index}
+                proposal={proposal}
+                choices={{ people: [{ id: 'sarah', name: 'Sarah Jones' }], groups: [], projects: [] }}
+                today={TODAY}
+                selfId="me"
+              />
+            ))}
+          </CardGrid>
+          <CardGrid>
+            <MeetingCard
+              meeting={{
+                id: 'sample',
+                title: 'Coffee with the bishop',
+                startsAt: null,
+                people: [{ name: 'Bishop Wright' }],
+              }}
+              when="Oct 1, 9:00 AM"
+              pending={3}
+            />
+            <DocumentCard
+              title="Retreat agenda, first draft"
+              body={'Friday\nArrive and supper\nCompline\n\nSaturday\nMorning session'}
+              meta="Oct 1"
+            />
+            <Card>
+              <div className="flex flex-col gap-3">
+                <PartyPicker
+                  label="People"
+                  name="people"
+                  options={[
+                    { value: 'person:sarah', name: 'Sarah Jones', icon: 'person' },
+                    { value: 'person:tom', name: 'Tom Baker', icon: 'person' },
+                    { value: 'group:staff', name: 'Staff', icon: 'group' },
+                  ]}
+                  selected={[{ value: 'person:sarah', name: 'Sarah Jones', icon: 'person' }]}
+                />
+                <div>
+                  <PendingBadge count={3} />
+                </div>
+              </div>
+            </Card>
+          </CardGrid>
+        </div>
       </Section>
 
       <Section title="Overlays">

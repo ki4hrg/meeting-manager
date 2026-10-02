@@ -1,5 +1,6 @@
 import { CardGrid, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { PendingBadge } from '@/components/processing/PendingBadge'
 import { Icon } from '@/components/ui/icons'
 import { formatMoment } from '@/lib/core/dates'
 import { isOver } from '@/lib/meetings/meetings'
@@ -65,10 +66,24 @@ export function SeriesMark({ series }: { series?: { name: string } | null }) {
   )
 }
 
-/** One meeting as a card. `when` is how its time reads in the list it sits in. */
-export function MeetingCard({ meeting, when }: { meeting: Listed; when: string | null }) {
+/**
+ * One meeting as a card. `when` is how its time reads in the list it sits in;
+ * `pending` is how many proposals are waiting for review, and `to` sends the
+ * card straight to that review instead of the meeting's page.
+ */
+export function MeetingCard({
+  meeting,
+  when,
+  pending,
+  to,
+}: {
+  meeting: Listed
+  when: string | null
+  pending?: number
+  to?: 'review'
+}) {
   return (
-    <LinkCard href={`/meetings/${meeting.id}`}>
+    <LinkCard href={to === 'review' ? `/meetings/${meeting.id}/review` : `/meetings/${meeting.id}`}>
       <div className="flex items-start gap-3">
         <When label={when} />
         <div className="min-w-0 flex-1">
@@ -77,6 +92,7 @@ export function MeetingCard({ meeting, when }: { meeting: Listed; when: string |
           </p>
           <Roster people={meeting.people} group={meeting.group} />
         </div>
+        <PendingBadge count={pending} />
         <SeriesMark series={meeting.series} />
       </div>
     </LinkCard>
@@ -90,11 +106,14 @@ export function MeetingCard({ meeting, when }: { meeting: Listed; when: string |
 export function MeetingGrid({
   meetings,
   timeZone,
+  pending,
   now = new Date(),
   recent = 3,
 }: {
   meetings: Listed[]
   timeZone: string | null
+  /** From `pendingByMeeting`: the meetings with proposals still to review. */
+  pending?: Map<string, number>
   now?: Date
   recent?: number
 }) {
@@ -119,6 +138,7 @@ export function MeetingGrid({
           <MeetingCard
             meeting={meeting}
             when={meeting.startsAt ? formatMoment(meeting.startsAt, timeZone) : null}
+            pending={pending?.get(meeting.id)}
           />
         </div>
       ))}

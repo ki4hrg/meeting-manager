@@ -22,6 +22,15 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       # Encryption key for stored credentials
       CONNECT_KEY: ${CONNECT_KEY:-}
+      # Extraction after a meeting. With no key, processing keeps only the
+      # D:/Q:/A:/T: lines John wrote himself.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      EXTRACTION_MODEL: ${EXTRACTION_MODEL:-claude-fable-5-1}
+      # Granola is connected on Settings and registers its own webhook at
+      # PUBLIC_BASE_URL. Only for an endpoint made by hand: its signing secret.
+      GRANOLA_WEBHOOK_SECRET: ${GRANOLA_WEBHOOK_SECRET:-}
+      # `off` keeps this container from running background jobs.
+      WORKER: ${WORKER:-}
       # Times are formatted on the server; unset, a container is UTC.
       TZ: ${TZ:-America/Chicago}
     depends_on:

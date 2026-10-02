@@ -1,18 +1,20 @@
 import { notFound } from 'next/navigation'
+import { DocumentCard } from '@/components/documents/DocumentCard'
 import { ActionButton, FormModal } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
-import { Card, Section } from '@/components/ui/Card'
+import { Card, CardGrid, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { DueBadge, PROJECT_STATUS, ProjectStatusBadge } from '@/components/ui/StatusBadge'
-import { formatDay } from '@/lib/core/dates'
+import { formatDay, todayIn } from '@/lib/core/dates'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
+import { listDocuments } from '@/lib/documents/documents'
 import { isOpen, listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
 import {
@@ -73,6 +75,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const links = await listLinks(db, id)
   const all = await listItems(db, { contextId: project.contextId, projectId: id })
   const meetings = await listMeetings(db, { contextId: project.contextId, projectId: id })
+  const documents = await listDocuments(db, { contextId: project.contextId, projectId: id })
 
   const open = all.filter(isOpen)
   const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
@@ -238,6 +241,22 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           )}
         </Section>
       </div>
+
+      {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
+      {documents.length > 0 ? (
+        <Section title="Documents" count={documents.length}>
+          <CardGrid>
+            {documents.map((document) => (
+              <DocumentCard
+                key={document.id}
+                title={document.title}
+                body={document.body}
+                meta={formatDay(todayIn(user.timeZone, document.updatedAt), today)}
+              />
+            ))}
+          </CardGrid>
+        </Section>
+      ) : null}
 
       <Section
         title="Owed"

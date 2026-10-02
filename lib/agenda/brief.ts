@@ -36,9 +36,9 @@ export type BriefInput = {
 
 /* A bullet, with whatever is nested under it. A section is a bold bullet whose
    lines are nested, so it is plain where it ends and the loose lines resume. */
-type Entry = { text: string; bold?: boolean; sub: Entry[] }
+export type Entry = { text: string; bold?: boolean; sub: Entry[] }
 
-type Part =
+export type Part =
   | { type: 'h1' | 'h2' | 'p' | 'label'; text: string }
   | { type: 'list'; entries: Entry[] }
 
@@ -158,7 +158,10 @@ function sinceLastParts(input: BriefInput, today: string): Part[] {
   return parts
 }
 
-function lookaheadParts(input: BriefInput, today: string): Part[] {
+export function lookaheadParts(
+  input: Pick<BriefInput, 'blocks' | 'timeZone'>,
+  today: string,
+): Part[] {
   const block = input.blocks.lookahead
   if (!block) return []
 
@@ -210,7 +213,7 @@ function publicParts(input: BriefInput): Part[] {
 
 // ─── writing out ─────────────────────────────────────────────────────────────
 
-function toMarkdown(parts: Part[]): string {
+export function toMarkdown(parts: Part[]): string {
   const out: string[] = []
   const bullets = (entries: Entry[], indent: string) => {
     for (const entry of entries) {
@@ -225,8 +228,9 @@ function toMarkdown(parts: Part[]): string {
     else if (part.type === 'h1') out.push(`# ${part.text}`)
     else if (part.type === 'h2') out.push('', `## ${part.text}`)
     else if (part.type === 'label') out.push('', `**${part.text}**`)
-    // A paragraph straight after a list would read as part of its last bullet.
-    else if (previous === 'list') out.push('', part.text)
+    // A paragraph straight after a list would read as part of its last bullet,
+    // and one after another paragraph as the same paragraph.
+    else if (previous === 'list' || previous === 'p') out.push('', part.text)
     else out.push(part.text)
     previous = part.type
   }
@@ -236,7 +240,7 @@ function toMarkdown(parts: Part[]): string {
 const escape = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-function toHtml(parts: Part[]): string {
+export function toHtml(parts: Part[]): string {
   const bullets = (entries: Entry[]): string =>
     entries.length === 0
       ? ''

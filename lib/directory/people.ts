@@ -149,3 +149,29 @@ export async function ensureSelf(
 
   return (await findSelf(exec))!
 }
+
+/**
+ * Another address for someone already in the directory: their primary when
+ * they have none, otherwise one more they are known by.
+ */
+export async function addPersonEmail(exec: Executor, personId: string, value: string): Promise<void> {
+  const email = cleanEmail(value)
+  if (!email) throw new ValidationError('Enter an email address.')
+  await getPerson(exec, personId)
+
+  const [taken] = await exec
+    .select({ personId: personEmails.personId })
+    .from(personEmails)
+    .where(sql`lower(${personEmails.email}) = ${email}`)
+    .limit(1)
+  if (taken) {
+    if (taken.personId !== personId) throw new ValidationError(`${email} already belongs to someone else.`)
+    return
+  }
+  const [has] = await exec
+    .select({ id: personEmails.id })
+    .from(personEmails)
+    .where(eq(personEmails.personId, personId))
+    .limit(1)
+  await exec.insert(personEmails).values({ personId, email, isPrimary: !has })
+}

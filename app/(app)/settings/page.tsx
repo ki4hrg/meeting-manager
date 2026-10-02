@@ -19,6 +19,7 @@ import { db } from '@/lib/db'
 import type { Context } from '@/lib/directory/contexts'
 import { allContexts } from '@/lib/web/context'
 import { disconnectAction, setCalendarContextAction } from './actions'
+import { Granola } from './Granola'
 import { Notice } from './Notice'
 
 /* One account: who it is, whether Google still honours it, and which context
@@ -185,6 +186,7 @@ export default async function SettingsPage({
         success={one(connected) === 'google' ? 'Google Calendar connected' : undefined}
       />
       <GoogleCalendar />
+      <Granola />
     </>
   )
 }

@@ -24,6 +24,7 @@ import { ToolRefusal, type ToolContext, type ToolDefinition } from './tools/type
 import { directoryTools } from './tools/directory'
 import { itemTools } from './tools/items'
 import { meetingTools } from './tools/meetings'
+import { processingTools } from './tools/processing'
 import { whoamiTool } from './tools/whoami'
 
 export const SERVER_NAME = 'meeting-manager'
@@ -35,6 +36,7 @@ export const allTools: ToolDefinition[] = [
   ...itemTools,
   ...directoryTools,
   ...meetingTools,
+  ...processingTools,
 ]
 
 export function toolsFor(identity: BearerIdentity): ToolDefinition[] {

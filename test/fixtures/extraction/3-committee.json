@@ -1,0 +1,73 @@
+{
+  "name": "committee",
+  "about": "A campaign committee meeting. The scratchpad holds a brainstormed agenda for a donor dinner (one document, never items), a D: line already captured by code, a circle-back and a follow-up conversation to schedule.",
+  "input": {
+    "meeting": {
+      "id": "a3000000-0000-4000-8000-000000000001",
+      "title": "Campaign committee",
+      "startsAt": "2026-09-30 19:00",
+      "people": [
+        { "id": "b3000000-0000-4000-8000-000000000001", "name": "Dana Okafor" },
+        { "id": "b3000000-0000-4000-8000-000000000002", "name": "Luis Herrera" },
+        { "id": "b3000000-0000-4000-8000-000000000003", "name": "Margaret Chen" },
+        { "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" }
+      ],
+      "group": { "id": "c3000000-0000-4000-8000-000000000001", "name": "Campaign Committee" },
+      "projects": [{ "id": "d1000000-0000-4000-8000-000000000002", "name": "Capital campaign" }]
+    },
+    "self": { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+    "today": "2026-09-30",
+    "note": {
+      "body": "D: Goal is $1.2M over three years #capital-campaign\n\ncircle back - do we actually need a feasibility consultant? Margaret thinks yes, Luis no. nobody knows what one costs\n\nneed to sit down w/ Dana and Luis about the lead gifts before we go public\n\nDONOR DINNER - rough agenda (Nov?)\n- 6:00 doors, drinks in the narthex\n- 6:30 welcome + grace (me)\n- 6:40 dinner served\n- 7:15 testimony: a family who grew up here (Chens?)\n- 7:30 the case: why now, the roof, the hall, the endowment (Dana)\n- 7:50 the ask + pledge cards on tables (Luis)\n- 8:05 dessert, music, mingle\n- 8:30 close\nseating by table captain, 8 per table, no assigned program speakers beyond the three",
+      "summary": "The committee set the campaign goal at $1.2 million over three years after comparing it with a $1.5 million stretch option. The roof replacement is the largest component. The question of hiring a feasibility consultant was left open. A donor dinner in November was discussed informally.",
+      "transcript": "John: Let's settle the number tonight if we can. Dana, you ran the two scenarios.\nDana: I did. One point two million over three years covers the roof, which is six hundred thousand on its own, the hall renovation, and seeds the endowment at two hundred. One point five adds the organ, and I don't think we have the donor base for it.\nLuis: I agree. I'd rather hit one point two and celebrate than miss one point five and apologise.\nMargaret: My only worry is that one point two leaves nothing for cost overruns on the roof.\nDana: There's a ten percent contingency inside the roof number already.\nMargaret: Then I'm fine with it.\nTom: From the buildings side, one point two is the honest number.\nJohn: So we're agreed. One point two million over three years. That's the goal we take to the parish.\nMargaret: Now, I still think we should talk to a feasibility consultant before we announce anything. Every campaign I've been part of did a study first.\nLuis: Those studies cost a fortune and tell you what you already know.\nMargaret: Do you know what they cost?\nLuis: No. Not exactly.\nJohn: None of us does. Let's not decide that tonight. I'll come back to it.\nDana: Can I raise the lead gifts? We shouldn't go public until we have forty percent pledged quietly.\nJohn: Agreed, and that's a longer conversation. Dana, Luis, the three of us should sit down separately on that.\nLuis: Happy to.\nJohn: While you were talking I sketched an agenda for the donor dinner. It's rough, I'll clean it up and send it round at some point. Nothing to decide on it tonight.\nTom: As long as there's dessert.\nJohn: There is dessert, Tom. It's on the agenda."
+    },
+    "agenda": [
+      { "lineId": "e3000000-0000-4000-8000-000000000001", "section": "Campaign", "text": "Set the goal", "itemId": null },
+      { "lineId": "e3000000-0000-4000-8000-000000000002", "section": "Campaign", "text": "Timeline to public launch", "itemId": null }
+    ],
+    "openItems": [
+      {
+        "id": "f3000000-0000-4000-8000-000000000001",
+        "kind": "action",
+        "text": "Draft the case statement",
+        "detail": null,
+        "owners": ["Dana Okafor"],
+        "with": [],
+        "project": "Capital campaign",
+        "dueOn": "2026-10-31"
+      }
+    ],
+    "directory": {
+      "people": [
+        { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+        { "id": "b3000000-0000-4000-8000-000000000001", "name": "Dana Okafor" },
+        { "id": "b3000000-0000-4000-8000-000000000002", "name": "Luis Herrera" },
+        { "id": "b3000000-0000-4000-8000-000000000003", "name": "Margaret Chen" },
+        { "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" }
+      ],
+      "groups": [
+        { "id": "c3000000-0000-4000-8000-000000000001", "name": "Campaign Committee" },
+        { "id": "c1000000-0000-4000-8000-000000000001", "name": "Staff" }
+      ],
+      "projects": [
+        { "id": "d1000000-0000-4000-8000-000000000002", "name": "Capital campaign" },
+        { "id": "d1000000-0000-4000-8000-000000000001", "name": "Retreat" }
+      ]
+    },
+    "verbatim": [{ "kind": "decision", "text": "Goal is $1.2M over three years #capital-campaign" }],
+    "captured": [],
+    "handled": []
+  },
+  "expect": [
+    { "say": "one document holding the donor dinner agenda", "where": { "type": ["document"], "text": "dinner" }, "min": 1, "max": 1 },
+    { "say": "the document keeps the brainstorm whole", "where": { "type": ["document"], "text": "pledge cards[\\s\\S]*dessert|narthex[\\s\\S]*pledge" }, "min": 1, "max": 1 },
+    { "say": "no items made from the brainstorm's lines", "where": { "type": ["item"], "text": "narthex|testimony|pledge card|dessert|table captain|grace" }, "min": 0, "max": 0 },
+    { "say": "no proposal duplicating the D: line", "where": { "type": ["item"], "kind": ["decision"], "text": "1\\.2|goal|million" }, "min": 0, "max": 0 },
+    { "say": "a detail for the D: line from the discussion around it", "verbatimDetail": 0 },
+    { "say": "the consultant circle-back as one question or topic", "where": { "kind": ["question", "topic"], "text": "consultant|feasibility" }, "min": 1, "max": 1 },
+    { "say": "the lead-gifts conversation as one stub or one action for John, not both", "where": { "type": ["stub", "item"], "text": "lead gift" }, "min": 1, "max": 1 },
+    { "say": "the case statement, which did not come up, is left alone", "where": { "itemId": "f3000000-0000-4000-8000-000000000001" }, "min": 0, "max": 0 },
+    { "say": "no more than five proposals", "maxDrafts": 5 }
+  ]
+}

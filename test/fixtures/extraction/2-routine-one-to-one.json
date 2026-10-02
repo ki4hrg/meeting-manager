@@ -1,0 +1,84 @@
+{
+  "name": "routine-one-to-one",
+  "about": "A weekly 1:1. One open action was done, one open question was answered, and John took on one new thing with a date. The rest is conversation.",
+  "input": {
+    "meeting": {
+      "id": "a2000000-0000-4000-8000-000000000001",
+      "title": "Sarah / John",
+      "startsAt": "2026-10-01 14:00",
+      "people": [{ "id": "b1000000-0000-4000-8000-000000000001", "name": "Sarah Jones" }],
+      "group": null,
+      "projects": []
+    },
+    "self": { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+    "today": "2026-10-01",
+    "note": {
+      "body": "roster - done\nlock-in = nov 14\nI'll write Marcus's reference letter, she needs it by the 15th\nS. back from Portugal, looks rested",
+      "summary": null,
+      "transcript": "John: How was Portugal?\nSarah: So good. We did almost nothing for nine days. I read four novels.\nJohn: I'm jealous. Okay, what have you got?\nSarah: The volunteer roster, I sent it to you Monday night. It's in your inbox, all forty names with phone numbers.\nJohn: I saw it, thank you. That's everything I needed.\nSarah: And the lock-in. I asked the youth leaders and the only weekend that works for everyone is November fourteenth.\nJohn: The fourteenth it is then.\nSarah: One ask. Marcus is applying to the seminary and he needs a reference letter from you. The application closes on the fifteenth.\nJohn: Of this month? Sure, I'll write it. I'll have it done by the fifteenth.\nSarah: He'll be thrilled. That's all I have.\nJohn: Easy one. Go enjoy the jet lag."
+    },
+    "agenda": [
+      { "lineId": "e2000000-0000-4000-8000-000000000001", "section": null, "text": "Send the volunteer roster to John", "itemId": "f2000000-0000-4000-8000-000000000001" },
+      { "lineId": "e2000000-0000-4000-8000-000000000002", "section": null, "text": "Which weekend works for the youth lock-in?", "itemId": "f2000000-0000-4000-8000-000000000002" }
+    ],
+    "openItems": [
+      {
+        "id": "f2000000-0000-4000-8000-000000000001",
+        "kind": "action",
+        "text": "Send the volunteer roster to John",
+        "detail": null,
+        "owners": ["Sarah Jones"],
+        "with": ["John Fleischauer"],
+        "project": null,
+        "dueOn": null
+      },
+      {
+        "id": "f2000000-0000-4000-8000-000000000002",
+        "kind": "question",
+        "text": "Which weekend works for the youth lock-in?",
+        "detail": "Needs to avoid the confirmation retreat.",
+        "owners": ["Sarah Jones"],
+        "with": [],
+        "project": null,
+        "dueOn": null
+      },
+      {
+        "id": "f2000000-0000-4000-8000-000000000003",
+        "kind": "topic",
+        "text": "Sarah's annual review",
+        "detail": null,
+        "owners": [],
+        "with": ["Sarah Jones"],
+        "project": null,
+        "dueOn": null
+      }
+    ],
+    "directory": {
+      "people": [
+        { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+        { "id": "b1000000-0000-4000-8000-000000000001", "name": "Sarah Jones" },
+        { "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" },
+        { "id": "b1000000-0000-4000-8000-000000000005", "name": "Marcus Reed" }
+      ],
+      "groups": [{ "id": "c1000000-0000-4000-8000-000000000001", "name": "Staff" }],
+      "projects": [{ "id": "d1000000-0000-4000-8000-000000000001", "name": "Retreat" }]
+    },
+    "verbatim": [],
+    "captured": [],
+    "handled": []
+  },
+  "expect": [
+    { "say": "an update completing the roster action", "where": { "itemId": "f2000000-0000-4000-8000-000000000001", "change": ["complete"] }, "min": 1, "max": 1 },
+    { "say": "an update answering the lock-in question with 14 November", "where": { "itemId": "f2000000-0000-4000-8000-000000000002", "change": ["answer"], "text": "14|fourteenth" }, "min": 1, "max": 1 },
+    {
+      "say": "one action for John to write the reference letter, due 2026-10-15, owner stated",
+      "where": { "kind": ["action"], "text": "reference|letter", "owners": ["b1000000-0000-4000-8000-000000000000"], "dueOn": "2026-10-15", "lowConfidence": false },
+      "min": 1,
+      "max": 1
+    },
+    { "say": "no new item restating the roster or the lock-in", "where": { "type": ["item"], "text": "roster|lock-in|lock in" }, "min": 0, "max": 0 },
+    { "say": "nothing about the holiday", "where": { "text": "portugal|holiday|vacation|novel|jet lag" }, "min": 0, "max": 0 },
+    { "say": "the annual review, which did not come up, is left alone", "where": { "itemId": "f2000000-0000-4000-8000-000000000003" }, "min": 0, "max": 0 },
+    { "say": "no more than four proposals", "maxDrafts": 4 }
+  ]
+}

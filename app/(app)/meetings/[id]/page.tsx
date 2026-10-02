@@ -6,12 +6,15 @@ import { AgendaCard } from '@/components/meetings/AgendaCard'
 import { Blocks } from '@/components/meetings/Blocks'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
 import { MeetingFields, WhenFields } from '@/components/meetings/MeetingFields'
+import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { Suggestions } from '@/components/meetings/Suggestions'
 import { QuickAdd } from '@/components/QuickAdd'
 import { CardGrid, Section } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
+import { PendingBadge } from '@/components/processing/PendingBadge'
+import { ButtonLink } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Badge } from '@/components/ui/StatusBadge'
 import { renderAgenda, renderAgendaHtml, renderBrief, renderBriefHtml } from '@/lib/agenda/brief'
@@ -26,13 +29,16 @@ import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { getMeeting, isOver } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
+import { pendingByMeeting } from '@/lib/processing/proposals'
 import { listProjects } from '@/lib/projects/projects'
-import { requireContext, viewer, webActor } from '@/lib/web/context'
+import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context'
 import {
   addSectionAction,
   addSessionAction,
   deleteMeetingAction,
   importOutlineAction,
+  moveMeetingAction,
+  openMeetingAction,
   updateMeetingAction,
 } from '../actions'
 
@@ -48,15 +54,21 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     if (err instanceof NotFoundError) notFound()
     throw err
   })
-  // A meeting belongs to its context: with another one selected it is not here.
-  if (meeting.contextId !== context.id) notFound()
+  /* A meeting belongs to its context. With another one selected nothing of it
+     is drawn but its name and the way to where it lives. */
+  const contexts = await allContexts()
+  if (meeting.contextId !== context.id) {
+    const home = contexts.find((one) => one.id === meeting.contextId)
+    if (!home) notFound()
+    return <LivesIn title={meeting.title} context={home} action={openMeetingAction} id={meeting.id} />
+  }
 
   const day = meeting.startsAt ? todayIn(timeZone, meeting.startsAt) : null
   /* Until the meeting is over, whatever places itself is put on the agenda
      before it is read, so routine prep is opening the page. */
   if (!isOver(meeting)) await placeAutomatic(db, webActor(user), id)
 
-  const [agenda, candidates, blocks, parent, people, groups, projects, series] = await Promise.all([
+  const [agenda, candidates, blocks, parent, people, groups, projects, series, pending] = await Promise.all([
     getAgenda(db, id, { timeZone }),
     getCandidates(db, id),
     computeBlocks(db, id, { today }),
@@ -65,6 +77,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     listGroups(db, context.id),
     listProjects(db, context.id),
     listSeries(db, context.id),
+    pendingByMeeting(db, context.id),
   ])
 
   const brief = { meeting, agenda, blocks, timeZone, today }
@@ -100,10 +113,25 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
               html={renderBriefHtml(brief)}
             />
             <CopyButton label="Copy agenda" text={renderAgenda(brief)} html={renderAgendaHtml(brief)} />
+            <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
+              Review
+              <PendingBadge count={pending.get(meeting.id)} />
+            </ButtonLink>
+            <ButtonLink href={`/meetings/${meeting.id}/recap`} variant="secondary">
+              Recap
+            </ButtonLink>
             <FormModal action={updateMeetingAction} title="Edit" label="Edit" variant="secondary">
               <input type="hidden" name="id" value={meeting.id} />
               <MeetingFields meeting={meeting} choices={choices} timeZone={timeZone} />
             </FormModal>
+            {/* A session goes where its meeting goes. */}
+            {parent ? null : (
+              <MoveTo
+                action={moveMeetingAction}
+                id={meeting.id}
+                contexts={contexts.filter((one) => one.id !== context.id)}
+              />
+            )}
             <FormModal
               action={deleteMeetingAction}
               title="Delete meeting"

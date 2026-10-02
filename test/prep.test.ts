@@ -2,12 +2,13 @@
 
 import { describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { getCandidates } from '../lib/agenda/candidates'
+import { getCandidates, placeAutomatic } from '../lib/agenda/candidates'
 import { getAgenda } from '../lib/agenda/lines'
 import type { CalendarEvent } from '../lib/calendar/feed'
 import { agendaLines, meetings } from '../lib/db/schema'
 import { createItem } from '../lib/items/items'
-import { listMeetings } from '../lib/meetings/meetings'
+import { getMeeting, listMeetings, updateMeeting } from '../lib/meetings/meetings'
+import { moveMeeting } from '../lib/meetings/move'
 import {
   attachStub,
   listUpcoming,
@@ -39,6 +40,10 @@ function event(over: Partial<CalendarEvent> = {}): CalendarEvent {
     htmlLink: null,
     ...over,
   }
+}
+
+async function addLineTo(meetingId: string, text: string) {
+  await db.insert(agendaLines).values({ meetingId, text })
 }
 
 function itemTexts(agenda: Awaited<ReturnType<typeof getAgenda>>): string[] {
@@ -174,6 +179,82 @@ describe('the routine 1:1', () => {
     )
   })
 
+  it('a series made from one occurrence adopts the occurrences already prepped', async () => {
+    const w = await makeWorld()
+    const on = (eventId: string, day: string, seriesId = 'rec-7') =>
+      event({
+        eventId,
+        seriesId,
+        title: 'Tom 1:1',
+        startsAt: new Date(`2026-10-${day}T15:00:00Z`),
+        endsAt: new Date(`2026-10-${day}T16:00:00Z`),
+        attendees: [{ personId: w.tom.id, email: 'tom@example.test', name: 'Tom', declined: false }],
+      })
+    const first = on('occ-06', '06')
+    const second = on('occ-13', '13')
+    const third = on('occ-20', '20')
+    const unrelated = on('other-13', '13', 'rec-8')
+    const feed = [first, second, third, unrelated]
+    const labels = async () =>
+      (await listUpcoming(db, w.parish.id, { now: NOW, events: feed })).entries.map((entry) => [
+        entry.event?.eventId,
+        entry.series?.name ?? null,
+      ])
+
+    // The second occurrence is prepped before there is a series to belong to.
+    const early = await prepFromEvent(db, actor, { contextId: w.parish.id, event: second }, NOW)
+    expect(early.series).toBeNull()
+    await addLineTo(early.id, 'already typed')
+    // Not this recurring event's, and not this context's: neither joins.
+    const other = await prepFromEvent(db, actor, { contextId: w.parish.id, event: unrelated }, NOW)
+    const away = await prepFromEvent(db, actor, { contextId: w.parish.id, event: third }, NOW)
+    await moveMeeting(db, actor, away.id, w.diocese.id)
+
+    const series = await seriesFromEvent(db, {
+      contextId: w.parish.id,
+      event: first,
+      occurrences: feed,
+    })
+    expect(series.contextId).toBe(w.parish.id)
+
+    // It joins as it is: same people, same agenda, nothing laid over it.
+    const adopted = await getMeeting(db, early.id)
+    expect(adopted.series).toEqual({ id: series.id, name: 'Tom 1:1' })
+    expect(adopted.people.map((person) => person.id)).toEqual([w.tom.id])
+    expect(itemTexts(await getAgenda(db, early.id))).toEqual(['already typed'])
+    expect((await getMeeting(db, other.id)).series).toBeNull()
+    expect(await getMeeting(db, away.id)).toMatchObject({ contextId: w.diocese.id, series: null })
+
+    // The list says what the rows say.
+    expect(await labels()).toEqual([
+      ['occ-06', 'Tom 1:1'],
+      ['occ-13', 'Tom 1:1'],
+      ['other-13', null],
+    ])
+    await updateMeeting(db, actor, early.id, { seriesId: null })
+    expect(await labels()).toEqual([
+      ['occ-06', 'Tom 1:1'],
+      ['occ-13', null],
+      ['other-13', null],
+    ])
+    // Asked again, the series is found rather than made, and the meeting rejoins.
+    const again = await seriesFromEvent(db, { contextId: w.parish.id, event: first, occurrences: feed })
+    expect(again.id).toBe(series.id)
+    expect((await getMeeting(db, early.id)).series?.id).toBe(series.id)
+
+    // An item for the series still goes to the next occurrence only.
+    await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'for the series',
+      target: { seriesId: series.id },
+    })
+    const next = await prepFromEvent(db, actor, { contextId: w.parish.id, event: first }, NOW)
+    expect(next.series?.id).toBe(series.id)
+    expect(itemTexts(await getAgenda(db, next.id))).toEqual(['for the series'])
+    expect(await placeAutomatic(db, actor, early.id, NOW)).toBe(0)
+    expect(itemTexts(await getAgenda(db, early.id))).toEqual(['already typed'])
+  })
+
   it('prepNextInSeries returns the occurrence already waiting', async () => {
     const w = await makeWorld()
     const series = await createSeries(db, { contextId: w.parish.id, name: 'Staff', groupId: w.staff.id })
@@ -185,18 +266,26 @@ describe('the routine 1:1', () => {
 })
 
 describe('listUpcoming', () => {
-  it('ignores a series from another context and never offers a stub to an event with strangers only', async () => {
+  it('lists a recurring event where its series lives and never offers a stub to an event with strangers only', async () => {
     const w = await makeWorld()
     await createSeries(db, { contextId: w.diocese.id, name: 'Council', calendarSeriesId: 'rec-9' })
     await prepWithPerson(db, actor, { contextId: w.parish.id, personId: w.tom.id }, NOW)
 
-    const upcoming = await listUpcoming(db, w.parish.id, {
-      now: NOW,
-      events: [event({ seriesId: 'rec-9' }), event({ eventId: 'all-day', allDay: true })],
-    })
-    expect(upcoming.entries).toHaveLength(1)
+    const events = [
+      event({ eventId: 'council', seriesId: 'rec-9' }),
+      event({ eventId: 'coffee' }),
+      event({ eventId: 'all-day', allDay: true }),
+    ]
+    const upcoming = await listUpcoming(db, w.parish.id, { now: NOW, events })
+    // The series is the diocese's, so its occurrence is listed there and not here.
+    expect(upcoming.entries.map((entry) => entry.event?.eventId)).toEqual(['coffee'])
     expect(upcoming.entries[0]!.series).toBeNull()
     expect(upcoming.entries[0]!.stubs).toHaveLength(0)
+    const elsewhere = await listUpcoming(db, w.diocese.id, { now: NOW, events })
+    expect(elsewhere.entries.map((entry) => [entry.event?.eventId, entry.series?.name])).toContainEqual([
+      'council',
+      'Council',
+    ])
     expect(upcoming.stubs).toHaveLength(1)
   })
 })

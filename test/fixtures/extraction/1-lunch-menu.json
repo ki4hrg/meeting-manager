@@ -1,0 +1,85 @@
+{
+  "name": "lunch-menu",
+  "about": "A staff meeting where three people need to settle the retreat lunch menu between them. The spec's own example: one question owned by the three, not three actions and not an action to meet.",
+  "input": {
+    "meeting": {
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "title": "Staff meeting",
+      "startsAt": "2026-10-01 10:00",
+      "people": [
+        { "id": "b1000000-0000-4000-8000-000000000001", "name": "Sarah Jones" },
+        { "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" },
+        { "id": "b1000000-0000-4000-8000-000000000003", "name": "Priya Nair" }
+      ],
+      "group": { "id": "c1000000-0000-4000-8000-000000000001", "name": "Staff" },
+      "projects": [{ "id": "d1000000-0000-4000-8000-000000000001", "name": "Retreat" }]
+    },
+    "self": { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+    "today": "2026-10-01",
+    "note": {
+      "body": "retreat - 42 signed up so far\nlunch sat: S/T/P to sort the menu\ncaterer deposit!",
+      "summary": "The staff reviewed retreat registrations (42 so far) and discussed Saturday lunch. The menu is undecided. The caterer needs a deposit.",
+      "transcript": "John: Okay, retreat. Where are we on numbers?\nSarah: Forty-two signed up as of this morning. I think we land around fifty.\nJohn: Good. That's about what we planned for.\nPriya: The thing I'm stuck on is Saturday lunch. The caterer sent three options and I honestly don't know which one works, there are at least six vegetarians and two gluten-free.\nTom: I have opinions about the taco bar. Mostly bad ones.\nSarah: Last year's sandwiches were fine, people just complained about the bread.\nJohn: I don't need to be in this. Can the three of you get together this week and decide the menu? Just tell me what you land on.\nPriya: Sure. Sarah, Tom, Thursday after staff prayer?\nSarah: Works.\nTom: Fine by me.\nJohn: Tom, the caterer also wants a deposit to hold the date, right?\nTom: Yes, three hundred dollars. I'll pay it by Friday, I've got the parish card.\nJohn: Great. Did anybody watch the game last night?\nSarah: Don't. Just don't.\nJohn: Fair. Okay, anything else on the retreat? No? Moving on."
+    },
+    "agenda": [
+      { "lineId": "e1000000-0000-4000-8000-000000000001", "section": "Retreat", "text": "Registration numbers", "itemId": null },
+      { "lineId": "e1000000-0000-4000-8000-000000000002", "section": "Retreat", "text": "Saturday lunch", "itemId": null },
+      { "lineId": "e1000000-0000-4000-8000-000000000003", "section": "Buildings", "text": "Parking lot resurfacing", "itemId": null }
+    ],
+    "openItems": [
+      {
+        "id": "f1000000-0000-4000-8000-000000000001",
+        "kind": "action",
+        "text": "Get three quotes for resurfacing the parking lot",
+        "detail": null,
+        "owners": ["Tom Baker"],
+        "with": [],
+        "project": null,
+        "dueOn": "2026-10-20"
+      }
+    ],
+    "directory": {
+      "people": [
+        { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+        { "id": "b1000000-0000-4000-8000-000000000001", "name": "Sarah Jones" },
+        { "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" },
+        { "id": "b1000000-0000-4000-8000-000000000003", "name": "Priya Nair" },
+        { "id": "b1000000-0000-4000-8000-000000000004", "name": "Sarah Whitfield" }
+      ],
+      "groups": [{ "id": "c1000000-0000-4000-8000-000000000001", "name": "Staff" }],
+      "projects": [
+        { "id": "d1000000-0000-4000-8000-000000000001", "name": "Retreat" },
+        { "id": "d1000000-0000-4000-8000-000000000002", "name": "Capital campaign" }
+      ]
+    },
+    "verbatim": [],
+    "captured": [],
+    "handled": []
+  },
+  "expect": [
+    {
+      "say": "one question about the lunch menu, owned by Sarah, Tom and Priya",
+      "where": {
+        "kind": ["question"],
+        "text": "menu|lunch",
+        "owners": [
+          "b1000000-0000-4000-8000-000000000001",
+          "b1000000-0000-4000-8000-000000000002",
+          "b1000000-0000-4000-8000-000000000003"
+        ]
+      },
+      "min": 1,
+      "max": 1
+    },
+    { "say": "no action about the menu or about meeting to decide it", "where": { "kind": ["action"], "text": "menu|lunch|meet" }, "max": 0, "min": 0 },
+    {
+      "say": "an action for Tom to pay the caterer's deposit, due Friday 2026-10-02",
+      "where": { "kind": ["action"], "text": "deposit", "owners": ["b1000000-0000-4000-8000-000000000002"], "dueOn": "2026-10-02" },
+      "min": 1,
+      "max": 1
+    },
+    { "say": "the stated owners are not marked as guesses", "where": { "type": ["item"], "text": "menu|lunch|deposit", "lowConfidence": true }, "min": 0, "max": 0 },
+    { "say": "nothing about the game, the registration count or the untouched parking item", "where": { "text": "game|registr|signed up|parking|quotes" }, "min": 0, "max": 0 },
+    { "say": "no more than three proposals", "maxDrafts": 3 }
+  ]
+}

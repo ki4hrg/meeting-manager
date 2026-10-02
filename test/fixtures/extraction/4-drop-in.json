@@ -1,0 +1,52 @@
+{
+  "name": "drop-in",
+  "about": "Someone put their head round the door. Nothing was asked for, promised or settled. The right answer is close to nothing.",
+  "input": {
+    "meeting": {
+      "id": "a4000000-0000-4000-8000-000000000001",
+      "title": "Tom Baker",
+      "startsAt": "2026-10-01 11:40",
+      "people": [{ "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" }],
+      "group": null,
+      "projects": []
+    },
+    "self": { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+    "today": "2026-10-01",
+    "note": {
+      "body": "Tom stopped by",
+      "summary": null,
+      "transcript": "Tom: Got a second? Nothing urgent.\nJohn: Sure, come in.\nTom: Just wanted you to know the boiler people came Tuesday. Annual service, all fine, they changed a filter and left. Invoice already went to the office and Priya paid it.\nJohn: Good. One less thing before winter.\nTom: That's what I thought. Also my daughter made the varsity team.\nJohn: That's fantastic, tell her congratulations. Is she still playing midfield?\nTom: Striker now. She's insufferable about it.\nJohn: As she should be. We should really get the staff together for a meal sometime, it's been ages.\nTom: We should. Anyway, I'll let you get back to it.\nJohn: Thanks, Tom."
+    },
+    "agenda": [],
+    "openItems": [
+      {
+        "id": "f1000000-0000-4000-8000-000000000001",
+        "kind": "action",
+        "text": "Get three quotes for resurfacing the parking lot",
+        "detail": null,
+        "owners": ["Tom Baker"],
+        "with": [],
+        "project": null,
+        "dueOn": "2026-10-20"
+      }
+    ],
+    "directory": {
+      "people": [
+        { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+        { "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" },
+        { "id": "b1000000-0000-4000-8000-000000000003", "name": "Priya Nair" }
+      ],
+      "groups": [{ "id": "c1000000-0000-4000-8000-000000000001", "name": "Staff" }],
+      "projects": []
+    },
+    "verbatim": [],
+    "captured": [],
+    "handled": []
+  },
+  "expect": [
+    { "say": "no actions, questions or decisions", "where": { "kind": ["action", "question", "decision"] }, "min": 0, "max": 0 },
+    { "say": "no meeting stub from 'we should get the staff together sometime'", "where": { "type": ["stub"] }, "min": 0, "max": 0 },
+    { "say": "the parking quotes, which did not come up, are left alone", "where": { "type": ["update"] }, "min": 0, "max": 0 },
+    { "say": "at most one proposal of any sort", "maxDrafts": 1 }
+  ]
+}

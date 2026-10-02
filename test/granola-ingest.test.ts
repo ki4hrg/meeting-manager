@@ -1,0 +1,671 @@
+/*
+ * A Granola note becoming a meeting's note, against the real database and a
+ * scripted Granola. Which context a note lands in is the thing most worth
+ * proving here: only its folder decides, and nothing crosses.
+ */
+
+import { unknownAttendees } from '../lib/notes/attendees'
+import { eq } from 'drizzle-orm'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { connections, meetings, notes, people, processingRuns } from '../lib/db/schema'
+import { ValidationError } from '../lib/core/types'
+import {
+  bindFolder,
+  connectGranola,
+  disconnectGranola,
+  listFolderBindings,
+  listGranolaAccounts,
+  signingSecrets,
+  unbindFolder,
+} from '../lib/connect/granola/connection'
+import { listBindings, listConnections } from '../lib/connect/connections'
+import { granolaActor, ingestNoteById, type IngestOutcome } from '../lib/connect/granola/ingest'
+import { listItems } from '../lib/items/items'
+import { createMeeting, deleteMeeting, getMeeting, listMeetings } from '../lib/meetings/meetings'
+import { createSeries } from '../lib/meetings/series'
+import { listNotes } from '../lib/notes/notes'
+import { acceptProposal, listProposals } from '../lib/processing/proposals'
+import { processQueued } from '../lib/processing/run'
+import { db, resetBetweenTests } from './helpers/db'
+import { actor, makeWorld } from './helpers/fixtures'
+import {
+  TEST_KEY,
+  TEST_SECRET,
+  connect,
+  fakeGranola,
+  folder,
+  note,
+  noteId,
+} from './helpers/granola'
+
+resetBetweenTests()
+afterEach(() => vi.unstubAllGlobals())
+
+const PARISH = 'fol_parish00000000'
+const DIOCESE = 'fol_diocese0000000'
+const OTHER = 'fol_other000000000'
+
+const parishFolder = folder(PARISH, 'Parish')
+const dioceseFolder = folder(DIOCESE, 'Diocese')
+
+async function setUp() {
+  const world = await makeWorld()
+  const granola = fakeGranola({ folders: [parishFolder, dioceseFolder, folder(OTHER, 'Personal')] })
+  const account = await connect([
+    { folderId: PARISH, contextId: world.parish.id },
+    { folderId: DIOCESE, contextId: world.diocese.id },
+  ])
+  const ingest = (id: string) => ingestNoteById(db, granolaActor('webhook'), account.id, id)
+  return { ...world, granola, account, ingest }
+}
+
+function filed(outcome: IngestOutcome) {
+  if (outcome.kind !== 'filed') throw new Error(`expected a filed note, got ${JSON.stringify(outcome)}`)
+  return outcome
+}
+
+const everyMeeting = () => db.select().from(meetings)
+const everyRun = () => db.select().from(processingRuns)
+
+describe('walkthrough: a drop-in from a Granola note with no calendar event', () => {
+  it('makes its own meeting, is processed, reviewed, and can be discarded', async () => {
+    const { parish, diocese, sarah, granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({
+      id,
+      title: 'Corridor chat about the retreat',
+      created_at: '2026-10-01T15:00:00Z',
+      attendees: [
+        { name: 'John', email: 'john@example.test' },
+        { name: 'Sarah', email: 'Sarah@Example.test' },
+        { name: 'A stranger', email: 'stranger@example.test' },
+      ],
+      folder_membership: [parishFolder],
+      private_notes_markdown: '- D: The retreat moves to the spring\n- thinking aloud',
+      summary_markdown: '## Retreat\n\nMoved to spring.',
+    })
+    granola.script.transcripts[id] = [
+      { speaker: { attribution: 'me' }, text: 'Shall we move it?', start_time: '2026-10-01T15:00:05Z', end_time: '2026-10-01T15:00:09Z' },
+      { speaker: { name: 'Sarah Jones' }, text: 'Spring is better.', start_time: '2026-10-01T15:00:10Z', end_time: '2026-10-01T15:20:00Z' },
+    ]
+    const peopleBefore = (await db.select().from(people)).length
+
+    const outcome = filed(await ingest(id))
+
+    // A meeting of its own, in the folder's context, when the note was started.
+    expect(outcome).toMatchObject({ via: 'new', changed: true, queued: true })
+    const meeting = await getMeeting(db, outcome.meetingId)
+    expect(meeting).toMatchObject({
+      contextId: parish.id,
+      title: 'Corridor chat about the retreat',
+      calendarEventId: null,
+      series: null,
+    })
+    expect(meeting.startsAt).toEqual(new Date('2026-10-01T15:00:00Z'))
+    // It ran until the last thing said.
+    expect(meeting.endsAt).toEqual(new Date('2026-10-01T15:20:00Z'))
+    // Who is already in the directory; never John, and nobody invented.
+    expect(meeting.people.map((person) => person.id)).toEqual([sarah.id])
+    expect((await db.select().from(people)).length).toBe(peopleBefore)
+    expect(await listMeetings(db, { contextId: diocese.id })).toEqual([])
+
+    // The note: John's notepad as the body, the summary and transcript beside it.
+    const [saved] = await listNotes(db, meeting.id)
+    expect(saved).toMatchObject({
+      source: 'granola',
+      externalId: id,
+      body: '- D: The retreat moves to the spring\n- thinking aloud',
+      summary: '## Retreat\n\nMoved to spring.',
+      transcript: 'Me: Shall we move it?\nSarah Jones: Spring is better.',
+    })
+
+    // The one nobody knows waits on the note, to be asked about at review.
+    expect(await unknownAttendees(db, meeting.id)).toEqual([
+      { email: 'stranger@example.test', name: 'A stranger' },
+    ])
+
+    // Processing, with no model: the verbatim line, in his words.
+    expect(await processQueued(db, null)).toEqual({ processed: 1, failed: 0 })
+    const proposals = await listProposals(db, meeting.id)
+    expect(proposals).toHaveLength(1)
+    expect(proposals[0]).toMatchObject({ status: 'pending', verbatim: true })
+    expect(proposals[0]!.payload).toMatchObject({
+      type: 'item',
+      kind: 'decision',
+      text: 'The retreat moves to the spring',
+    })
+
+    // Nothing is an item until it is accepted; then it is one, in this context.
+    expect(await listItems(db, { contextId: parish.id })).toEqual([])
+    await acceptProposal(db, actor, proposals[0]!.id)
+    const items = await listItems(db, { contextId: parish.id })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'decision', originMeetingId: meeting.id })
+    expect(await listItems(db, { contextId: diocese.id })).toEqual([])
+
+    // An auto-created meeting can be discarded; its note goes with it.
+    await deleteMeeting(db, actor, meeting.id)
+    expect(await db.select().from(notes)).toEqual([])
+  })
+
+  it('makes nothing for a note with nothing in it yet', async () => {
+    const { granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder], summary_markdown: null })
+
+    expect(await ingest(id)).toEqual({ kind: 'ignored', reason: 'empty' })
+    expect(await everyMeeting()).toEqual([])
+  })
+})
+
+describe('context isolation', () => {
+  it('ignores a note outside every bound folder, without reading its transcript', async () => {
+    const { granola, ingest } = await setUp()
+    const unfiled = noteId()
+    const elsewhere = noteId()
+    granola.script.notes[unfiled] = note({ id: unfiled })
+    granola.script.notes[elsewhere] = note({ id: elsewhere, folder_membership: [folder(OTHER, 'Personal')] })
+    granola.script.transcripts[elsewhere] = []
+
+    expect(await ingest(unfiled)).toEqual({ kind: 'ignored', reason: 'unbound' })
+    expect(await ingest(elsewhere)).toEqual({ kind: 'ignored', reason: 'unbound' })
+    expect(await everyMeeting()).toEqual([])
+    expect(await db.select().from(notes)).toEqual([])
+    expect(granola.count(/transcript/)).toBe(0)
+  })
+
+  it('files a note in the folder’s context even when its calendar event is a meeting elsewhere', async () => {
+    const { parish, diocese, granola, ingest } = await setUp()
+    const theirs = await createMeeting(db, actor, {
+      contextId: diocese.id,
+      title: 'Council',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+      calendarId: 'cal',
+      calendarEventId: 'evt_council',
+    })
+    const id = noteId()
+    granola.script.notes[id] = note({
+      id,
+      title: 'Council',
+      folder_membership: [parishFolder],
+      calendar_event: {
+        event_title: 'Council',
+        invitees: [],
+        organiser: null,
+        calendar_event_id: 'evt_council',
+        scheduled_start_time: '2026-10-01T15:00:00Z',
+        scheduled_end_time: '2026-10-01T16:00:00Z',
+      },
+    })
+
+    const outcome = filed(await ingest(id))
+
+    expect(outcome.via).toBe('new')
+    expect(outcome.meetingId).not.toBe(theirs.id)
+    const made = await getMeeting(db, outcome.meetingId)
+    expect(made.contextId).toBe(parish.id)
+    // The event stays the other meeting's; this one does not claim it.
+    expect(made.calendarEventId).toBeNull()
+    expect(await listNotes(db, theirs.id)).toEqual([])
+    expect((await getMeeting(db, theirs.id)).calendarEventId).toBe('evt_council')
+  })
+
+  it('never matches by time across contexts', async () => {
+    const { parish, diocese, granola, ingest } = await setUp()
+    const theirs = await createMeeting(db, actor, {
+      contextId: diocese.id,
+      title: 'Council by hand',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+    })
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+
+    const outcome = filed(await ingest(id))
+
+    expect(outcome.via).toBe('new')
+    expect((await getMeeting(db, outcome.meetingId)).contextId).toBe(parish.id)
+    expect(await listNotes(db, theirs.id)).toEqual([])
+  })
+
+  it('does not join a series that lives in another context', async () => {
+    const { parish, diocese, granola, ingest } = await setUp()
+    await createSeries(db, { contextId: diocese.id, name: 'Council', calendarSeriesId: 'rec_council' })
+    const id = noteId()
+    granola.script.notes[id] = note({
+      id,
+      folder_membership: [parishFolder],
+      calendar_event: {
+        event_title: 'Council',
+        invitees: [],
+        organiser: null,
+        calendar_event_id: 'rec_council_20261001T150000Z',
+        scheduled_start_time: '2026-10-01T15:00:00Z',
+        scheduled_end_time: null,
+      },
+    })
+
+    const made = await getMeeting(db, filed(await ingest(id)).meetingId)
+    expect(made).toMatchObject({ contextId: parish.id, series: null })
+  })
+
+  it('leaves a note whose folders feed two contexts where it is', async () => {
+    const { granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder, dioceseFolder] })
+
+    expect(await ingest(id)).toEqual({ kind: 'ignored', reason: 'ambiguous' })
+    expect(await everyMeeting()).toEqual([])
+    expect(await db.select().from(notes)).toEqual([])
+  })
+
+  it('uses only the bindings of the account the note came through', async () => {
+    const { diocese, granola } = await setUp()
+    /* A second account, with the same folder id bound to the other context. */
+    const [second] = await db
+      .insert(connections)
+      .values({ provider: 'granola', account: 'second@example.test', credentials: '{}' })
+      .returning()
+    const [first] = (await listGranolaAccounts(db)).filter((one) => one.id !== second!.id)
+    await db.update(connections).set({ credentials: (await db.select().from(connections).where(eq(connections.id, first!.id)))[0]!.credentials }).where(eq(connections.id, second!.id))
+    await unbindFolder(db, { connectionId: first!.id, folderId: PARISH })
+    await bindFolder(db, { connectionId: second!.id, folderId: PARISH, name: 'Parish', contextId: diocese.id })
+
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+
+    // Through the first account the folder is not bound at all.
+    expect(await ingestNoteById(db, granolaActor('job'), first!.id, id)).toEqual({ kind: 'ignored', reason: 'unbound' })
+    // Through the second it feeds the context that account bound it to.
+    const outcome = filed(await ingestNoteById(db, granolaActor('job'), second!.id, id))
+    expect((await getMeeting(db, outcome.meetingId)).contextId).toBe(diocese.id)
+  })
+})
+
+describe('folders', () => {
+  it('takes the nearest bound folder above an unbound one', async () => {
+    const { parish, diocese, granola, ingest, account } = await setUp()
+    const child = folder('fol_child000000000', 'Staff', PARISH)
+    const grandchild = folder('fol_grand000000000', '1:1s', child.id)
+    granola.script.folders.push(child, grandchild)
+
+    const deep = noteId()
+    granola.script.notes[deep] = note({ id: deep, folder_membership: [grandchild] })
+    expect((await getMeeting(db, filed(await ingest(deep)).meetingId)).contextId).toBe(parish.id)
+    // The tree was needed, and asked for.
+    expect(granola.count(/GET \/v1\/folders/)).toBe(1)
+
+    // A binding of its own on the folder in between wins over the one above.
+    await bindFolder(db, { connectionId: account.id, folderId: child.id, name: 'Staff', contextId: diocese.id })
+    const next = noteId()
+    granola.script.notes[next] = note({ id: next, created_at: '2026-10-02T15:00:00Z', folder_membership: [grandchild] })
+    expect((await getMeeting(db, filed(await ingest(next)).meetingId)).contextId).toBe(diocese.id)
+  })
+
+  it('binds a folder to one context, and binding again moves it', async () => {
+    const { parish, diocese, account } = await setUp()
+    await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: diocese.id })
+
+    const bound = await listFolderBindings(db, { connectionId: account.id })
+    expect(bound.filter((one) => one.externalId === PARISH).map((one) => one.contextId)).toEqual([diocese.id])
+    expect(bound.some((one) => one.contextId === parish.id)).toBe(false)
+    // Folder bindings are not calendars: the feed never sees them.
+    expect(await listBindings(db)).toEqual([])
+
+    await unbindFolder(db, { connectionId: account.id, folderId: PARISH })
+    expect((await listFolderBindings(db)).map((one) => one.externalId)).toEqual([DIOCESE])
+  })
+})
+
+describe('matching an existing meeting', () => {
+  const event = (id: string) => ({
+    event_title: 'Staff',
+    invitees: [{ email: 'sarah@example.test' }],
+    organiser: null,
+    calendar_event_id: id,
+    scheduled_start_time: '2026-10-01T15:00:00Z',
+    scheduled_end_time: '2026-10-01T16:00:00Z',
+  })
+
+  it('files on the meeting that holds its calendar event', async () => {
+    const { parish, tom, granola, ingest } = await setUp()
+    const prepped = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Staff',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+      calendarId: 'cal',
+      calendarEventId: 'evt_staff',
+      personIds: [tom.id],
+    })
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder], calendar_event: event('evt_staff') })
+
+    const outcome = filed(await ingest(id))
+
+    expect(outcome).toMatchObject({ via: 'event', meetingId: prepped.id })
+    expect(await everyMeeting()).toHaveLength(1)
+    // The prepped roster is John's; the note does not rewrite it.
+    expect((await getMeeting(db, prepped.id)).people.map((person) => person.id)).toEqual([tom.id])
+  })
+
+  it('makes the meeting for an event nobody prepped, in its series when that is here', async () => {
+    const { parish, sarah, tom, granola, ingest } = await setUp()
+    const series = await createSeries(db, {
+      contextId: parish.id,
+      name: 'Staff',
+      personIds: [tom.id],
+      calendarSeriesId: 'rec_staff',
+    })
+    const id = noteId()
+    granola.script.notes[id] = note({
+      id,
+      title: null,
+      folder_membership: [parishFolder],
+      calendar_event: event('rec_staff_20261001T150000Z'),
+    })
+
+    const made = await getMeeting(db, filed(await ingest(id)).meetingId)
+
+    expect(made).toMatchObject({
+      title: 'Staff',
+      calendarEventId: 'rec_staff_20261001T150000Z',
+      series: { id: series.id },
+    })
+    expect(made.endsAt).toEqual(new Date('2026-10-01T16:00:00Z'))
+    // The note named somebody, so they are the people; the roster is the fallback.
+    expect(made.people.map((person) => person.id)).toEqual([sarah.id])
+    // Not prepped: no agenda was laid down for a meeting that is over.
+    expect(made.sessions).toEqual([])
+  })
+
+  it('files on the one meeting under way when the note has no event', async () => {
+    const { parish, granola, ingest } = await setUp()
+    const logged = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'By hand',
+      startsAt: new Date('2026-10-01T14:50:00Z'),
+    })
+    await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Earlier',
+      startsAt: new Date('2026-10-01T12:00:00Z'),
+      endsAt: new Date('2026-10-01T12:30:00Z'),
+    })
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+
+    expect(filed(await ingest(id))).toMatchObject({ via: 'time', meetingId: logged.id })
+    expect(await everyMeeting()).toHaveLength(2)
+  })
+
+  it('a second recording of the same conversation joins the first', async () => {
+    const { granola, ingest } = await setUp()
+    const first = noteId()
+    const second = noteId()
+    granola.script.notes[first] = note({ id: first, folder_membership: [parishFolder] })
+    granola.script.transcripts[first] = [
+      { speaker: null, text: 'Part one.', start_time: '2026-10-01T15:00:00Z', end_time: '2026-10-01T15:30:00Z' },
+    ]
+    granola.script.notes[second] = note({ id: second, created_at: '2026-10-01T15:25:00Z', folder_membership: [parishFolder] })
+
+    const one = filed(await ingest(first))
+    const two = filed(await ingest(second))
+
+    expect(two).toMatchObject({ via: 'time', meetingId: one.meetingId })
+    expect(await listNotes(db, one.meetingId)).toHaveLength(2)
+  })
+
+  it('does not join a drop-in that had already ended', async () => {
+    const { granola, ingest } = await setUp()
+    const first = noteId()
+    const second = noteId()
+    granola.script.notes[first] = note({ id: first, folder_membership: [parishFolder] })
+    granola.script.transcripts[first] = [
+      { speaker: null, text: 'Short.', start_time: '2026-10-01T15:00:00Z', end_time: '2026-10-01T15:10:00Z' },
+    ]
+    granola.script.notes[second] = note({ id: second, created_at: '2026-10-01T15:30:00Z', folder_membership: [parishFolder] })
+
+    const one = filed(await ingest(first))
+    const two = filed(await ingest(second))
+
+    expect(two.via).toBe('new')
+    expect(two.meetingId).not.toBe(one.meetingId)
+  })
+
+  it('makes its own meeting rather than choose between two under way', async () => {
+    const { parish, granola, ingest } = await setUp()
+    for (const title of ['One', 'Two']) {
+      await createMeeting(db, actor, { contextId: parish.id, title, startsAt: new Date('2026-10-01T15:00:00Z') })
+    }
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+
+    expect(filed(await ingest(id)).via).toBe('new')
+    expect(await everyMeeting()).toHaveLength(3)
+  })
+
+  it('does not file on a meeting whose people are all somebody else', async () => {
+    const { parish, tom, granola, ingest } = await setUp()
+    const withTom = await createMeeting(db, actor, {
+      contextId: parish.id,
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+      personIds: [tom.id],
+    })
+    const id = noteId()
+    granola.script.notes[id] = note({
+      id,
+      folder_membership: [parishFolder],
+      attendees: [{ email: 'sarah@example.test' }],
+    })
+
+    const outcome = filed(await ingest(id))
+    expect(outcome.via).toBe('new')
+    expect(outcome.meetingId).not.toBe(withTom.id)
+  })
+
+  it('prefers the session to the multi-day meeting around it, and never an undated stub', async () => {
+    const { parish, sarah, granola, ingest } = await setUp()
+    const retreat = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Retreat',
+      startsAt: new Date('2026-10-01T09:00:00Z'),
+      endsAt: new Date('2026-10-03T17:00:00Z'),
+    })
+    const session = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Afternoon',
+      parentMeetingId: retreat.id,
+      startsAt: new Date('2026-10-01T14:00:00Z'),
+      endsAt: new Date('2026-10-01T16:00:00Z'),
+    })
+    await createMeeting(db, actor, { contextId: parish.id, personIds: [sarah.id] })
+    const id = noteId()
+    granola.script.notes[id] = note({
+      id,
+      folder_membership: [parishFolder],
+      attendees: [{ email: 'sarah@example.test' }],
+    })
+
+    expect(filed(await ingest(id))).toMatchObject({ via: 'time', meetingId: session.id })
+  })
+})
+
+describe('re-delivery', () => {
+  it('unchanged: nothing is saved and nothing is queued', async () => {
+    const { granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+
+    const first = filed(await ingest(id))
+    const again = filed(await ingest(id))
+
+    expect(again).toMatchObject({ via: 'note', changed: false, queued: false, meetingId: first.meetingId, noteId: first.noteId })
+    expect(await everyMeeting()).toHaveLength(1)
+    expect(await db.select().from(notes)).toHaveLength(1)
+    expect(await everyRun()).toHaveLength(1)
+  })
+
+  it('edited: the same note, a new version and a new run', async () => {
+    const { granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder], private_notes_markdown: 'D: One thing' })
+    const first = filed(await ingest(id))
+    await processQueued(db, null)
+
+    granola.script.notes[id] = {
+      ...granola.script.notes[id]!,
+      updated_at: '2026-10-01T17:00:00Z',
+      private_notes_markdown: 'D: One thing\nD: And another',
+    }
+    const edited = filed(await ingest(id))
+
+    expect(edited).toMatchObject({ via: 'note', changed: true, queued: true, noteId: first.noteId, meetingId: first.meetingId })
+    expect(await db.select().from(notes)).toHaveLength(1)
+    expect(await everyRun()).toHaveLength(2)
+
+    // Only what is new is proposed the second time.
+    await processQueued(db, null)
+    const proposals = await listProposals(db, first.meetingId)
+    expect(proposals.map((one) => (one.payload.type === 'item' ? one.payload.text : ''))).toEqual([
+      'One thing',
+      'And another',
+    ])
+  })
+
+  it('stays on the meeting it was filed on, even after its folder is bound elsewhere', async () => {
+    const { parish, diocese, granola, ingest, account } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+    const first = filed(await ingest(id))
+
+    await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: diocese.id })
+    granola.script.notes[id] = { ...granola.script.notes[id]!, summary_markdown: 'We talked more.' }
+    const again = filed(await ingest(id))
+
+    expect(again.meetingId).toBe(first.meetingId)
+    expect((await getMeeting(db, again.meetingId)).contextId).toBe(parish.id)
+    expect(await listMeetings(db, { contextId: diocese.id })).toEqual([])
+  })
+
+  it('two arrivals of one new note at once make one meeting', async () => {
+    const { granola, ingest } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+
+    const outcomes = await Promise.all([ingest(id), ingest(id)])
+
+    expect(outcomes.every((outcome) => outcome.kind === 'filed')).toBe(true)
+    expect(await everyMeeting()).toHaveLength(1)
+    expect(await db.select().from(notes)).toHaveLength(1)
+    expect(await everyRun()).toHaveLength(1)
+  })
+
+  it('two notes of one unprepped calendar event at once share one meeting', async () => {
+    const { granola, ingest } = await setUp()
+    const ids = [noteId(), noteId()]
+    for (const id of ids) {
+      granola.script.notes[id] = note({
+        id,
+        folder_membership: [parishFolder],
+        calendar_event: {
+          event_title: 'Staff',
+          invitees: [],
+          organiser: null,
+          calendar_event_id: 'evt_twice',
+          scheduled_start_time: '2026-10-01T15:00:00Z',
+          scheduled_end_time: '2026-10-01T16:00:00Z',
+        },
+      })
+    }
+
+    const outcomes = (await Promise.all(ids.map((id) => ingest(id)))).map(filed)
+
+    expect(outcomes[0]!.meetingId).toBe(outcomes[1]!.meetingId)
+    expect(await everyMeeting()).toHaveLength(1)
+    expect(await db.select().from(notes)).toHaveLength(2)
+  })
+})
+
+describe('connecting', () => {
+  it('proves the key, names the account, and keeps the secrets sealed', async () => {
+    const granola = fakeGranola()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, owner: { name: 'John', email: 'John@Example.test' } })
+
+    const account = await connectGranola(db, `  ${TEST_KEY} `)
+
+    expect(account).toMatchObject({ account: 'john@example.test', webhook: true, lastError: null })
+    expect(granola.calls[0]).toBe('GET /v1/notes?page_size=1')
+    expect(granola.count(/POST \/v1\/webhook-endpoints/)).toBe(1)
+    expect(await signingSecrets(db)).toEqual([{ connectionId: account.id, secret: TEST_SECRET }])
+
+    const [row] = await db.select().from(connections)
+    expect(row!.credentials).not.toContain(TEST_KEY)
+    expect(row!.credentials).not.toContain(TEST_SECRET)
+    // Readers of connections never get the credentials at all.
+    expect(JSON.stringify(await listConnections(db))).not.toContain('credentials')
+  })
+
+  it('refuses a key Granola does not accept, storing nothing', async () => {
+    fakeGranola()
+    await expect(connectGranola(db, 'grn_wrong')).rejects.toThrow(ValidationError)
+    await expect(connectGranola(db, '   ')).rejects.toThrow(ValidationError)
+    expect(await db.select().from(connections)).toEqual([])
+  })
+
+  it('connects without a webhook when Granola will not register one', async () => {
+    fakeGranola({ signingSecret: null })
+    const account = await connectGranola(db, TEST_KEY)
+    expect(account.webhook).toBe(false)
+    expect(await signingSecrets(db)).toEqual([])
+  })
+
+  it('the same account again replaces the key and keeps its folders and endpoint', async () => {
+    const world = await makeWorld()
+    const granola = fakeGranola()
+    const first = await connect([{ folderId: PARISH, contextId: world.parish.id }])
+
+    granola.script.key = 'grn_rotated'
+    const again = await connectGranola(db, 'grn_rotated')
+
+    expect(again.id).toBe(first.id)
+    expect(await db.select().from(connections)).toHaveLength(1)
+    expect(await listFolderBindings(db)).toHaveLength(1)
+    expect(granola.count(/POST \/v1\/webhook-endpoints/)).toBe(1)
+  })
+
+  it('records a revoked key on the connection, and clears it when a call works again', async () => {
+    const { granola, ingest, account } = await setUp()
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+
+    granola.script.key = 'grn_other'
+    await expect(ingest(id)).rejects.toThrow(/no longer accepts/)
+    expect((await listGranolaAccounts(db))[0]!.lastError).toMatch(/no longer accepts/)
+
+    granola.script.key = TEST_KEY
+    await ingest(id)
+    expect((await listGranolaAccounts(db)).find((one) => one.id === account.id)!.lastError).toBeNull()
+  })
+
+  it('disconnecting takes the endpoint and the folder bindings with it', async () => {
+    const { granola, account } = await setUp()
+
+    await disconnectGranola(db, account.id)
+
+    expect(granola.count(/DELETE \/v1\/webhook-endpoints\/whe_2mKr8fQxLp7Ta3/)).toBe(1)
+    expect(await db.select().from(connections)).toEqual([])
+    expect(await listFolderBindings(db)).toEqual([])
+  })
+
+  it('the environment’s secret verifies for the one account that has none', async () => {
+    fakeGranola({ signingSecret: null })
+    const account = await connectGranola(db, TEST_KEY)
+    process.env.GRANOLA_WEBHOOK_SECRET = TEST_SECRET
+    try {
+      expect(await signingSecrets(db)).toEqual([{ connectionId: account.id, secret: TEST_SECRET }])
+      expect((await listGranolaAccounts(db))[0]!.webhook).toBe(true)
+    } finally {
+      delete process.env.GRANOLA_WEBHOOK_SECRET
+    }
+  })
+})

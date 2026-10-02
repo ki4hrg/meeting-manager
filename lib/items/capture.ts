@@ -14,7 +14,7 @@
 
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
 import { resolveParty, resolveProject, type Party } from '../directory/resolve'
-import { createItem, type ItemKind, type ItemView, type PartyInput } from './items'
+import { createItem, type ItemKind, type ItemView, type PartyInput, type PartyRole } from './items'
 
 const KIND_PREFIX: Record<string, ItemKind> = {
   t: 'topic',
@@ -71,7 +71,7 @@ export function parseLine(line: string): ParsedLine {
  * end is a tag and is dropped; one inside the sentence is part of it and is
  * replaced by the name it stands for ("ask @bishop about X" keeps its bishop).
  */
-function renderText(words: ParsedWord[], nameOf: (word: ParsedWord) => string): string {
+export function renderText(words: ParsedWord[], nameOf: (word: ParsedWord) => string): string {
   const kept = [...words]
   while (kept.length > 0 && kept[0]!.type !== 'text') kept.shift()
 
@@ -86,6 +86,18 @@ function renderText(words: ParsedWord[], nameOf: (word: ParsedWord) => string): 
     .map((word) => (word.type === 'text' ? word.value : nameOf(word) + word.trailing))
     .join(' ')
   return /[.,;:!?]$/.test(text) ? text : text + trailing
+}
+
+/*
+ * What a mention is to the item. A question or an action is owed by whoever is
+ * named, unless John names himself: then he owes it and the others are who it
+ * is owed to. On a topic or a decision a mention is who it is raised with.
+ * Shared with the verbatim lines of a note, which must read the same way.
+ */
+export function mentionRole(kind: ItemKind, selfNamed: boolean, isSelf: boolean): PartyRole {
+  const owed = kind === 'question' || kind === 'action'
+  if (owed) return !selfNamed || isSelf ? 'owner' : 'with'
+  return isSelf ? 'owner' : 'with'
 }
 
 export type CapturePresets = {
@@ -125,12 +137,11 @@ export async function captureLine(
     const mentioned = [...new Map([...resolved.values()].map((party) => [party.id, party])).values()]
     const selfNamed = parsed.mentions.some((name) => name.toLowerCase() === 'me')
     const self = selfNamed ? resolved.get(parsed.mentions.find((n) => n.toLowerCase() === 'me')!) : null
-    const owed = kind === 'question' || kind === 'action'
 
     const parties: PartyInput[] = [...(presets.parties ?? [])]
     for (const party of mentioned) {
       const isSelf = self?.id === party.id
-      const role = owed ? (!self || isSelf ? 'owner' : 'with') : isSelf ? 'owner' : 'with'
+      const role = mentionRole(kind, Boolean(self), isSelf)
       const entry: PartyInput =
         party.type === 'person' ? { personId: party.id, role } : { groupId: party.id, role }
       // A preset has already said what this party is to the item.

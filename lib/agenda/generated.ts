@@ -74,8 +74,8 @@ export async function computeBlocks(
 
 /* The only items a meeting may speak about: those on its agenda and those that
    came out of it. Bound to the meeting's context as well, so a stray reference
-   could not carry anything across. */
-async function itemsOf(exec: Executor, meeting: Meeting): Promise<ItemView[]> {
+   could not carry anything across. The recap reads through here too. */
+export async function itemsOf(exec: Executor, meeting: Meeting): Promise<ItemView[]> {
   const placed = await exec
     .select({ itemId: agendaLines.itemId })
     .from(agendaLines)

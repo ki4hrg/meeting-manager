@@ -1,12 +1,19 @@
-import { describe, expect, it } from 'vitest'
-import { clearFeedCache, listEvents, matchPeople } from '../lib/calendar/feed'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { clearFeedCache, listEvents, listEventsIn, matchPeople } from '../lib/calendar/feed'
 import { bindCalendar, getConnection, saveGoogleConnection } from '../lib/connect/connections'
 import { users } from '../lib/db/schema'
 import { createContext } from '../lib/directory/contexts'
 import { createPerson } from '../lib/directory/people'
+import { moveMeeting } from '../lib/meetings/move'
+import { prepFromEvent } from '../lib/meetings/prep'
+import { createSeries } from '../lib/meetings/series'
 import { db, resetBetweenTests } from './helpers/db'
+import { actor } from './helpers/fixtures'
 
 resetBetweenTests()
+/* The feed is cached by range, for every bound calendar at once, and each test
+   binds its own. */
+beforeEach(clearFeedCache)
 
 const mockCalendarEvents: Array<{
   status?: string
@@ -515,6 +522,102 @@ describe('what Google actually sends', () => {
     fail = false
     expect(await listEvents(db, { contextId: ctx.id, ...range }, { fetchEvents })).toHaveLength(2)
     expect((await getConnection(db, conn.id)).lastError).toBeNull()
+  })
+})
+
+describe('where an event belongs', () => {
+  const range = { from: new Date('2026-10-01'), to: new Date('2026-10-31') }
+  const at = (id: string, day: string, recurringEventId?: string) => ({
+    id,
+    recurringEventId,
+    summary: id,
+    start: { dateTime: `2026-10-${day}T10:00:00Z` },
+    end: { dateTime: `2026-10-${day}T11:00:00Z` },
+  })
+  /* A work calendar holding a church meeting and a recurring event, a church
+     calendar, and one event that is on both. */
+  const calendars: Record<string, ReturnType<typeof at>[]> = {
+    'work-cal': [at('standup', '12'), at('vestry', '13'), at('weekly-14', '14', 'rec-1'), at('shared', '15')],
+    'church-cal': [at('choir', '12'), at('shared', '15')],
+  }
+
+  async function twoContexts() {
+    const work = await createContext(db, { name: 'Work' })
+    const church = await createContext(db, { name: 'Church' })
+    const conn = await saveGoogleConnection(db, {
+      account: 'john@example.com',
+      tokens: { accessToken: 'access', refreshToken: null, expiresAt: null },
+      scopes: ['calendar.readonly'],
+    })
+    await bindCalendar(db, { connectionId: conn.id, calendarId: 'work-cal', name: 'Work', contextId: work.id })
+    await bindCalendar(db, { connectionId: conn.id, calendarId: 'church-cal', name: 'Church', contextId: church.id })
+
+    let calls = 0
+    const deps = {
+      fetchEvents: async (_token: string, calendarId: string) => {
+        calls++
+        return calendars[calendarId] ?? []
+      },
+    }
+    const inContext = async (contextId: string) =>
+      (await listEventsIn(db, { contextId, ...range }, deps)).map((event) => event.eventId)
+    const eventOf = async (contextId: string, eventId: string) =>
+      (await listEventsIn(db, { contextId, ...range }, deps)).find((event) => event.eventId === eventId)!
+    return { work, church, deps, inContext, eventOf, calls: () => calls }
+  }
+
+  it('is its calendar’s context until its meeting or its series lives elsewhere', async () => {
+    const { work, church, deps, inContext, eventOf, calls } = await twoContexts()
+    const now = new Date('2026-10-05T15:00:00Z')
+
+    expect(await inContext(work.id)).toEqual(['standup', 'vestry', 'weekly-14', 'shared'])
+    // An event on calendars of two contexts is offered in both until one preps it.
+    expect(await inContext(church.id)).toEqual(['choir', 'shared'])
+    // Both contexts are answered from one fetch of each calendar.
+    expect(calls()).toBe(2)
+
+    // The church meeting on the work calendar is prepped where it shows, then moved.
+    const vestry = await prepFromEvent(
+      db,
+      actor,
+      { contextId: work.id, event: await eventOf(work.id, 'vestry') },
+      now,
+    )
+    expect(await inContext(work.id)).toContain('vestry')
+    await moveMeeting(db, actor, vestry.id, church.id)
+    expect(await inContext(work.id)).toEqual(['standup', 'weekly-14', 'shared'])
+    expect(await inContext(church.id)).toEqual(['choir', 'vestry', 'shared'])
+    // It is still the work calendar's event; only where it is listed changed.
+    expect((await eventOf(church.id, 'vestry')).calendarId).toBe('work-cal')
+
+    // A recurring event whose series lives in the other context follows the series.
+    await createSeries(db, { contextId: church.id, name: 'Weekly', calendarSeriesId: 'rec-1' })
+    expect(await inContext(work.id)).toEqual(['standup', 'shared'])
+    expect(await inContext(church.id)).toEqual(['choir', 'vestry', 'weekly-14', 'shared'])
+
+    // Once prepped, the shared event is in the one context its meeting is in.
+    await prepFromEvent(db, actor, { contextId: work.id, event: await eventOf(work.id, 'shared') }, now)
+    expect(await inContext(work.id)).toEqual(['standup', 'shared'])
+    expect(await inContext(church.id)).toEqual(['choir', 'vestry', 'weekly-14'])
+
+    // What each calendar holds is unchanged by any of it.
+    const raw = await listEvents(db, { contextId: work.id, ...range }, deps)
+    expect(raw.map((event) => event.eventId)).toEqual(['standup', 'vestry', 'weekly-14', 'shared'])
+    expect(calls()).toBe(2)
+  })
+
+  it('lists nothing in two contexts once it has a meeting or a series', async () => {
+    const { work, church, inContext, eventOf } = await twoContexts()
+    const now = new Date('2026-10-05T15:00:00Z')
+    for (const id of ['standup', 'vestry', 'shared']) {
+      await prepFromEvent(db, actor, { contextId: work.id, event: await eventOf(work.id, id) }, now)
+    }
+    await createSeries(db, { contextId: church.id, name: 'Weekly', calendarSeriesId: 'rec-1' })
+
+    const here = await inContext(work.id)
+    const there = await inContext(church.id)
+    expect(here.filter((id) => there.includes(id))).toEqual([])
+    expect([...here, ...there].sort()).toEqual(['choir', 'shared', 'standup', 'vestry', 'weekly-14'])
   })
 })
 

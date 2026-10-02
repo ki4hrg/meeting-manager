@@ -1,9 +1,12 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { ValidationError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { SkeletonSection } from '@/lib/db/schema'
+import { getContext } from '@/lib/directory/contexts'
+import { moveSeries } from '@/lib/meetings/move'
 import { prepNextInSeries } from '@/lib/meetings/prep'
 import {
   createSeries,
@@ -15,7 +18,7 @@ import {
   updateSeries,
 } from '@/lib/meetings/series'
 import { act, field, type ActionResult } from '@/lib/web/action'
-import { currentContext } from '@/lib/web/context'
+import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 const ids = (formData: FormData, name: string): string[] =>
   formData.getAll(name).map(String).filter(Boolean)
@@ -50,6 +53,50 @@ export async function deleteSeriesAction(formData: FormData): Promise<ActionResu
   // The page it was called from is gone.
   if (!result.error) redirect('/series')
   return result
+}
+
+/* Select the context a series lives in, then open it there. */
+async function openIn(contextId: string, seriesId: string): Promise<never> {
+  ;(await cookies()).set(CONTEXT_COOKIE, contextId, contextCookieOptions)
+  redirect(`/series/${seriesId}`)
+}
+
+/**
+ * Move a series, and its meetings that can move, to another context and follow
+ * it there. The page is the same one, so there is no redirect: the cookie
+ * switches and it is drawn again in the new context. Occurrences that had to
+ * stay are counted in `notice`, since nothing on the series says so afterwards.
+ */
+export async function moveSeriesAction(
+  formData: FormData,
+): Promise<ActionResult & { notice?: string }> {
+  let contextId = ''
+  let notice: string | undefined
+  const result = await act(async (actor) => {
+    const to = field(formData, 'contextId')
+    if (to === '') throw new ValidationError('Pick a context.')
+    const before = await getSeries(db, field(formData, 'id'))
+    const move = await moveSeries(db, actor, before.id, to)
+    contextId = move.series.contextId
+    if (move.stayed.length > 0) {
+      const from = await getContext(db, before.contextId)
+      notice = `${move.stayed.length} stayed in ${from.name}`
+    }
+  })
+  if (result.error) return result
+  ;(await cookies()).set(CONTEXT_COOKIE, contextId, contextCookieOptions)
+  return { notice }
+}
+
+/** A series opened while another context is selected: switch to its own. */
+export async function openSeriesAction(formData: FormData): Promise<ActionResult> {
+  const id = field(formData, 'id')
+  let contextId = ''
+  const result = await act(async () => {
+    contextId = (await getSeries(db, id)).contextId
+  })
+  if (result.error) return result
+  return openIn(contextId, id)
 }
 
 /* The series stays; it just stops being the home of a calendar's recurring event. */

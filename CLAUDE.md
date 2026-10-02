@@ -30,10 +30,14 @@ These apply to every screen.
 - `lib/items/` — `items.ts` (the item lifecycle and every item query), `capture.ts` (the quick-add line).
 - `lib/meetings/` — `meetings.ts` and `series.ts` (CRUD), `prep.ts` (what turns a person, a series or a calendar event into a meeting with its agenda started).
 - `lib/agenda/` — `lines.ts` (the agenda in the database), `schedule.ts` (start times), `candidates.ts` (what an agenda pulls in: the leak rules), `generated.ts` (follow-ups, since last time, lookahead), `brief.ts` (the paste for Granola and the public agenda), `outline.ts`.
-- `lib/connect/` — connections to outside services and their bindings; `lib/calendar/feed.ts` — the read-only Google Calendar feed.
+- `lib/meetings/` also holds `log.ts` (Log a meeting: people and pasted notes) and `move.ts` (a meeting or series to another context).
+- `lib/notes/`, `lib/processing/` — a meeting's notes, and what turns them into proposals: `verbatim.ts` (`D:` `Q:` `A:` `T:` lines, by code), `extract.ts` and `prompt.ts` (the model, behind the `Extractor` in `types.ts`), `run.ts` (queue and process), `proposals.ts` (accept, edit, reject, undo). `lib/documents/` — documents a meeting produced.
+- `lib/agenda/recap.ts` — the recap, computed on demand under the leak rules.
+- `lib/jobs/` — the scheduler and its jobs (`process-notes`, `granola-reconcile`), started from `instrumentation.ts`.
+- `lib/connect/` — connections to outside services and their bindings; `lib/connect/granola/` — Granola's client, webhook, ingest and reconcile; `lib/calendar/feed.ts` — the read-only Google Calendar feed.
 - `lib/web/` — `context.ts` (the viewer and the selected context), `action.ts` (`act()`, the wrapper every server action uses).
-- `app/(app)/actions.ts` — server actions for items, the directory and projects. `app/(app)/meetings/actions.ts`, `app/(app)/series/actions.ts` and `app/(app)/settings/actions.ts` hold their own areas'.
-- `components/forms.tsx` — `ActionForm`, `FormModal`, `ActionButton`, `IconAction`. `components/items/` — `ItemCard`, `ItemGrid`, `PartyLine`. `components/meetings/` — the agenda card, suggestions, blocks, meeting and event cards. `components/series/` — the skeleton editor.
+- `app/(app)/actions.ts` — server actions for items, the directory and projects. `app/(app)/meetings/actions.ts`, `app/(app)/meetings/processing-actions.ts` (log, review, notes), `app/(app)/series/actions.ts` and `app/(app)/settings/actions.ts` hold their own areas'.
+- `components/forms.tsx` — `ActionForm`, `FormModal`, `ActionButton`, `IconAction`. `components/items/` — `ItemCard`, `ItemGrid`, `PartyLine`. `components/meetings/` — the agenda card, suggestions, blocks, meeting and event cards. `components/series/` — the skeleton editor. `components/processing/` — the Log modal, proposal cards, the party picker, run state. `components/documents/` — the document card.
 - `test/` — Vitest against a real Postgres (Testcontainers; Docker must be running).
 
 ## Commands
@@ -60,7 +64,8 @@ Local database: `docker run -d --name mm-dev-db -e POSTGRES_USER=mm -e POSTGRES_
 - Every item query takes a `contextId`. Nothing is listed across contexts.
 - John is never a row in `meeting_people` or `series_people`; he is at every meeting. A 1:1 is a meeting with one row.
 - An agenda's candidates and generated blocks come only from `lib/agenda/candidates.ts` and `generated.ts`. A change to either needs a case in `test/candidate-rules.test.ts`.
-- A meeting row is created only by `lib/meetings/prep.ts` or by hand. Nothing creates meetings from the calendar on its own.
+- A meeting row is created only by `lib/meetings/prep.ts`, `lib/meetings/log.ts` or by hand. Nothing creates meetings from the calendar on its own; a Granola note with no meeting to match makes one through `meetingFromNote` in `prep.ts`.
+- Nothing processing proposes reaches `items`, `documents` or `meetings` until the proposal is accepted. No test calls a model or the network: tests pass a fake `Extractor` and a faked Granola.
 - Much of `lib/oauth`, `lib/mcp` and `lib/auth` was lifted from `../Meeter`; that repo is the reference for the integrations still to come (Granola, Todoist, Google Calendar).
 
 ## Deploy

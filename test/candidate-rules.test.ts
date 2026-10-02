@@ -4,6 +4,7 @@
  * one extra item through is a leak.
  */
 
+import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import {
   dismissCandidate,
@@ -15,7 +16,8 @@ import {
 } from '../lib/agenda/candidates'
 import { computeBlocks } from '../lib/agenda/generated'
 import { getAgenda, removeLine } from '../lib/agenda/lines'
-import { agendaLines } from '../lib/db/schema'
+import { getRecap, renderPersonSnippet, renderRecap, renderRecapHtml } from '../lib/agenda/recap'
+import { agendaLines, items } from '../lib/db/schema'
 import { createPerson } from '../lib/directory/people'
 import { addMember } from '../lib/directory/groups'
 import { completeItem, createItem, recordDecision } from '../lib/items/items'
@@ -336,5 +338,235 @@ describe('follow-ups', () => {
       sinceLast: null,
       lookahead: null,
     })
+  })
+})
+
+/*
+ * The recap is sent to the people who were in the room, so a leak here leaves
+ * the building. It may speak only of what was placed on the agenda or came out
+ * of the meeting.
+ */
+describe('the recap', () => {
+  /** Everything a recap says, in every form it is copied out in. */
+  async function recapText(meetingId: string, selfId: string): Promise<string> {
+    const recap = await getRecap(db, meetingId, { today: TODAY, timeZone: 'America/Chicago', selfId, now: NOW })
+    const parties = [
+      ...recap.meeting.people.map((person) => ({ type: 'person' as const, id: person.id })),
+      { type: 'person' as const, id: selfId },
+      ...recap.owed.flatMap((group) => (group.party ? [{ type: group.party.type, id: group.party.id }] : [])),
+    ]
+    return [
+      JSON.stringify(recap),
+      renderRecap(recap),
+      renderRecapHtml(recap),
+      ...parties.map((party) => renderPersonSnippet(recap, party)),
+    ].join('\n')
+  }
+
+  it('a private 1:1 item never appears in a group meeting, whatever it carries; a placed one does', async () => {
+    const w = await makeWorld()
+    // Everything about these matches the meeting: its people, its group, its project, a date in range.
+    const privates = [
+      await createItem(db, actor, {
+        contextId: w.parish.id,
+        kind: 'action',
+        text: 'performance concern',
+        dueOn: '2026-10-10',
+        projectId: w.retreat.id,
+        parties: [
+          { personId: w.sarah.id, role: 'owner' },
+          { personId: w.john.id, role: 'with' },
+        ],
+      }),
+      await createItem(db, actor, {
+        contextId: w.parish.id,
+        kind: 'question',
+        text: 'salary review',
+        dueOn: '2026-10-12',
+        parties: [
+          { personId: w.john.id, role: 'owner' },
+          { personId: w.sarah.id, role: 'with' },
+        ],
+      }),
+      await createItem(db, actor, {
+        contextId: w.parish.id,
+        text: 'quiet word about the rota',
+        dueOn: '2026-10-09',
+        projectId: w.retreat.id,
+        parties: [{ groupId: w.staff.id, role: 'with' }],
+      }),
+    ]
+    const closedPrivate = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'warning letter',
+      projectId: w.retreat.id,
+      parties: [{ personId: w.sarah.id, role: 'owner' }],
+    })
+    await completeItem(db, actor, closedPrivate.id, { resolution: 'sent' })
+    await recordDecision(db, actor, { fromItemId: closedPrivate.id, text: 'probation extended' })
+
+    const placed = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'book the venue',
+      projectId: w.retreat.id,
+      parties: [{ personId: w.sarah.id, role: 'owner' }],
+    })
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    // Offered as candidates, and still not the recap's to mention.
+    await placeAutomatic(db, actor, meeting.id, NOW)
+    expect(offered(await getCandidates(db, meeting.id, NOW)).length).toBeGreaterThan(0)
+    await placeItem(db, actor, meeting.id, placed.id)
+
+    const text = await recapText(meeting.id, w.john.id)
+    expect(text).toContain('book the venue')
+    for (const item of [...privates, closedPrivate]) {
+      expect(text).not.toContain(item.text)
+      expect(text).not.toContain(item.id)
+    }
+    expect(text).not.toContain('probation')
+
+    // John places one of them: now it is the meeting's.
+    await placeItem(db, actor, meeting.id, privates[0]!.id)
+    expect(await recapText(meeting.id, w.john.id)).toContain('performance concern')
+  })
+
+  it('an item originating in the meeting appears, and one originating in another does not', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id, w.tom.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    const oneToOne = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id],
+      startsAt: new Date('2026-10-06T17:00:00Z'),
+    })
+    const from = (meetingId: string, text: string, kind: 'action' | 'decision') =>
+      createItem(db, actor, {
+        contextId: w.parish.id,
+        kind,
+        text,
+        originMeetingId: meetingId,
+        parties: [{ personId: w.sarah.id, role: 'owner' }],
+      })
+    await from(meeting.id, 'send the minutes', 'action')
+    await from(meeting.id, 'meet monthly', 'decision')
+    await from(oneToOne.id, 'see a counsellor', 'action')
+    await from(oneToOne.id, 'hours reduced', 'decision')
+
+    const text = await recapText(meeting.id, w.john.id)
+    expect(text).toContain('send the minutes')
+    expect(text).toContain('meet monthly')
+    expect(text).not.toContain('counsellor')
+    expect(text).not.toContain('hours reduced')
+  })
+
+  it('a dismissed suggestion does not appear, and an item taken off the agenda leaves', async () => {
+    const w = await makeWorld()
+    const make = (text: string) =>
+      createItem(db, actor, {
+        contextId: w.parish.id,
+        kind: 'action',
+        text,
+        projectId: w.retreat.id,
+        parties: [{ personId: w.tom.id, role: 'owner' }],
+      })
+    const dismissed = await make('dismissed suggestion')
+    const removed = await make('placed then removed')
+    await make('never looked at')
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id, w.tom.id],
+      projectIds: [w.retreat.id],
+    })
+    await dismissCandidate(db, actor, meeting.id, dismissed.id)
+    await placeItem(db, actor, meeting.id, removed.id)
+    expect(await recapText(meeting.id, w.john.id)).toContain('placed then removed')
+
+    const agenda = await getAgenda(db, meeting.id)
+    await removeLine(db, actor, agenda.nodes.find((node) => node.type === 'line' && node.item?.id === removed.id)!.id)
+
+    const text = await recapText(meeting.id, w.john.id)
+    for (const gone of ['dismissed suggestion', 'placed then removed', 'never looked at']) {
+      expect(text).not.toContain(gone)
+    }
+  })
+
+  it('nothing from another context appears, even through a stray reference', async () => {
+    const w = await makeWorld()
+    // The bishop is met in both contexts.
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.diocese.id,
+      personIds: [w.bishop.id],
+      groupId: w.council.id,
+      projectIds: [w.synod.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    const parishItems = []
+    for (const kind of ['action', 'question', 'decision', 'topic'] as const) {
+      parishItems.push(
+        await createItem(db, actor, {
+          contextId: w.parish.id,
+          kind,
+          text: `parish ${kind}`,
+          dueOn: kind === 'decision' ? null : '2026-10-08',
+          projectId: w.retreat.id,
+          parties: [{ personId: w.bishop.id, role: 'owner' }],
+        }),
+      )
+    }
+    await createItem(db, actor, {
+      contextId: w.diocese.id,
+      kind: 'action',
+      text: 'diocese action',
+      parties: [{ personId: w.bishop.id, role: 'owner' }],
+      originMeetingId: meeting.id,
+    })
+    expect(await recapText(meeting.id, w.john.id)).not.toContain('parish')
+
+    // Rows the domain layer refuses to write, written anyway: the recap still holds the line.
+    await db.insert(agendaLines).values({ meetingId: meeting.id, itemId: parishItems[0]!.id, position: 0 })
+    for (const item of parishItems.slice(1)) {
+      await db.update(items).set({ originMeetingId: meeting.id }).where(eq(items.id, item.id))
+    }
+    const text = await recapText(meeting.id, w.john.id)
+    expect(text).toContain('diocese action')
+    expect(text).not.toContain('parish')
+  })
+
+  it('a deadline on the meeting\'s project is not in the lookahead unless the meeting raised it', async () => {
+    const w = await makeWorld()
+    await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'private and dated',
+      dueOn: '2026-10-20',
+      projectId: w.retreat.id,
+      parties: [{ personId: w.sarah.id, role: 'with' }],
+    })
+    const raised = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'raised and dated',
+      dueOn: '2026-10-21',
+      projectId: w.retreat.id,
+    })
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id, w.tom.id],
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-04T15:00:00Z'),
+    })
+    await placeItem(db, actor, meeting.id, raised.id)
+
+    const recap = await getRecap(db, meeting.id, { today: TODAY, timeZone: null, selfId: w.john.id, now: NOW })
+    expect(recap.lookahead?.deadlines.map((deadline) => deadline.text)).toEqual(['raised and dated'])
+    expect(renderRecap(recap)).not.toContain('private and dated')
   })
 })

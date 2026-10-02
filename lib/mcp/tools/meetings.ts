@@ -50,6 +50,7 @@ import {
   updateMeeting,
   type MeetingView,
 } from '../../meetings/meetings'
+import { moveMeeting, moveSeries } from '../../meetings/move'
 import { prepMeeting, prepNextInSeries, prepWithPerson } from '../../meetings/prep'
 import {
   createSeries,
@@ -123,6 +124,10 @@ const skeletonArg = z.array(
 
 type BlocksInput = z.infer<typeof blocksArg>
 type AgendaLineInput = z.infer<typeof agendaLineArg>
+
+const MOVE_RULE =
+  'A move leaves behind what belongs to the old context: projects, group, item lines and ' +
+  'items aimed at it. A meeting that has produced items does not move.'
 
 // ─── moments ─────────────────────────────────────────────────────────────────
 
@@ -560,10 +565,13 @@ export const updateMeetingTool = defineTool({
     'Change a meeting: its title, times, people, projects, group, series or generated blocks. ' +
     'people and projects each replace the whole list. starts_at null takes the date off and ' +
     `makes it a stub again. ${BLOCKS_RULE} blocks null goes back to the series' settings. ` +
-    'Pass null to clear ends_at, group or series. Returns what get_meeting returns.',
+    'Pass null to clear ends_at, group or series. context moves it to another context, out ' +
+    `of its series, before anything else is applied. ${MOVE_RULE} Returns what get_meeting ` +
+    'returns.',
   scope: 'meetings:write',
   input: z.object({
     id: meetingId,
+    context: z.string().min(1).optional().describe('Context name or id to move it to.'),
     title: z.string().min(1).optional(),
     starts_at: z.string().min(1).nullable().optional().describe(momentArg),
     ends_at: z.string().min(1).nullable().optional().describe(momentArg),
@@ -578,7 +586,14 @@ export const updateMeetingTool = defineTool({
     write(context, 'update_meeting', input, async (tx) => {
       const { actor } = context
       const clock = await clockFor(tx, context)
-      const before = await getMeeting(tx, input.id)
+      /* A move comes first, so the names that follow are read in the context
+         the meeting ends up in. */
+      const destination = input.context
+        ? await inferContext(tx, { context: input.context })
+        : null
+      const before = destination
+        ? await moveMeeting(tx, actor, input.id, destination.id)
+        : await getMeeting(tx, input.id)
       const contextId = before.contextId
 
       const startsAt = momentArgFrom(input.starts_at, clock)
@@ -624,7 +639,10 @@ export const updateMeetingTool = defineTool({
           await projectsFrom(tx, contextId, input.projects),
         )
       }
-      return meetingView(tx, input.id, clock)
+      const view = await meetingView(tx, input.id, clock)
+      return destination
+        ? { ...view, context: { id: destination.id, name: destination.name } }
+        : view
     }),
 })
 
@@ -1066,11 +1084,14 @@ export const updateSeriesTool = defineTool({
     'Change a series: its name, people, default projects, group, standing agenda or ' +
     'generated blocks. people, projects and the skeleton each replace the whole of what was ' +
     `there; blocks changes only the ones given. ${SKELETON_RULE} Meetings already prepped keep ` +
-    'the agenda they have. Pass null to clear group.',
+    'the agenda they have. Pass null to clear group. move_to moves the series to another ' +
+    'context with its meetings, before anything else is applied, and returns which moved and ' +
+    `which stayed (out of the series). ${MOVE_RULE}`,
   scope: 'meetings:write',
   input: z.object({
     series: z.string().min(1).describe('Series name or id.'),
     context: contextArg,
+    move_to: z.string().min(1).optional().describe('Context name or id to move it to.'),
     name: z.string().min(1).optional(),
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
@@ -1082,8 +1103,15 @@ export const updateSeriesTool = defineTool({
   }),
   handler: async (input, context) =>
     write(context, 'update_series', input, async (tx) => {
-      const target = await inferContext(tx, { context: input.context, series: input.series })
-      const { id } = await resolveSeries(tx, target.id, input.series)
+      const clock = await clockFor(tx, context)
+      const found = await inferContext(tx, { context: input.context, series: input.series })
+      const { id } = await resolveSeries(tx, found.id, input.series)
+
+      /* A move comes first, so the names that follow are read in the context
+         the series ends up in. */
+      const destination = input.move_to ? await inferContext(tx, { context: input.move_to }) : null
+      const move = destination ? await moveSeries(tx, context.actor, id, destination.id) : null
+      const target = destination ?? found
       const before = await getSeries(tx, id)
 
       const group =
@@ -1101,7 +1129,15 @@ export const updateSeriesTool = defineTool({
       if (input.projects) {
         await setSeriesProjects(tx, id, await projectsFrom(tx, target.id, input.projects))
       }
-      return { series: seriesOut(await getSeries(tx, id)) }
+      return {
+        series: seriesOut(await getSeries(tx, id)),
+        ...(move
+          ? {
+              moved: move.moved.map((meeting) => meetingOut(meeting, clock)),
+              stayed: move.stayed.map((meeting) => meetingOut(meeting, clock)),
+            }
+          : {}),
+      }
     }),
 })
 

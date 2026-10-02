@@ -9,8 +9,10 @@
 
 import { applySkeleton } from '../agenda/lines'
 import { placeAutomatic } from '../agenda/candidates'
-import { listEvents, type CalendarEvent } from '../calendar/feed'
+import { eventsHere, listEventsIn, type CalendarEvent } from '../calendar/feed'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
+import { meetings } from '../db/schema'
 import { findSelf } from '../directory/people'
 import {
   attachToEvent,
@@ -112,22 +114,48 @@ export async function prepNextInSeries(
   return prepMeeting(exec, actor, { contextId: series.contextId, seriesId }, now)
 }
 
+/**
+ * The one meeting John does not ask for: a note arrived and no meeting here is
+ * the conversation it records (docs/SPEC.md, "Drop-ins"). The caller has
+ * already decided the context; this never looks for one.
+ *
+ * Not prepped. It has already happened, so no skeleton is laid down and
+ * nothing is placed: an agenda nobody saw in the room would put items in the
+ * recap that were never raised.
+ */
+export async function meetingFromNote(
+  exec: Executor,
+  actor: ActorContext,
+  input: {
+    contextId: string
+    title?: string | null
+    startsAt: Date
+    endsAt?: Date | null
+    personIds: string[]
+    /** The calendar event the note names, when no meeting holds it yet. */
+    calendarEventId?: string
+    /** The series that event recurs in, when it is in this context. */
+    seriesId?: string
+  },
+): Promise<MeetingView> {
+  return createMeeting(exec, actor, {
+    contextId: input.contextId,
+    title: input.title,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt ?? null,
+    calendarEventId: input.calendarEventId,
+    seriesId: input.seriesId,
+    /* With a series and nobody recognised, its roster stands in, as it does
+       for an event with no invitees. */
+    ...(input.personIds.length > 0 || !input.seriesId ? { personIds: input.personIds } : {}),
+  })
+}
+
 function matchedPeople(event: CalendarEvent): string[] {
   const ids = event.attendees
     .filter((attendee) => attendee.personId && !attendee.declined)
     .map((attendee) => attendee.personId!)
   return [...new Set(ids)]
-}
-
-async function seriesFor(
-  exec: Executor,
-  contextId: string,
-  event: CalendarEvent,
-): Promise<SeriesView | null> {
-  if (!event.seriesId) return null
-  const series = await findSeriesByCalendar(exec, event.seriesId)
-  // A series in another context is not this event's series.
-  return series?.contextId === contextId ? series : null
 }
 
 /** The meeting for a calendar event: the one it already has, or a new one. */
@@ -144,13 +172,15 @@ export async function prepFromEvent(
     return existing
   }
 
-  const series = await seriesFor(exec, contextId, event)
+  /* An occurrence of a recurring event belongs to its series, wherever that
+     is: the series may have been moved out of the calendar's context. */
+  const series = event.seriesId ? await findSeriesByCalendar(exec, event.seriesId) : null
   const people = matchedPeople(event)
   return prepMeeting(
     exec,
     actor,
     {
-      contextId,
+      contextId: series?.contextId ?? contextId,
       title: event.title,
       startsAt: event.startsAt,
       endsAt: event.endsAt,
@@ -175,7 +205,11 @@ export async function attachStub(
 ): Promise<MeetingView> {
   return inTransaction(exec, async (tx) => {
     const stub = await getMeeting(tx, meetingId)
-    const series = stub.series ? null : await seriesFor(tx, stub.contextId, event)
+    /* The stub stays in its context, so it joins the event's series only when
+       that series is there too. */
+    const mapped =
+      stub.series || !event.seriesId ? null : await findSeriesByCalendar(tx, event.seriesId)
+    const series = mapped?.contextId === stub.contextId ? mapped : null
     await attachToEvent(tx, actor, meetingId, {
       calendarId: event.calendarId,
       calendarEventId: event.eventId,
@@ -188,20 +222,51 @@ export async function attachStub(
   })
 }
 
-/** Turn a recurring calendar event into a series, so each occurrence starts from its roster and skeleton. */
+/**
+ * Turn a recurring calendar event into a series, so each occurrence starts
+ * from its roster and skeleton.
+ *
+ * `occurrences` are the other events of the same recurring event still on the
+ * feed. One of them may have been prepped before there was a series to belong
+ * to; its meeting joins the series now, as it is: its agenda is already under
+ * way, so no roster or skeleton is laid over it. A meeting row does not hold
+ * the recurring id, which is why the feed has to say which events are siblings.
+ */
 export async function seriesFromEvent(
   exec: Executor,
-  input: { contextId: string; event: CalendarEvent },
+  input: { contextId: string; event: CalendarEvent; occurrences?: CalendarEvent[] },
 ): Promise<SeriesView> {
   const { contextId, event } = input
-  if (!event.seriesId) throw new ValidationError('That event does not repeat.')
-  const existing = await findSeriesByCalendar(exec, event.seriesId)
-  if (existing) return existing
-  return createSeries(exec, {
-    contextId,
-    name: event.title,
-    personIds: matchedPeople(event),
-    calendarSeriesId: event.seriesId,
+  const calendarSeriesId = event.seriesId
+  if (!calendarSeriesId) throw new ValidationError('That event does not repeat.')
+
+  return inTransaction(exec, async (tx) => {
+    // Wherever it is: a recurring event has one series, and it may have been moved.
+    const series =
+      (await findSeriesByCalendar(tx, calendarSeriesId)) ??
+      (await createSeries(tx, {
+        contextId,
+        name: event.title,
+        personIds: matchedPeople(event),
+        calendarSeriesId,
+      }))
+
+    const eventIds = [event, ...(input.occurrences ?? [])]
+      .filter((occurrence) => occurrence.seriesId === calendarSeriesId)
+      .map((occurrence) => occurrence.eventId)
+    /* Only a meeting with no series, in the series' own context: one that was
+       put in another series, or lives elsewhere, is left as it is. */
+    await tx
+      .update(meetings)
+      .set({ seriesId: series.id, updatedAt: new Date() })
+      .where(
+        and(
+          inArray(meetings.calendarEventId, eventIds),
+          isNull(meetings.seriesId),
+          eq(meetings.contextId, series.contextId),
+        ),
+      )
+    return series
   })
 }
 
@@ -224,7 +289,19 @@ function feedRange(now: Date, days: number): { from: Date; to: Date } {
   return { from, to: new Date(from.getTime() + days * 86_400_000) }
 }
 
-/** One event from the feed, looked up again at the moment it is acted on. */
+/** The events of one recurring event that a context's feed still holds. */
+export async function findOccurrences(
+  exec: Executor,
+  contextId: string,
+  calendarSeriesId: string,
+  now: Date = new Date(),
+  days = 60,
+): Promise<CalendarEvent[]> {
+  const events = await listEventsIn(exec, { contextId, ...feedRange(now, days) })
+  return events.filter((candidate) => candidate.seriesId === calendarSeriesId)
+}
+
+/** One event of a context's feed, looked up again at the moment it is acted on. */
 export async function findEvent(
   exec: Executor,
   contextId: string,
@@ -232,7 +309,7 @@ export async function findEvent(
   now: Date = new Date(),
   days = 60,
 ): Promise<CalendarEvent> {
-  const events = await listEvents(exec, { contextId, ...feedRange(now, days) })
+  const events = await listEventsIn(exec, { contextId, ...feedRange(now, days) })
   const event = events.find((candidate) => candidate.eventId === eventId)
   if (!event) throw new ValidationError('That event is no longer on the calendar.')
   return event
@@ -240,19 +317,27 @@ export async function findEvent(
 
 /**
  * What is coming up in a context: calendar events and hand-made meetings in one
- * list, each event carrying its meeting if it has one.
+ * list, each event carrying its meeting if it has one. An event is listed in
+ * the one context it belongs to (see `eventsHere`), which is its calendar's
+ * only until its meeting or its series is moved.
  */
 export async function listUpcoming(
   exec: Executor,
   contextId: string,
-  /* `events` stands in for the calendar feed, for tests. */
+  /* `events` stands in for what this context's calendars hold, for tests. */
   opts: { now?: Date; days?: number; events?: CalendarEvent[] } = {},
 ): Promise<{ entries: UpcomingEntry[]; stubs: MeetingView[] }> {
   const now = opts.now ?? new Date()
   const range = feedRange(now, opts.days ?? 14)
 
   const [events, dated, stubs, allSeries] = await Promise.all([
-    opts.events ?? listEvents(exec, { contextId, ...range }),
+    opts.events
+      ? eventsHere(
+          exec,
+          contextId,
+          opts.events.map((event) => ({ event, contextId })),
+        )
+      : listEventsIn(exec, { contextId, ...range }),
     listMeetings(exec, { contextId, when: 'upcoming', now: range.from, topLevelOnly: true }),
     listMeetings(exec, { contextId, when: 'stubs', topLevelOnly: true }),
     listSeries(exec, contextId),
@@ -282,7 +367,9 @@ export async function listUpcoming(
       startsAt: event.startsAt,
       event,
       meeting,
-      series: meeting?.series ?? (series ? { id: series.id, name: series.name } : null),
+      /* A prepped meeting shows the series its row says, even where the
+         calendar would say otherwise: it may have been taken out of it. */
+      series: meeting ? meeting.series : series ? { id: series.id, name: series.name } : null,
       stubs: fitting,
     })
   }
