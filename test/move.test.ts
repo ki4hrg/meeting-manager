@@ -108,6 +108,8 @@ async function parishMeeting(w: World) {
   const meeting = await prepFromEvent(db, actor, { contextId: w.parish.id, event: invite }, NOW)
   await setMeetingProjects(db, actor, meeting.id, [w.retreat.id])
   await updateMeeting(db, actor, meeting.id, { groupId: w.staff.id })
+  // A one-off event with one invitee only suggests what is for him; it was taken.
+  await placeItem(db, actor, meeting.id, withBishop.id)
 
   const aimed = await createItem(db, actor, {
     contextId: w.parish.id,
@@ -232,13 +234,14 @@ describe('moving a meeting', () => {
 
     // Before the page is opened: every candidate is the diocese's.
     const before = await getCandidates(db, meeting.id, NOW)
-    expect(ids(before.toPlace)).toEqual([dioceseItem.id])
-    expect(ids(before.suggested.flatMap((group) => group.items))).toEqual([dioceseOwed.id])
+    expect(before.toPlace).toEqual([])
+    expect(ids(before.suggested.flatMap((group) => group.items))).toEqual(ids([dioceseItem, dioceseOwed]))
     expect(before.more).toEqual([])
     expect(before.dismissed).toEqual([])
 
-    // Opening it places what places itself, as on any meeting.
-    await placeAutomatic(db, actor, meeting.id, NOW)
+    // Opening it places nothing of the parish; what is taken is the diocese's.
+    expect(await placeAutomatic(db, actor, meeting.id, NOW)).toBe(0)
+    await placeItem(db, actor, meeting.id, dioceseItem.id)
     const placed = await itemLines([meeting.id])
     expect(placed.map((row) => row.itemId)).toEqual([dioceseItem.id])
     const agenda = await getAgenda(db, meeting.id)

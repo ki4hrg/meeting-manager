@@ -62,7 +62,7 @@ A single `items` table. Only `context` and `text` are required.
 
 **Placed automatically:**
 - items targeting this meeting or its series;
-- `with`-person items when the meeting has exactly two attendees (John and one other).
+- `with`-person items when the meeting is a 1:1 John made one: exactly two attendees (John and one other), and a stub, in a series, or made by hand. *(2026-10-03)* A one-off calendar event that happens to have one invitee (a hold, a site visit) only suggests them, and a meeting with a group is never a 1:1: what is for one member alone sits under "more" there, however few have joined so far.
 
 **Suggested** (collapsed list grouped by person, group and project; one click to place; "not this time" dismisses for this meeting):
 - items whose project is one of the meeting's projects;

@@ -22,7 +22,8 @@ import { createPerson } from '../lib/directory/people'
 import { addMember } from '../lib/directory/groups'
 import { completeItem, createItem, getItem, markDiscussed, recordDecision } from '../lib/items/items'
 import { createMeeting, getMeeting, setMeetingPeople, updateMeeting } from '../lib/meetings/meetings'
-import { prepMeeting } from '../lib/meetings/prep'
+import type { CalendarEvent } from '../lib/calendar/feed'
+import { prepFromEvent, prepMeeting, prepWithPerson } from '../lib/meetings/prep'
 import { joinRoster, outOfStep, recordAbsences, syncRoster } from '../lib/meetings/roster'
 import { createSeries, setSeriesPeople } from '../lib/meetings/series'
 import { addMilestone, createProject, nextMilestones, updateProject } from '../lib/projects/projects'
@@ -131,6 +132,64 @@ describe('a larger meeting', () => {
       { type: 'person', id: w.sarah.id, name: 'Sarah Jones' },
     ])
     expect(grouped(solo.suggested)).toEqual([priv.id])
+  })
+
+  it('a calendar event with one invitee suggests what is for her; a 1:1 John made places it', async () => {
+    const w = await makeWorld()
+    const forSarah = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'accountability process',
+      parties: [{ personId: w.sarah.id, role: 'with' }],
+    })
+    const event: CalendarEvent = {
+      calendarId: 'cal-1',
+      eventId: 'site-visit',
+      seriesId: null,
+      title: 'Hold for site visit',
+      startsAt: new Date('2026-10-07T15:00:00Z'),
+      endsAt: new Date('2026-10-07T16:00:00Z'),
+      allDay: false,
+      attendees: [{ personId: w.sarah.id, email: 'sarah@example.test', name: null, declined: false }],
+      location: null,
+      htmlLink: null,
+    }
+
+    const visit = await prepFromEvent(db, actor, { contextId: w.parish.id, event }, NOW)
+    expect(ids(visit.people)).toEqual([w.sarah.id])
+    expect((await getAgenda(db, visit.id)).nodes).toEqual([])
+    const offeredThere = await getCandidates(db, visit.id, NOW)
+    expect(ids(offeredThere.toPlace)).toEqual([])
+    expect(grouped(offeredThere.suggested)).toEqual([forSarah.id])
+
+    const stub = await prepWithPerson(db, actor, { contextId: w.parish.id, personId: w.sarah.id }, NOW)
+    const placed = (await getAgenda(db, stub.id)).nodes.flatMap((node) =>
+      node.type === 'line' && node.item ? [node.item.id] : [],
+    )
+    expect(placed).toEqual([forSarah.id])
+  })
+
+  it('a group meeting with one member so far is not a 1:1: what is for her alone waits under more', async () => {
+    const w = await makeWorld()
+    const forSarah = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'for sarah alone',
+      parties: [{ personId: w.sarah.id, role: 'with' }],
+    })
+    const forStaff = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'for the staff',
+      parties: [{ groupId: w.staff.id, role: 'with' }],
+    })
+    const meeting = await prepMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id],
+      groupId: w.staff.id,
+    })
+    expect((await getAgenda(db, meeting.id)).nodes).toEqual([])
+    const candidates = await getCandidates(db, meeting.id, NOW)
+    expect(ids(candidates.toPlace)).toEqual([])
+    expect(grouped(candidates.suggested)).toEqual([forStaff.id])
+    expect(grouped(candidates.more)).toEqual([forSarah.id])
   })
 
   it('an attendee item on a project the meeting does not carry waits under more', async () => {
