@@ -16,6 +16,7 @@ export default async function ContextsPage() {
     <>
       <PageHeader
         title="Contexts"
+        crumbs={[{ href: '/', label: 'Home' }]}
         actions={
           <FormModal action={createContextAction} title="New context" label="New context">
             <Field label="Name" required>

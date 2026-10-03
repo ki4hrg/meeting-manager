@@ -53,6 +53,7 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
     <>
       <PageHeader
         title={group.name}
+        crumbs={[{ href: '/groups', label: 'Groups' }]}
         actions={
           <div className="flex items-center gap-2">
             <ActionButton action={prepWithGroupAction} fields={{ groupId: group.id }}>

@@ -7,6 +7,7 @@ import {
   addLine,
   addSection,
   importOutline,
+  moveToSession,
   nudgeLine,
   removeLine,
   updateLine,
@@ -293,15 +294,21 @@ export async function addSectionAction(formData: FormData): Promise<ActionResult
 
 export async function updateLineAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await updateLine(db, actor, field(formData, 'id'), {
-      text: field(formData, 'text'),
-      // A section has no description, leader or private note, and its form sends none.
-      ...(formData.has('description') ? { description: field(formData, 'description') } : {}),
-      ...(formData.has('leaderPersonId') ? { leaderPersonId: field(formData, 'leaderPersonId') || null } : {}),
-      ...(formData.has('privateNote') ? { privateNote: field(formData, 'privateNote') } : {}),
-      ...(formData.has('minutes') ? { minutes: minutesFrom(field(formData, 'minutes')) } : {}),
-      // Starts at counts only while the row is pinned.
-      pinnedStart: formData.has('pinned') ? field(formData, 'pinnedStart') || null : null,
+    const id = field(formData, 'id')
+    // Sent only from a session: another session of the same meeting takes it.
+    const sessionId = formData.has('sessionId') ? field(formData, 'sessionId') : ''
+    await inTransaction(db, async (tx) => {
+      await updateLine(tx, actor, id, {
+        text: field(formData, 'text'),
+        // A section has no description, leader or private note, and its form sends none.
+        ...(formData.has('description') ? { description: field(formData, 'description') } : {}),
+        ...(formData.has('leaderPersonId') ? { leaderPersonId: field(formData, 'leaderPersonId') || null } : {}),
+        ...(formData.has('privateNote') ? { privateNote: field(formData, 'privateNote') } : {}),
+        ...(formData.has('minutes') ? { minutes: minutesFrom(field(formData, 'minutes')) } : {}),
+        // Starts at counts only while the row is pinned.
+        pinnedStart: formData.has('pinned') ? field(formData, 'pinnedStart') || null : null,
+      })
+      if (sessionId) await moveToSession(tx, actor, id, sessionId)
     })
   })
 }

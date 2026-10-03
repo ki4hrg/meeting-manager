@@ -120,6 +120,7 @@ function LineRow({
   timed,
   today,
   people,
+  sessions,
   up,
   down,
 }: {
@@ -128,6 +129,7 @@ function LineRow({
   timed: boolean
   today: string
   people: LeaderChoice[]
+  sessions?: SessionChoice[]
   up: boolean
   down: boolean
 }) {
@@ -237,6 +239,7 @@ function LineRow({
             <Textarea name="privateNote" rows={3} defaultValue={line.privateNote ?? ''} />
           </Field>
           <TimingFields row={line} />
+          <SessionField sessions={sessions} meetingId={meetingId} />
         </FormModal>
         <IconAction
           action={removeLineAction}
@@ -249,12 +252,31 @@ function LineRow({
   )
 }
 
+export type SessionChoice = { id: string; title: string }
+
+/* On a session: which session the row runs in. Picking another moves it there. */
+function SessionField({ sessions, meetingId }: { sessions?: SessionChoice[]; meetingId: string }) {
+  if (!sessions || sessions.length < 2) return null
+  return (
+    <Field label="Session">
+      <Select name="sessionId" defaultValue={meetingId}>
+        {sessions.map((session) => (
+          <option key={session.id} value={session.id}>
+            {session.title}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  )
+}
+
 function SectionBlock({
   section,
   meetingId,
   timed,
   today,
   people,
+  sessions,
   up,
   down,
 }: {
@@ -263,6 +285,7 @@ function SectionBlock({
   timed: boolean
   today: string
   people: LeaderChoice[]
+  sessions?: SessionChoice[]
   up: boolean
   down: boolean
 }) {
@@ -285,6 +308,7 @@ function SectionBlock({
               <Input name="text" defaultValue={section.title} required />
             </Field>
             <TimingFields row={{ pinnedStart: section.pinnedStart, minutes: section.ownMinutes }} />
+            <SessionField sessions={sessions} meetingId={meetingId} />
           </FormModal>
           <FormModal
             action={removeLineAction}
@@ -310,6 +334,7 @@ function SectionBlock({
               timed={timed}
               today={today}
               people={people}
+              sessions={sessions}
               up
               down
             />
@@ -326,10 +351,13 @@ export function AgendaCard({
   agenda,
   today,
   people,
+  sessions,
 }: {
   agenda: Agenda
   today: string
   people: LeaderChoice[]
+  /** On a session: every session of its meeting, so a row can be bumped to another. */
+  sessions?: SessionChoice[]
 }) {
   const { meetingId, nodes } = agenda
   const timed = nodes.some(
@@ -364,6 +392,7 @@ export function AgendaCard({
               timed={timed}
               today={today}
               people={people}
+              sessions={sessions}
               up={index > 0}
               down={index < nodes.length - 1}
             />
@@ -375,6 +404,7 @@ export function AgendaCard({
               timed={timed}
               today={today}
               people={people}
+              sessions={sessions}
               up={index > 0}
               down={index < nodes.length - 1}
             />

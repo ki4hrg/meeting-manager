@@ -129,20 +129,12 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
 
   return (
     <>
-      {trail.length > 0 ? (
-        <nav className="mb-2 flex flex-wrap items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400">
-          {trail.map((one, index) => (
-            <span key={one.id} className="inline-flex items-center gap-1">
-              {index === 0 ? <Icon name="chevronDown" className="h-4 w-4 rotate-90" /> : <span className="text-gray-400">/</span>}
-              <Link href={`/projects/${one.id}`} className="hover:underline">
-                {one.name}
-              </Link>
-            </span>
-          ))}
-        </nav>
-      ) : null}
       <PageHeader
         title={project.name}
+        crumbs={[
+          { href: '/projects', label: 'Projects' },
+          ...trail.map((one) => ({ href: `/projects/${one.id}`, label: one.name })),
+        ]}
         actions={
           <div className="flex items-center gap-3">
             <ProjectStatusBadge status={project.status} />

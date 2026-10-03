@@ -212,7 +212,7 @@ export function ProposalCard({
                   )
                 })}
               </span>
-              <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                 {proposal.project ? <Badge>{proposal.project.name}</Badge> : null}
                 {payload.type === 'item' && payload.dueOn ? (
                   <DueBadge label={formatDay(payload.dueOn, today)} dueOn={payload.dueOn} today={today} />

@@ -6,6 +6,7 @@ import {
   completeItem,
   convertItem,
   createItem,
+  deleteItem,
   dropItem,
   getItem,
   getThread,
@@ -135,6 +136,19 @@ describe('lifecycle', () => {
     await expect(dropItem(db, actor, action.id)).rejects.toThrow('already closed')
     expect(await reopenItem(db, actor, action.id)).toMatchObject({ status: 'open', closedAt: null })
     expect((await dropItem(db, actor, action.id)).status).toBe('dropped')
+  })
+
+  it('deletes an item that stands alone, and refuses one in a thread', async () => {
+    const { parish } = await makeWorld()
+    const mistake = await createItem(db, actor, { contextId: parish.id, text: 'test' })
+    await deleteItem(db, actor, mistake.id)
+    await expect(getItem(db, mistake.id)).rejects.toThrow()
+
+    const parent = await createItem(db, actor, { contextId: parish.id, text: 'the first' })
+    const child = await createItem(db, actor, { contextId: parish.id, text: 'the next', parentItemId: parent.id })
+    await expect(deleteItem(db, actor, parent.id)).rejects.toThrow('Drop it instead')
+    await expect(deleteItem(db, actor, child.id)).rejects.toThrow('Drop it instead')
+    expect((await getItem(db, parent.id)).status).toBe('open')
   })
 
   it('keeps a decision out of the open states', async () => {

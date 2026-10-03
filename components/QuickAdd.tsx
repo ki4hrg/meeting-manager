@@ -17,10 +17,10 @@ const PREFIX: Record<ItemKind, string> = { topic: 'T', question: 'Q', action: 'A
 const KINDS = Object.keys(PREFIX) as ItemKind[]
 const KIND_OF_PREFIX = /^([tqad]):\s*/i
 
-/* The @ or # token the caret is at the end of, if any. */
-const ACTIVE_TOKEN = /(?:^|\s)([@#])([\p{L}\p{N}_/-]*)$/u
+/* The @, # or > token the caret is at the end of, if any. */
+const ACTIVE_TOKEN = /(?:^|\s)([@#>])([\p{L}\p{N}_/-]*)$/u
 
-type Suggestion = { name: string; icon: 'person' | 'group' | 'project' }
+type Suggestion = { name: string; icon: 'person' | 'group' | 'project' | 'refresh' }
 
 function kindOf(line: string, fallback: ItemKind): ItemKind {
   const prefix = KIND_OF_PREFIX.exec(line.trimStart())
@@ -29,7 +29,7 @@ function kindOf(line: string, fallback: ItemKind): ItemKind {
 }
 
 /**
- * Quick-add: one line, `@person` or `@group`, `#project`, and an optional
+ * Quick-add: one line, `@` for a person, group, project or series, and an optional
  * kind prefix. In the top bar it captures into the selected context; on a hub
  * page it carries that page's person, group or project as presets.
  */
@@ -71,15 +71,21 @@ export function QuickAdd({
   const active = ACTIVE_TOKEN.exec(line.slice(0, caret))
   const partial = active?.[2] ?? ''
   let suggestions: Suggestion[] = []
+  /* In the server's order of precedence: who, then projects, then series. */
+  const tiers: Suggestion[][] = [
+    [
+      ...directory.people.map((p) => ({ name: p.name, icon: 'person' as const })),
+      ...directory.groups.map((g) => ({ name: g.name, icon: 'group' as const })),
+    ],
+    directory.projects.map((p) => ({ name: p.name, icon: 'project' as const })),
+    directory.series.map((s) => ({ name: s.name, icon: 'refresh' as const })),
+  ]
   if (active) {
-    const pool: Suggestion[] =
-      active[1] === '@'
-        ? [
-            ...directory.people.map((p) => ({ name: p.name, icon: 'person' as const })),
-            ...directory.groups.map((g) => ({ name: g.name, icon: 'group' as const })),
-          ]
-        : directory.projects.map((p) => ({ name: p.name, icon: 'project' as const }))
-    suggestions = (partial === '' ? pool : matchName(pool, partial)).slice(0, 6)
+    // One @ for everything; # and > narrow to projects or series.
+    const offered = active[1] === '@' ? tiers : active[1] === '#' ? [tiers[1]!] : [tiers[2]!]
+    suggestions = offered
+      .flatMap((pool) => (partial === '' ? pool : matchName(pool, partial)))
+      .slice(0, 6)
     // Already typed out in full: nothing left to suggest, so Enter submits.
     if (suggestions.length === 1 && normalise(suggestions[0]!.name) === normalise(partial)) {
       suggestions = []
@@ -95,8 +101,15 @@ export function QuickAdd({
 
   function pick(suggestion: Suggestion) {
     if (!active) return
-    const start = caret - partial.length
-    const token = `${tokenFor(suggestion.name)} `
+    /* An @ that would reach something else of the same name first (a group
+       and a project both called "Retreat") is written as # or > instead. */
+    const tier = tiers.findIndex((pool) => pool.some((one) => one.icon === suggestion.icon))
+    const shadowed =
+      active[1] === '@' &&
+      tiers.slice(0, tier).some((pool) => pool.some((one) => normalise(one.name) === normalise(suggestion.name)))
+    const sigil = shadowed ? (suggestion.icon === 'project' ? '#' : '>') : active[1]!
+    const start = caret - partial.length - 1
+    const token = `${sigil}${tokenFor(suggestion.name)} `
     edit(line.slice(0, start) + token + line.slice(caret), start + token.length)
     requestAnimationFrame(() => {
       inputRef.current?.focus()
@@ -192,7 +205,7 @@ export function QuickAdd({
               data-bwignore
               data-form-type="other"
               aria-label="New item"
-              placeholder="@person  #project"
+              placeholder="@name"
               className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </div>

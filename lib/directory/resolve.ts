@@ -7,7 +7,7 @@
  */
 
 import { eq } from 'drizzle-orm'
-import { isUuid, matchName } from '../core/match'
+import { isUuid, matchName, matchTiered } from '../core/match'
 import { ValidationError, type Executor } from '../core/types'
 import { groups, people, projects, series } from '../db/schema'
 import { listContexts, type Context } from './contexts'
@@ -173,6 +173,46 @@ export async function resolveSeries(
   const matches = matchName(rows, wanted)
   if (matches.length === 1) return matches[0]!
   if (matches.length === 0) throw new ValidationError(`No series matches ${wanted}.`)
+  throw new ValidationError(`${wanted} could be ${listNames(matches)}. Be more specific.`)
+}
+
+export type Mention =
+  | Party
+  | { type: 'project'; id: string; name: string }
+  | { type: 'series'; id: string; name: string }
+
+/**
+ * Quick-add's one `@`: a person or group, else a project, else a series, in
+ * this context (see `matchTiered`). A path ("AC2027/Worship") is a project's.
+ */
+export async function resolveMention(exec: Executor, contextId: string, ref: string): Promise<Mention> {
+  const wanted = ref.trim().replace(/^@/, '')
+  if (wanted === '') throw new ValidationError('Name someone or something.')
+  if (wanted.toLowerCase() === 'me' || isUuid(wanted)) return resolveParty(exec, contextId, wanted)
+  if (wanted.includes('/')) {
+    const project = await resolveProject(exec, contextId, wanted).catch(() => null)
+    if (project) return { type: 'project', ...project }
+  }
+
+  const [allPeople, contextGroups, contextProjects, contextSeries] = await Promise.all([
+    exec.select({ id: people.id, name: people.name }).from(people),
+    exec.select({ id: groups.id, name: groups.name }).from(groups).where(eq(groups.contextId, contextId)),
+    exec.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.contextId, contextId)),
+    exec.select({ id: series.id, name: series.name }).from(series).where(eq(series.contextId, contextId)),
+  ])
+  const matches = matchTiered<Mention>(
+    [
+      [
+        ...allPeople.map((row) => ({ type: 'person' as const, ...row })),
+        ...contextGroups.map((row) => ({ type: 'group' as const, ...row })),
+      ],
+      contextProjects.map((row) => ({ type: 'project' as const, ...row })),
+      contextSeries.map((row) => ({ type: 'series' as const, ...row })),
+    ],
+    wanted,
+  )
+  if (matches.length === 1) return matches[0]!
+  if (matches.length === 0) throw new ValidationError(`No person, group, project or series matches ${wanted}.`)
   throw new ValidationError(`${wanted} could be ${listNames(matches)}. Be more specific.`)
 }
 

@@ -24,8 +24,9 @@ function wordsOf(value: string): string[] {
 
 /**
  * Candidates a token could mean. An exact name wins outright; otherwise any
- * name, or word in a name, that starts with the token. `sarah-jones`,
- * `SarahJones` and `sarah` all reach "Sarah Jones".
+ * name that starts with the token, from its first word or any later one.
+ * `sarah-jones`, `SarahJones` and `sarah` all reach "Sarah Jones", and
+ * `check-in` reaches "Adlene/John Check-In".
  */
 export function matchName<T extends { name: string }>(candidates: T[], token: string): T[] {
   const wanted = normalise(token)
@@ -34,11 +35,30 @@ export function matchName<T extends { name: string }>(candidates: T[], token: st
   const exact = candidates.filter((candidate) => normalise(candidate.name) === wanted)
   if (exact.length > 0) return exact
 
-  return candidates.filter(
-    (candidate) =>
-      normalise(candidate.name).startsWith(wanted) ||
-      wordsOf(candidate.name).some((word) => word.startsWith(wanted)),
-  )
+  return candidates.filter((candidate) => {
+    const words = wordsOf(candidate.name)
+    return words.some((_, index) => words.slice(index).join('').startsWith(wanted))
+  })
+}
+
+/**
+ * The same, over kinds of thing taken in order of precedence (quick-add's
+ * `@`: people and groups, then projects, then series). An exact name of any
+ * kind wins over a prefix of any; otherwise the first kind with a match
+ * answers, so `@sarah` is Sarah Jones even with a "Sarah/John Check-In".
+ */
+export function matchTiered<T extends { name: string }>(tiers: T[][], token: string): T[] {
+  const wanted = normalise(token)
+  if (wanted === '') return []
+  for (const tier of tiers) {
+    const exact = tier.filter((candidate) => normalise(candidate.name) === wanted)
+    if (exact.length > 0) return exact
+  }
+  for (const tier of tiers) {
+    const matches = matchName(tier, token)
+    if (matches.length > 0) return matches
+  }
+  return []
 }
 
 /** The token that names something unambiguously: "Sarah Jones" becomes "Sarah-Jones". */

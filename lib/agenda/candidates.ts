@@ -193,7 +193,15 @@ export async function getCandidates(
   const below = descendantIds(tree, projectIds)
   const above = ancestorIds(tree, projectIds)
   const projectName = new Map(tree.map((project) => [project.id, project.name]))
-  const solo = attendeeIds.size === 1 ? [...attendeeIds][0]! : null
+  /* A meeting with a group is the group's, however few have joined it so far:
+     never a 1:1, and what is for one member alone waits under "more". */
+  const solo = attendeeIds.size === 1 && meeting.groupId === null ? [...attendeeIds][0]! : null
+  /* A one-off calendar event with one invitee may be about anything (a site
+     visit, a hold): what is for that person waits as a suggestion there. */
+  const chosenSolo =
+    meeting.seriesId !== null || meeting.startsAt === null || meeting.calendarEventId === null
+      ? solo
+      : null
   const groupName = groupRow[0]?.name ?? ''
   const next = await isNextOccurrence(exec, meeting, now)
   /* What is aimed at the whole of a multi-day meeting comes here when this is
@@ -233,9 +241,9 @@ export async function getCandidates(
       (next && item.targetSeriesId !== null && item.targetSeriesId === meeting.seriesId) ||
       (item.targetProjectId !== null && projectAims.get(item.targetProjectId) === meeting.id)
     const raiseWithSolo =
-      solo !== null &&
+      chosenSolo !== null &&
       item.parties.some(
-        (party) => party.type === 'person' && party.id === solo && party.role === 'with',
+        (party) => party.type === 'person' && party.id === chosenSolo && party.role === 'with',
       )
     const viaProject = item.project !== null && projectIds.has(item.project.id)
     const viaChild = item.project !== null && !viaProject && below.has(item.project.id)

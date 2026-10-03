@@ -454,6 +454,72 @@ export async function moveLine(
 }
 
 /**
+ * "Bumped to the next session": a line, or a section with its lines, goes to
+ * another session of the same meeting, at the end of its agenda. An item it
+ * carries is turned away from the session it left, so placement does not put
+ * it back there.
+ */
+export async function moveToSession(
+  exec: Executor,
+  _actor: ActorContext,
+  lineId: string,
+  sessionId: string,
+): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const row = await loadRow(tx, lineId)
+    if (row.meetingId === sessionId) return
+    const [from, to] = await Promise.all(
+      [row.meetingId, sessionId].map(async (id) => {
+        const [one] = await tx
+          .select({ id: meetings.id, parentMeetingId: meetings.parentMeetingId })
+          .from(meetings)
+          .where(eq(meetings.id, id))
+          .limit(1)
+        if (!one) throw new NotFoundError('Meeting', id)
+        return one
+      }),
+    )
+    if (!from!.parentMeetingId || from!.parentMeetingId !== to!.parentMeetingId) {
+      throw new ValidationError('A line moves only to another session of the same meeting.')
+    }
+
+    const moving = row.isSection
+      ? [row, ...(await tx.select().from(agendaLines).where(eq(agendaLines.sectionId, lineId)))]
+      : [row]
+    const itemIds = moving.flatMap((line) => (line.itemId ? [line.itemId] : []))
+    if (itemIds.length > 0) {
+      const [clash] = await tx
+        .select({ id: agendaLines.id })
+        .from(agendaLines)
+        .where(and(eq(agendaLines.meetingId, sessionId), inArray(agendaLines.itemId, itemIds)))
+        .limit(1)
+      if (clash) throw new ValidationError('That session already has this item.')
+      await tx
+        .insert(meetingDismissals)
+        .values(itemIds.map((itemId) => ({ meetingId: row.meetingId, itemId })))
+        .onConflictDoNothing()
+      await tx
+        .delete(meetingDismissals)
+        .where(and(eq(meetingDismissals.meetingId, sessionId), inArray(meetingDismissals.itemId, itemIds)))
+    }
+
+    const position = await nextPosition(tx, sessionId, null)
+    await tx
+      .update(agendaLines)
+      .set({ meetingId: sessionId, sectionId: null, position, updatedAt: new Date() })
+      .where(eq(agendaLines.id, lineId))
+    if (row.isSection) {
+      await tx
+        .update(agendaLines)
+        .set({ meetingId: sessionId, updatedAt: new Date() })
+        .where(eq(agendaLines.sectionId, lineId))
+    }
+    const left = (await siblings(tx, row.meetingId, row.sectionId)).map((sibling) => sibling.id)
+    await renumber(tx, left, row.sectionId)
+  })
+}
+
+/**
  * One step up or down the agenda as it reads on the page. A line steps over
  * its neighbour; at the edge of a section it steps out of it, and a loose line
  * next to a section steps into it. A section steps over its neighbour whole.

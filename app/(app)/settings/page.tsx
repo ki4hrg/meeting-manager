@@ -180,7 +180,7 @@ export default async function SettingsPage({
 
   return (
     <>
-      <PageHeader title="Settings" />
+      <PageHeader title="Settings" crumbs={[{ href: '/', label: 'Home' }]} />
       <Notice
         error={one(error)}
         success={one(connected) === 'google' ? 'Google Calendar connected' : undefined}

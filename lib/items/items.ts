@@ -13,7 +13,7 @@
  *   - Every step is logged to item_events, in the same commit as the step.
  */
 
-import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm'
 import { parseDay } from '../core/dates'
 import {
   NotFoundError,
@@ -841,6 +841,26 @@ export async function dropItem(exec: Executor, actor: ActorContext, id: string):
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'dropped')
     return getItem(tx, id)
+  })
+}
+
+/**
+ * Gone for good, for what was captured by mistake ("test"). Only an item that
+ * stands alone: one that came out of a meeting, or is part of a thread, is
+ * part of the record, and is dropped instead.
+ */
+export async function deleteItem(exec: Executor, _actor: ActorContext, id: string): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    const [linked] = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(or(eq(items.parentItemId, id), eq(items.supersededByItemId, id)))
+      .limit(1)
+    if (item.originMeetingId || item.parentItemId || item.supersededByItemId || linked) {
+      throw new ValidationError('This item is part of the record. Drop it instead.')
+    }
+    await tx.delete(items).where(eq(items.id, id))
   })
 }
 

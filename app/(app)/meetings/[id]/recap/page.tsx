@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { CopyButton } from '@/components/CopyButton'
 import { LivesIn } from '@/components/meetings/Move'
@@ -80,6 +79,7 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
     if (err instanceof NotFoundError) notFound()
     throw err
   })
+  const parent = meeting.parentMeetingId ? await getMeeting(db, meeting.parentMeetingId) : null
   if (meeting.contextId !== context.id) {
     const home = (await allContexts()).find((one) => one.id === meeting.contextId)
     if (!home) notFound()
@@ -110,16 +110,13 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
 
   return (
     <>
-      <Link
-        href={`/meetings/${meeting.id}`}
-        className="mb-2 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
-      >
-        <Icon name="chevronDown" className="h-4 w-4 rotate-90" />
-        {meeting.title}
-      </Link>
-
       <PageHeader
         title="Recap"
+        crumbs={[
+          { href: '/meetings', label: 'Meetings' },
+          ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
+          { href: `/meetings/${meeting.id}`, label: meeting.title },
+        ]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <CopyButton label="Copy" variant="primary" text={text} html={html} />

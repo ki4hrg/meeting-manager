@@ -155,7 +155,7 @@ const RUN = {
 export default function DesignPage() {
   return (
     <>
-      <PageHeader title="Design" actions={<Button>New</Button>} />
+      <PageHeader title="Design" crumbs={[{ href: '/', label: 'Home' }]} actions={<Button>New</Button>} />
 
       <Section title="Tiles">
         <CardGrid>

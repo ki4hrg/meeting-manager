@@ -39,7 +39,7 @@ export function Field({
   children: React.ReactNode
 }) {
   return (
-    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+    <label className="block min-w-0 text-sm font-medium text-gray-700 dark:text-gray-300">
       {label}
       {required ? <span className="ml-0.5 text-red-600 dark:text-red-400">*</span> : null}
       {children}
