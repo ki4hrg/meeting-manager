@@ -30,7 +30,7 @@ export default async function ProjectsPage() {
         title="Projects"
         count={projects.length}
         actions={
-          <FormModal action={createProjectAction} title="New project" label="New project">
+          <FormModal action={createProjectAction} title="New project" label="New project" icon="plus">
             <Field label="Name" required>
               <Input name="name" required />
             </Field>

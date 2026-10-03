@@ -1,10 +1,15 @@
 import { Breadcrumbs, type Crumb } from './Breadcrumbs'
 
-/** Title on the left, actions on the right; the actions drop below on a phone. */
+/**
+ * Title on the left, actions on the right; the actions drop below on a phone.
+ * `actions` are buttons with an icon and a label, at most one of them blue.
+ * `tools` is the housekeeping (Edit, Move, Archive, Delete), icon only, last.
+ */
 export function PageHeader({
   title,
   count,
   actions,
+  tools,
   crumbs,
 }: {
   title: string
@@ -12,6 +17,7 @@ export function PageHeader({
   crumbs?: Crumb[]
   count?: number
   actions?: React.ReactNode
+  tools?: React.ReactNode
 }) {
   const header = (
     <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
@@ -23,7 +29,12 @@ export function PageHeader({
           </span>
         ) : null}
       </h1>
-      {actions ? <div className="flex flex-col gap-2 sm:flex-row">{actions}</div> : null}
+      {actions || tools ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {actions}
+          {tools ? <div className="flex items-center gap-0.5">{tools}</div> : null}
+        </div>
+      ) : null}
     </div>
   )
   if (!crumbs) return header

@@ -71,6 +71,7 @@ export function FormModal({
   size = 'md',
   compact = false,
   tone,
+  iconSize,
   disabled = false,
   danger = false,
   wide = false,
@@ -88,8 +89,9 @@ export function FormModal({
   size?: ButtonProps['size']
   /** The trigger is a small icon button, as on a row. Needs `icon`. */
   compact?: boolean
-  /** The compact trigger's tone, as an `IconButton`'s. */
+  /** The compact trigger's tone and size, as an `IconButton`'s: `md` in a page header. */
   tone?: IconButtonProps['tone']
+  iconSize?: IconButtonProps['size']
   disabled?: boolean
   /** The form destroys something: its submit button says so in red. */
   danger?: boolean
@@ -110,7 +112,7 @@ export function FormModal({
   return (
     <>
       {compact && icon ? (
-        <IconButton icon={icon} label={title} tone={tone} disabled={disabled} onClick={show} />
+        <IconButton icon={icon} label={title} tone={tone} size={iconSize} disabled={disabled} onClick={show} />
       ) : (
         <Button
           variant={variant}

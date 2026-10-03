@@ -118,10 +118,11 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
 
   // Import, Section and quick-add, aimed at one meeting's own agenda (a session's, on a rollup).
   const agendaTools = (meetingId: string) => (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <FormModal
         action={importOutlineAction}
         title="Import outline"
+        label="Import"
         icon="document"
         variant="secondary"
         size="sm"
@@ -151,6 +152,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         action={addSectionAction}
         title="New section"
         label="Section"
+        icon="plus"
         variant="secondary"
         size="sm"
         submit="Add"
@@ -193,7 +195,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
           ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
         ]}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <CopyButton
               label="Copy brief"
               variant="primary"
@@ -202,13 +204,19 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
             />
             <CopyButton label="Copy agenda" text={renderAgenda(brief)} html={renderAgendaHtml(brief)} />
             <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
+              <Icon name="check" className="h-4 w-4" />
               Review
               <PendingBadge count={pending.get(meeting.id)} />
             </ButtonLink>
             <ButtonLink href={`/meetings/${meeting.id}/recap`} variant="secondary">
+              <Icon name="document" className="h-4 w-4" />
               Recap
             </ButtonLink>
-            <FormModal action={updateMeetingAction} title="Edit" label="Edit" variant="secondary">
+          </>
+        }
+        tools={
+          <>
+            <FormModal action={updateMeetingAction} title="Edit" icon="pencil" compact iconSize="md">
               <input type="hidden" name="id" value={meeting.id} />
               <MeetingFields
                 meeting={meeting}
@@ -225,7 +233,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
               />
             )}
             {archived ? null : <ArchiveButton kind="meeting" id={meeting.id} />}
-          </div>
+          </>
         }
       />
       {archived ? <ArchivedBar kind="meeting" id={meeting.id} /> : null}

@@ -52,8 +52,10 @@ export function EventCard({ entry, time }: { entry: UpcomingEntry; time: string 
         <ActionButton
           action={prepEventAction}
           fields={{ eventId: event.eventId, at: event.startsAt.toISOString() }}
+          variant="secondary"
           size="sm"
         >
+          <Icon name="meeting" className="h-4 w-4" />
           Prep
         </ActionButton>
       </div>

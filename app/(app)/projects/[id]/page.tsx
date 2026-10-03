@@ -2,7 +2,8 @@ import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { DocumentCard } from '@/components/documents/DocumentCard'
-import { ActionButton, FormModal } from '@/components/forms'
+import { FormModal, IconAction } from '@/components/forms'
+import { iconButtonClasses } from '@/components/ui/IconButton'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
@@ -141,10 +142,10 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           { href: '/projects', label: 'Projects' },
           ...trail.map((one) => ({ href: `/projects/${one.id}`, label: one.name })),
         ]}
-        actions={
-          <div className="flex items-center gap-3">
-            <ProjectStatusBadge status={project.status} />
-            <FormModal action={updateProjectAction} title="Edit" label="Edit" variant="secondary">
+        actions={<ProjectStatusBadge status={project.status} />}
+        tools={
+          <>
+            <FormModal action={updateProjectAction} title="Edit" icon="pencil" compact iconSize="md">
               <input type="hidden" name="id" value={project.id} />
               <Field label="Name" required>
                 <Input name="name" defaultValue={project.name} required />
@@ -173,7 +174,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
               </Field>
             </FormModal>
             {archived ? null : <ArchiveButton kind="project" id={project.id} />}
-          </div>
+          </>
         }
       />
       {archived ? <ArchivedBar kind="project" id={project.id} /> : null}
@@ -195,17 +196,13 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                   href={rolled ? `/projects/${id}` : `/projects/${id}?all=1`}
                   aria-pressed={rolled}
                   title="Include sub-projects"
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
-                    rolled
-                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-                  }`}
+                  aria-label="Include sub-projects"
+                  className={iconButtonClasses(rolled ? 'on' : 'gray')}
                 >
-                  <Icon name="project" className="h-3.5 w-3.5" />
-                  {rolled ? <Icon name="check" className="h-3.5 w-3.5" label="Included" /> : <Icon name="plus" className="h-3.5 w-3.5" label="Include" />}
+                  <Icon name="project" className="h-4 w-4" />
                 </Link>
               ) : null}
-              <FormModal action={createProjectAction} title="New sub-project" label="New" size="sm" submit="Create">
+              <FormModal action={createProjectAction} title="New sub-project" label="New" icon="plus" variant="secondary" size="sm" submit="Create">
                 <input type="hidden" name="parentId" value={project.id} />
                 <Field label="Name" required>
                   <Input name="name" required />
@@ -246,7 +243,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
             title="Milestones"
             count={milestones.length}
             action={
-              <FormModal action={addMilestoneAction} title="New milestone" label="Add" size="sm" submit="Add">
+              <FormModal action={addMilestoneAction} title="New milestone" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
                 <input type="hidden" name="projectId" value={project.id} />
                 <Field label="Title" required>
                   <Input name="title" required />
@@ -287,15 +284,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                             open={!past}
                           />
                         ) : null}
-                        <ActionButton
-                          action={deleteMilestoneAction}
-                          fields={{ id: milestone.id }}
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`Delete ${milestone.title}`}
-                        >
-                          <Icon name="trash" className="h-4 w-4" />
-                        </ActionButton>
+                        <IconAction action={deleteMilestoneAction} fields={{ id: milestone.id }} icon="close" label={`Remove ${milestone.title}`} />
                       </li>
                     )
                   })}
@@ -308,7 +297,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
             title="Links"
             count={links.length}
             action={
-              <FormModal action={addLinkAction} title="New link" label="Add" size="sm" submit="Add">
+              <FormModal action={addLinkAction} title="New link" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
                 <input type="hidden" name="projectId" value={project.id} />
                 <Field label="URL" required>
                   <Input name="url" required inputMode="url" />
@@ -335,15 +324,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                       >
                         {link.label}
                       </a>
-                      <ActionButton
-                        action={deleteLinkAction}
-                        fields={{ id: link.id }}
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Delete ${link.label}`}
-                      >
-                        <Icon name="trash" className="h-4 w-4" />
-                      </ActionButton>
+                      <IconAction action={deleteLinkAction} fields={{ id: link.id }} icon="close" label={`Remove ${link.label}`} />
                     </li>
                   ))}
                 </ul>

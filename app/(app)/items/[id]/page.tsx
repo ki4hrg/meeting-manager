@@ -272,8 +272,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 action={addPartyAction}
                 title="People"
                 icon="plus"
-                variant="ghost"
-                size="sm"
+                compact
                 submit="With"
                 also={{ label: 'Owner', name: 'role', value: 'owner' }}
               >
@@ -375,7 +374,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
 
             <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 dark:border-gray-700">
               {open && item.kind === 'question' ? (
-                <FormModal action={answerItemAction} title="Answer" label="Answer" size="sm">
+                <FormModal action={answerItemAction} title="Answer" label="Answer" icon="check" size="sm">
                   <input type="hidden" name="id" value={item.id} />
                   <Field label="Answer" required>
                     <Textarea name="answer" rows={3} required />
@@ -385,6 +384,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               ) : null}
               {open && !decision && item.kind !== 'question' ? (
                 <ActionButton action={itemStatusAction} fields={{ id: item.id, op: 'done' }} size="sm">
+                  <Icon name="check" className="h-4 w-4" />
                   Done
                 </ActionButton>
               ) : null}
@@ -395,6 +395,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                   variant="secondary"
                   size="sm"
                 >
+                  <Icon name="undo" className="h-4 w-4" />
                   Reopen
                 </ActionButton>
               ) : null}
@@ -405,6 +406,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                     action={supersedeDecisionAction}
                     title="Supersede"
                     label="Supersede"
+                    icon="decision"
                     variant="secondary"
                     size="sm"
                   >
@@ -422,6 +424,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                   action={recordDecisionAction}
                   title="Decision"
                   label="Decision"
+                  icon="decision"
                   variant="secondary"
                   size="sm"
                 >
@@ -438,28 +441,6 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
 
               <QuickAdd label="Follow-up" presets={{ parentItemId: item.id, kind: 'action' }} />
 
-              <FormModal action={updateItemAction} title="Edit" label="Edit" variant="ghost" size="sm">
-                <input type="hidden" name="id" value={item.id} />
-                <Field label="Text" required>
-                  <Textarea name="text" rows={2} required defaultValue={item.text} />
-                </Field>
-                <Field label="Detail">
-                  <Textarea name="detail" rows={4} defaultValue={item.detail ?? ''} />
-                </Field>
-                <Field label="Project">
-                  <Select name="projectId" defaultValue={item.project?.id ?? ''}>
-                    <option value="">—</option>
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Due">
-                  <Input name="dueOn" type="date" defaultValue={item.dueOn ?? ''} />
-                </Field>
-              </FormModal>
 
               {open && !decision ? (
                 <FormModal
@@ -467,7 +448,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                   title="Later"
                   label="Later"
                   icon="later"
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
                   submit="Later"
                 >
@@ -482,48 +463,73 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 <ActionButton
                   action={itemStatusAction}
                   fields={{ id: item.id, op: 'drop' }}
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
                 >
+                  <Icon name="close" className="h-4 w-4" />
                   Drop
                 </ActionButton>
               ) : null}
 
-              {/* Closed and standing alone: what came out of a meeting, a thread or an agenda stays closed. */}
-              {deletable ? (
-                <FormModal
-                  action={deleteItemAction}
-                  title="Delete item"
-                  icon="trash"
-                  variant="ghost"
-                  submit="Delete"
-                  danger
-                >
+              {/* Housekeeping, icon only, last: its kind, Edit, Delete. */}
+              <span className="ml-auto flex items-center gap-1">
+                {open && !decision ? (
+                  <span className="flex items-center gap-1">
+                    {CONVERTIBLE.map((kind) => (
+                      <ActionButton
+                        key={kind}
+                        action={convertItemAction}
+                        fields={{ id: item.id, kind }}
+                        variant="ghost"
+                        size="sm"
+                        aria-label={KIND[kind].label}
+                        aria-pressed={kind === item.kind}
+                        disabled={kind === item.kind}
+                        className={
+                          kind === item.kind ? '!bg-gray-100 !opacity-100 dark:!bg-gray-700' : ''
+                        }
+                      >
+                        <KindIcon kind={kind} className="h-4 w-4" />
+                      </ActionButton>
+                    ))}
+                  </span>
+                ) : null}
+                <FormModal action={updateItemAction} title="Edit" icon="pencil" compact>
                   <input type="hidden" name="id" value={item.id} />
+                  <Field label="Text" required>
+                    <Textarea name="text" rows={2} required defaultValue={item.text} />
+                  </Field>
+                  <Field label="Detail">
+                    <Textarea name="detail" rows={4} defaultValue={item.detail ?? ''} />
+                  </Field>
+                  <Field label="Project">
+                    <Select name="projectId" defaultValue={item.project?.id ?? ''}>
+                      <option value="">—</option>
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Due">
+                    <Input name="dueOn" type="date" defaultValue={item.dueOn ?? ''} />
+                  </Field>
                 </FormModal>
-              ) : null}
-
-              {open && !decision ? (
-                <span className="ml-auto flex items-center gap-1">
-                  {CONVERTIBLE.map((kind) => (
-                    <ActionButton
-                      key={kind}
-                      action={convertItemAction}
-                      fields={{ id: item.id, kind }}
-                      variant="ghost"
-                      size="sm"
-                      aria-label={KIND[kind].label}
-                      aria-pressed={kind === item.kind}
-                      disabled={kind === item.kind}
-                      className={
-                        kind === item.kind ? '!bg-gray-100 !opacity-100 dark:!bg-gray-700' : ''
-                      }
-                    >
-                      <KindIcon kind={kind} className="h-4 w-4" />
-                    </ActionButton>
-                  ))}
-                </span>
-              ) : null}
+                {/* Closed and standing alone: what came out of a meeting, a thread or an agenda stays closed. */}
+                {deletable ? (
+                  <FormModal
+                    action={deleteItemAction}
+                    title="Delete item"
+                    icon="trash"
+                    compact
+                    submit="Delete"
+                    danger
+                  >
+                    <input type="hidden" name="id" value={item.id} />
+                  </FormModal>
+                ) : null}
+              </span>
             </div>
           </div>
         </div>

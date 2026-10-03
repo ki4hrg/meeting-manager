@@ -114,8 +114,7 @@ async function Account({
           action={disconnectGranolaAction}
           title={`Disconnect ${account.account}?`}
           icon="trash"
-          variant="ghost"
-          size="sm"
+          compact
           submit="Disconnect"
           danger
         >
@@ -205,6 +204,8 @@ export async function Granola() {
           action={connectGranolaAction}
           title="Connect Granola"
           label="Connect"
+          icon="plus"
+          variant="secondary"
           size="sm"
           submit="Connect"
         >

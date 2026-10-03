@@ -35,7 +35,7 @@ export function MoveTo({
   }
 
   return (
-    <FormModal action={move} title="Move" icon="arrowRight" variant="secondary" submit="Move">
+    <FormModal action={move} title="Move" icon="arrowRight" compact iconSize="md" submit="Move">
       <input type="hidden" name="id" value={id} />
       <Field label="Context" required>
         <Select name="contextId" required defaultValue={contexts.length === 1 ? contexts[0]!.id : ''}>

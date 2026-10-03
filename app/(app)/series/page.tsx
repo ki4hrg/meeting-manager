@@ -41,7 +41,7 @@ export default async function SeriesListPage() {
         title="Series"
         count={series.length}
         actions={
-          <FormModal action={createSeriesAction} title="New series" label="New">
+          <FormModal action={createSeriesAction} title="New series" label="New series" icon="plus">
             <Field label="Name" required>
               <Input name="name" required />
             </Field>

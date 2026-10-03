@@ -125,6 +125,7 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
             <CopyButton label="Copy" variant="primary" text={text} html={html} />
             <MailButton href={recapMailto(recap)} text={text} html={html} />
             <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
+              <Icon name="check" className="h-4 w-4" />
               Review
               <PendingBadge count={pending.get(meeting.id)} />
             </ButtonLink>

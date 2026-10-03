@@ -53,21 +53,24 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
       title={person.name}
       crumbs={[{ href: '/people', label: 'People' }]}
       actions={
-        <div className="flex items-center gap-2">
-          {/* One click: a stub with everything saved up for them already on its agenda. */}
-          {person.isSelf || person.archivedAt ? null : (
-            <ActionButton action={prepWithPersonAction} fields={{ personId: person.id }}>
-              Prep
-            </ActionButton>
-          )}
-          <FormModal action={updatePersonAction} title="Edit" label="Edit" variant="secondary">
+        /* One click: a stub with everything saved up for them already on its agenda. */
+        person.isSelf || person.archivedAt ? null : (
+          <ActionButton action={prepWithPersonAction} fields={{ personId: person.id }}>
+            <Icon name="meeting" className="h-4 w-4" />
+            Prep
+          </ActionButton>
+        )
+      }
+      tools={
+        <>
+          <FormModal action={updatePersonAction} title="Edit" icon="pencil" compact iconSize="md">
             <input type="hidden" name="id" value={person.id} />
             <Field label="Name" required>
               <Input name="name" defaultValue={person.name} required />
             </Field>
           </FormModal>
           {person.isSelf || person.archivedAt ? null : <ArchiveButton kind="person" id={person.id} />}
-        </div>
+        </>
       }
     />
   )
@@ -99,7 +102,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
           </RemovableChip>
         </span>
       ))}
-      <FormModal action={addPersonEmailAction} title="Add email" label="Email" icon="plus" variant="ghost" size="sm" submit="Add">
+      <FormModal action={addPersonEmailAction} title="Add email" label="Email" icon="plus" variant="secondary" size="sm" submit="Add">
         <input type="hidden" name="personId" value={person.id} />
         <Field label="Email" required>
           <Input name="email" type="email" required />

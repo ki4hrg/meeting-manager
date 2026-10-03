@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { FormModal } from '@/components/forms'
 import { Button } from '@/components/ui/Button'
+import { IconButton } from '@/components/ui/IconButton'
 import { Icon } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 import type { ActionResult } from '@/lib/web/action'
@@ -27,10 +28,7 @@ export function DeleteButton({
   if (blockers.length > 0) {
     return (
       <>
-        <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
-          <Icon name="trash" className="h-4 w-4" />
-          Delete
-        </Button>
+        <IconButton icon="trash" label="Delete" onClick={() => setOpen(true)} />
         <Modal open={open} onClose={() => setOpen(false)} title="Not yet">
           <ul className="flex flex-col gap-2 text-sm text-gray-700 dark:text-gray-300">
             {blockers.map((blocker) => (
@@ -51,7 +49,7 @@ export function DeleteButton({
   }
 
   return (
-    <FormModal action={action} title="Delete" label="Delete" icon="trash" variant="ghost" size="sm" submit="Delete" danger>
+    <FormModal action={action} title="Delete" icon="trash" compact submit="Delete" danger>
       {Object.entries(fields).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
       ))}

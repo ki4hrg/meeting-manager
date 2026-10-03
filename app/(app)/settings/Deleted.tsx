@@ -1,4 +1,4 @@
-import { FormModal, IconAction } from '@/components/forms'
+import { ActionButton, FormModal } from '@/components/forms'
 import { Card, CollapsedSection } from '@/components/ui/Card'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { listDeleted, purgeOn, type DeletedKind } from '@/lib/archive/archive'
@@ -43,7 +43,10 @@ export async function Deleted({ timeZone }: { timeZone: string | null }) {
                       .join(' · ')}
                   </span>
                 </span>
-                <IconAction action={restoreDeletedAction} fields={fields} icon="undo" label={`Restore ${row.name}`} />
+                <ActionButton action={restoreDeletedAction} fields={fields} variant="secondary" size="sm">
+                  <Icon name="undo" className="h-4 w-4" />
+                  Restore
+                </ActionButton>
                 <FormModal
                   action={purgeAction}
                   title={`Delete ${row.name} for good?`}

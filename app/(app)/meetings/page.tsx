@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import { iconButtonClasses } from '@/components/ui/IconButton'
+import { ButtonLink } from '@/components/ui/Button'
 import { FormModal } from '@/components/forms'
 import { DateJump } from '@/components/meetings/DateJump'
 import { DayList } from '@/components/meetings/DayList'
@@ -74,7 +76,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
         actions={
           <>
             <LogMeeting people={others} groups={groups} projects={live} timeZone={timeZone} />
-            <FormModal action={createMeetingAction} title="New meeting" label="New" submit="Create">
+            <FormModal action={createMeetingAction} title="New meeting" label="New meeting" icon="plus" submit="Create">
               <MeetingFields
                 choices={{ people: others, groups, projects: live, series }}
                 timeZone={timeZone}
@@ -103,7 +105,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
                 href="/meetings"
                 aria-label="Today"
                 title="Today"
-                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                className={iconButtonClasses()}
               >
                 <Icon name="close" className="h-4 w-4" />
               </Link>
@@ -119,14 +121,14 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
         )}
         {days < FARTHEST ? (
           <div className="mt-4 flex justify-center">
-            <Link
+            <ButtonLink
               href={`/meetings?${more}`}
               scroll={false}
-              className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+              variant="ghost"
             >
               <Icon name="chevronDown" className="h-4 w-4" />
               More
-            </Link>
+            </ButtonLink>
           </div>
         ) : null}
       </Section>

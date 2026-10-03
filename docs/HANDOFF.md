@@ -15,7 +15,7 @@ On branch `claude/bold-tesla-gbb3re`, one commit per piece, not yet deployed. Mi
 - **Me** is a fixed chip in the meeting, series and Log pickers.
 - **Attendance on review** is always shown; it is read-only, with a lock, once a proposal has been accepted.
 - **I owe and Waiting on show only what is due within 14 days.** The undated and what is due further out wait in Later with the parked items, I owe and Waiting on apart.
-- **Buttons:** the audit and the proposed rule are on issue #2. Nothing is changed yet.
+- **Buttons** (rule approved by John on issue #2, then built): `PageHeader` takes `tools` for the icon-only housekeeping (Edit pencil, Move, Archive); `IconButton` has a `md` size for headers and exports `iconButtonClasses` for links; `FormModal` takes `tone`, `iconSize` and `disabled` for its compact trigger. Section adds, QuickAdd (blue only on the Inbox), card actions (Prep, File, Link) and empty-state actions are gray with an icon; New X, Prep, Review and Recap have icons; Remove on rows is the `close` IconAction; Restore is always icon and label; the series' block toggles use the `on` tone. Rule in `CLAUDE.md`, sample on `/design`.
 
 **Decisions made without John**
 
@@ -26,8 +26,7 @@ On branch `claude/bold-tesla-gbb3re`, one commit per piece, not yet deployed. Mi
 
 **Not done, needs John**
 
-- **Consolidating items:** see "Consolidating items" in the spec (Fold into, Steps, Combine at review). To settle before building.
-- **The button rule** on issue #2.
+- **Consolidating items:** John picked Fold into (2026-10-03), but it waits until the Todoist sync (phase 4) is designed, so a folded item and its task agree. See the spec.
 
 ## Item 9 settled and built (2026-10-03)
 
