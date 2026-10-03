@@ -1150,7 +1150,7 @@ describe('item targets', () => {
 
     expect(
       await refusal('update_item', { id: item.id, target_meeting: meeting.id, target_series: 'weekly' }),
-    ).toContain('not both')
+    ).toContain('not more')
     expect(await refusal('update_item', { id: item.id, target_series: 'nothing' })).toContain(
       'No series matches nothing',
     )
