@@ -47,7 +47,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   if (!isUuid(id)) notFound()
 
   const context = await requireContext()
-  const { user, today } = await viewer()
+  const { user, self, today } = await viewer()
   const timeZone = user.timeZone
 
   const meeting = await getMeeting(db, id).catch((err) => {
@@ -246,6 +246,12 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         {meeting.group ? (
           <Chip href={`/groups/${meeting.group.id}`} icon="group">
             {meeting.group.name}
+          </Chip>
+        ) : null}
+        {/* John is at every meeting: first, and never on its list of people. */}
+        {self ? (
+          <Chip href={`/people/${self.id}`} icon="person">
+            Me
           </Chip>
         ) : null}
         {meeting.people.map((person) => (

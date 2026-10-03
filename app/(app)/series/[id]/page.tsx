@@ -13,7 +13,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { RemovableChip } from '@/components/ui/RemovableChip'
 import { Badge } from '@/components/ui/StatusBadge'
 import { getAgenda } from '@/lib/agenda/lines'
-import { formatMoment } from '@/lib/core/dates'
+import { formatMoment, formatTime } from '@/lib/core/dates'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
@@ -21,6 +21,7 @@ import type { BlockSettings } from '@/lib/db/schema'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
+import { calendarLinkOf, unlinkedRecurring } from '@/lib/meetings/prep'
 import { outOfStep } from '@/lib/meetings/roster'
 import { getSeries } from '@/lib/meetings/series'
 import { listProjects } from '@/lib/projects/projects'
@@ -35,9 +36,10 @@ import {
   removeSeriesPersonAction,
   removeSeriesProjectAction,
   setSeriesBlockAction,
-  unlinkSeriesCalendarAction,
   updateSeriesAction,
   syncRosterAction,
+  rosterFromCalendarAction,
+  rosterInviteeAction,
 } from '../actions'
 
 const BLOCKS: Array<{ block: keyof BlockSettings; icon: IconName; label: string }> = [
@@ -84,6 +86,19 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
   const next = (await nextOccurrence(db, id)) ?? stub ?? null
   const history = await listMeetings(db, { contextId: context.id, seriesId: id, when: 'past' })
   const behind = await outOfStep(db, id)
+  const link = await calendarLinkOf(db, series)
+  const linkable = link ? [] : await unlinkedRecurring(db, context.id)
+  const allPeople = await listPeople(db)
+  const self = allPeople.find((person) => person.isSelf)
+  // Invited on the calendar and in nobody's directory entry: each can be added in one step.
+  const strangers = (link?.next?.attendees ?? []).filter((attendee) => !attendee.personId && !attendee.declined && attendee.email)
+  const invitedKnown = (link?.next?.attendees ?? []).some(
+    (attendee) => attendee.personId && !attendee.declined && !onRoster.has(attendee.personId),
+  )
+  const weekdayTime = (at: Date) =>
+    new Intl.DateTimeFormat('en-US', { timeZone: user.timeZone ?? undefined, weekday: 'short' }).format(at) +
+    ' ' +
+    formatTime(at, user.timeZone)
 
   // Sections and their lines as one flat list, for the preview.
   const agenda = next ? await getAgenda(db, next.id, { timeZone: user.timeZone }) : null
@@ -107,18 +122,20 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                 {series.group.name}
               </Chip>
             ) : null}
-            {series.calendarSeriesId ? (
-              <RemovableChip
+            {link ? (
+              // The recurring event it follows: when it comes round, opening the next one.
+              <Chip
                 icon="meeting"
-                iconLabel="On the calendar"
-                remove={{
-                  action: unlinkSeriesCalendarAction,
-                  fields: { id: series.id },
-                  label: 'Unlink calendar',
-                }}
+                href={
+                  link.nextMeetingId
+                    ? `/meetings/${link.nextMeetingId}`
+                    : (link.next?.htmlLink ?? `/series/${series.id}`)
+                }
               >
-                <Icon name="link" className="h-3.5 w-3.5" />
-              </RemovableChip>
+                {[link.title, link.next ? weekdayTime(link.next.startsAt) : null, link.cadence]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Chip>
             ) : null}
             <FormModal action={updateSeriesAction} title="Edit" label="Edit" variant="secondary">
               <input type="hidden" name="id" value={series.id} />
@@ -135,6 +152,27 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                   ))}
                 </Select>
               </Field>
+              {link ? (
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    name="unlinkCalendar"
+                    className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-700"
+                  />
+                  Unlink calendar
+                </label>
+              ) : linkable.length > 0 ? (
+                <Field label="Calendar">
+                  <Select name="calendarSeriesId" defaultValue="">
+                    <option value="">—</option>
+                    {linkable.map((one) => (
+                      <option key={one.calendarSeriesId} value={one.calendarSeriesId}>
+                        {[one.next.title, weekdayTime(one.next.startsAt), one.cadence].filter(Boolean).join(' · ')}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              ) : null}
             </FormModal>
             <MoveTo
               action={moveSeriesAction}
@@ -218,11 +256,17 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
             </FormModal>
           }
         >
-          {series.people.length === 0 ? (
+          {series.people.length === 0 && strangers.length === 0 ? (
             <EmptyState icon="person" />
           ) : (
             <Card>
               <div className="flex flex-wrap gap-2">
+                {/* John is at every meeting: shown first, never removed. */}
+                {self ? (
+                  <Chip icon="person" href={`/people/${self.id}`}>
+                    Me
+                  </Chip>
+                ) : null}
                 {series.people.map((person) => (
                   <RemovableChip
                     key={person.id}
@@ -240,6 +284,48 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
               </div>
             </Card>
           )}
+          {strangers.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {strangers.map((stranger) => (
+                <FormModal
+                  key={stranger.email}
+                  action={rosterInviteeAction}
+                  title={stranger.email}
+                  label={stranger.name ?? stranger.email}
+                  icon="plus"
+                  variant="secondary"
+                  size="sm"
+                  submit="Add"
+                >
+                  <input type="hidden" name="id" value={series.id} />
+                  <input type="hidden" name="email" value={stranger.email} />
+                  <Field label="This is">
+                    <Select name="personId" defaultValue="">
+                      <option value="">—</option>
+                      {allPeople
+                        .filter((person) => !person.isSelf)
+                        .map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {person.name}
+                          </option>
+                        ))}
+                    </Select>
+                  </Field>
+                  <Field label="Name">
+                    <Input name="name" defaultValue={stranger.name ?? ''} />
+                  </Field>
+                </FormModal>
+              ))}
+            </div>
+          ) : null}
+          {invitedKnown ? (
+            <div className="mt-3 flex justify-end">
+              <ActionButton action={rosterFromCalendarAction} fields={{ id: series.id }} variant="secondary" size="sm">
+                <Icon name="meeting" className="h-4 w-4" />
+                From calendar
+              </ActionButton>
+            </div>
+          ) : null}
           {/* Meetings edited by hand do not follow the roster on their own. */}
           {behind.length > 0 ? (
             <div className="mt-3 flex justify-end">

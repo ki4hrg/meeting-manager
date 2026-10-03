@@ -30,6 +30,8 @@ export interface GoogleCalendarEvent {
     resource?: boolean
     responseStatus?: string
   }>
+  /* Who sent the invitation: not always among `attendees`. */
+  organizer?: { email?: string; displayName?: string; self?: boolean }
 }
 
 /* A runaway guard, not a limit anyone should meet: 20 pages is 50,000 events. */

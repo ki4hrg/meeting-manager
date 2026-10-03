@@ -11,6 +11,7 @@ import { createMeeting, getMeeting, listMeetings, updateMeeting } from '../lib/m
 import { moveMeeting } from '../lib/meetings/move'
 import {
   attachStub,
+  cadenceOf,
   listPast,
   listUpcoming,
   prepFromEvent,
@@ -330,5 +331,52 @@ describe('the reach of the meetings lists', () => {
     // A missed event can still be given its meeting, to log its notes against.
     const made = await prepFromEvent(db, actor, { contextId: w.parish.id, event: missed }, NOW)
     expect(made.startsAt).toEqual(missed.startsAt)
+  })
+})
+
+describe('a series and its calendar', () => {
+  it('a meeting made by hand at the time of its event is offered on the event, not listed beside it', async () => {
+    const w = await makeWorld()
+    const byHand = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Adlene/John Check-In',
+      startsAt: new Date('2026-10-13T15:00:00Z'),
+    })
+    const other = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Something else',
+      startsAt: new Date('2026-10-13T15:30:00Z'),
+    })
+    const occurrence = event({
+      eventId: 'evt-13',
+      seriesId: 'rec-1',
+      title: 'Adlene/John Check-In',
+      startsAt: new Date('2026-10-13T15:00:00Z'),
+      endsAt: new Date('2026-10-13T16:00:00Z'),
+    })
+    const { entries } = await listUpcoming(db, w.parish.id, { now: NOW, events: [occurrence] })
+    expect(entries.map((entry) => entry.event?.eventId ?? entry.meeting?.id)).toEqual(['evt-13', other.id])
+    expect(entries[0]!.stubs.map((stub) => stub.id)).toEqual([byHand.id])
+
+    // Linking keeps the one meeting, with the event's time and series.
+    const series = await createSeries(db, {
+      contextId: w.parish.id,
+      name: 'Check-in',
+      personIds: [w.sarah.id],
+      calendarSeriesId: 'rec-1',
+    })
+    const linked = await attachStub(db, actor, byHand.id, occurrence, NOW)
+    expect(linked).toMatchObject({ id: byHand.id, calendarEventId: 'evt-13', series: { id: series.id } })
+    // Newly in the series, it takes its roster.
+    expect(linked.people.map((person) => person.id)).toEqual([w.sarah.id])
+  })
+
+  it('reads how often a recurring event comes round', () => {
+    const at = (iso: string) => event({ startsAt: new Date(iso) })
+    expect(cadenceOf([at('2026-10-06T15:00:00Z'), at('2026-10-13T15:00:00Z'), at('2026-10-20T15:00:00Z')])).toBe('weekly')
+    expect(cadenceOf([at('2026-10-06T15:00:00Z'), at('2026-10-20T15:00:00Z')])).toBe('every 2 weeks')
+    expect(cadenceOf([at('2026-10-06T15:00:00Z'), at('2026-11-06T16:00:00Z'), at('2026-12-06T16:00:00Z')])).toBe('monthly')
+    expect(cadenceOf([at('2026-10-06T15:00:00Z'), at('2026-10-09T15:00:00Z'), at('2026-10-20T15:00:00Z')])).toBeNull()
+    expect(cadenceOf([at('2026-10-06T15:00:00Z')])).toBeNull()
   })
 })

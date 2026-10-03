@@ -154,9 +154,18 @@ async function fetchBound(
         const startsAt = moment(event.start, zone)
         if (!startsAt) continue
 
-        const attendees = event.attendees ?? []
+        const attendees = [...(event.attendees ?? [])]
         // What John has declined is not on his calendar as far as prep goes.
         if (attendees.some((att) => att.self && att.responseStatus === 'declined')) continue
+        /* Whoever sent the invitation is at the meeting, listed or not. */
+        const organizer = event.organizer
+        if (
+          organizer?.email &&
+          !organizer.self &&
+          !attendees.some((att) => att.email?.toLowerCase() === organizer.email!.toLowerCase())
+        ) {
+          attendees.push({ email: organizer.email, displayName: organizer.displayName })
+        }
 
         seen.set(key, {
           contextId: binding.contextId,
