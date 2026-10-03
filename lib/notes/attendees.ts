@@ -10,9 +10,10 @@
  * moment anyone in the directory has it, on every meeting at once.
  */
 
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
-import { meetingPeople, notes, personEmails, type NoteAttendee } from '../db/schema'
+import { meetingPeople, notes, people, personEmails, type NoteAttendee } from '../db/schema'
+import { notDeleted } from '../db/shelf'
 import { addPersonEmail, createPerson, getPerson, type Person } from '../directory/people'
 
 /** Who this meeting's notes name that the directory does not have, in the order given. */
@@ -35,7 +36,8 @@ export async function unknownAttendees(exec: Executor, meetingId: string): Promi
   const known = await exec
     .select({ email: sql<string>`lower(${personEmails.email})` })
     .from(personEmails)
-    .where(inArray(sql`lower(${personEmails.email})`, [...named.keys()]))
+    .innerJoin(people, eq(people.id, personEmails.personId))
+    .where(and(inArray(sql`lower(${personEmails.email})`, [...named.keys()]), notDeleted(people)))
   for (const row of known) named.delete(row.email)
   return [...named.values()]
 }

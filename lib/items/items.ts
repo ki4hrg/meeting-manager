@@ -33,6 +33,7 @@ import {
   projects,
   series,
 } from '../db/schema'
+import { notDeleted } from '../db/shelf'
 import { getProject } from '../projects/projects'
 import { getContext } from '../directory/contexts'
 
@@ -194,7 +195,7 @@ async function loadViews(exec: Executor, where: SQL | undefined, limit?: number)
 }
 
 export async function getItem(exec: Executor, id: string): Promise<ItemView> {
-  const [view] = await loadViews(exec, eq(items.id, id))
+  const [view] = await loadViews(exec, and(eq(items.id, id), notDeleted(items)))
   if (!view) throw new NotFoundError('Item', id)
   return view
 }
@@ -229,7 +230,7 @@ function partyExists(party: PartyRef & { role?: PartyRole }): SQL {
 }
 
 export async function listItems(exec: Executor, filter: ItemFilter): Promise<ItemView[]> {
-  const conditions: SQL[] = [eq(items.contextId, filter.contextId)]
+  const conditions: SQL[] = [eq(items.contextId, filter.contextId), notDeleted(items)]
 
   if (filter.ids) {
     if (filter.ids.length === 0) return []
@@ -275,6 +276,7 @@ export async function inboxCount(exec: Executor, contextId: string): Promise<num
     .where(
       and(
         eq(items.contextId, contextId),
+        notDeleted(items),
         inArray(items.status, OPEN_STATUSES),
         sql`${items.projectId} is null`,
         sql`not exists (select 1 from ${itemParties} where ${itemParties.itemId} = ${items.id})`,
@@ -285,7 +287,7 @@ export async function inboxCount(exec: Executor, contextId: string): Promise<num
 
 /** How much is open in a context, for the tiles and list pages. */
 export async function openCounts(exec: Executor, contextId: string): Promise<OpenCounts> {
-  const open = and(eq(items.contextId, contextId), inArray(items.status, OPEN_STATUSES))
+  const open = and(eq(items.contextId, contextId), notDeleted(items), inArray(items.status, OPEN_STATUSES))
 
   const projectRows = await exec
     .select({ id: items.projectId, n: sql<number>`count(*)::int` })
@@ -896,23 +898,47 @@ export async function dropItem(exec: Executor, actor: ActorContext, id: string):
 }
 
 /**
- * Gone for good, for what was captured by mistake ("test"). Only an item that
- * stands alone: one that came out of a meeting, or is part of a thread, is
- * part of the record, and is dropped instead.
+ * Deleted, for what was captured by mistake ("test"): kept 30 days for Restore
+ * on Settings, then gone (lib/archive). Done or dropped is an item's archive,
+ * so an open item is closed first. Only an item that stands alone: one that
+ * came out of a meeting, is part of a thread or sits on an agenda is part of
+ * the record, and stays closed instead.
  */
 export async function deleteItem(exec: Executor, _actor: ActorContext, id: string): Promise<void> {
   await inTransaction(exec, async (tx) => {
     const item = await getItem(tx, id)
+    if (isOpen(item)) throw new ValidationError('Mark it done or drop it first.')
     const [linked] = await tx
       .select({ id: items.id })
       .from(items)
       .where(or(eq(items.parentItemId, id), eq(items.supersededByItemId, id)))
       .limit(1)
-    if (item.originMeetingId || item.parentItemId || item.supersededByItemId || linked) {
-      throw new ValidationError('This item is part of the record. Drop it instead.')
+    const [placed] = await tx
+      .select({ id: agendaLines.id })
+      .from(agendaLines)
+      .where(eq(agendaLines.itemId, id))
+      .limit(1)
+    if (item.originMeetingId || item.parentItemId || item.supersededByItemId || linked || placed) {
+      throw new ValidationError('This item is part of the record, so it stays closed.')
     }
-    await tx.delete(items).where(eq(items.id, id))
+    await tx.update(items).set({ deletedAt: new Date() }).where(eq(items.id, id))
   })
+}
+
+/** Whether Delete is on offer for an item: closed and standing alone. */
+export async function canDeleteItem(exec: Executor, item: ItemView): Promise<boolean> {
+  if (isOpen(item) || item.originMeetingId || item.parentItemId || item.supersededByItemId) return false
+  const [linked] = await exec
+    .select({ id: items.id })
+    .from(items)
+    .where(or(eq(items.parentItemId, item.id), eq(items.supersededByItemId, item.id)))
+    .limit(1)
+  const [placed] = await exec
+    .select({ id: agendaLines.id })
+    .from(agendaLines)
+    .where(eq(agendaLines.itemId, item.id))
+    .limit(1)
+  return !linked && !placed
 }
 
 export async function reopenItem(

@@ -80,6 +80,27 @@ const granolaReconcile: Job = {
 
 registerJob(granolaReconcile)
 
+export const PURGE_DELETED = 'purge-deleted'
+
+/*
+ * What was deleted more than 30 days ago, removed for good (lib/archive).
+ * Until then it can be restored from Settings. Daily is plenty: the 30 days
+ * are a floor, not a deadline.
+ */
+const purgeDeleted: Job = {
+  name: PURGE_DELETED,
+  everyMs: 24 * 60 * 60 * 1000,
+  lockKey: 200_003,
+  run: async () => {
+    const { db } = await import('../db')
+    const { purgeExpired } = await import('../archive/archive')
+    const purged = await purgeExpired(db)
+    return purged === 0 ? 'Nothing to remove.' : `${purged} removed`
+  },
+}
+
+registerJob(purgeDeleted)
+
 /**
  * Start the timers. Called once, from `instrumentation.ts`.
  *

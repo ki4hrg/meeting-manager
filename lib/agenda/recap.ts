@@ -28,6 +28,7 @@ import {
   personEmails,
   processingRuns,
 } from '../db/schema'
+import { onShelf } from '../db/shelf'
 import { isOpen, listItems, type ItemKind, type ItemStatus, type ItemView } from '../items/items'
 import { lookaheadParts, markdownLeaf, rows, toHtml, toMarkdown, type Entry, type Part } from './brief'
 import { computeBlocks, itemsOf } from './generated'
@@ -109,7 +110,9 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
   const sessions = await exec
     .select()
     .from(meetings)
-    .where(and(eq(meetings.parentMeetingId, meeting.id), eq(meetings.contextId, meeting.contextId)))
+    .where(
+      and(eq(meetings.parentMeetingId, meeting.id), eq(meetings.contextId, meeting.contextId), onShelf(meetings)),
+    )
     .orderBy(asc(meetings.startsAt), asc(meetings.createdAt))
   const covered: Meeting[] = [meeting, ...sessions]
   const coveredIds = covered.map((row) => row.id)

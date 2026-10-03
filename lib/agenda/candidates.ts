@@ -22,6 +22,7 @@
  */
 
 import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
+import { onShelf } from '../db/shelf'
 import { isOver } from '../meetings/meetings'
 import {
   NotFoundError,
@@ -76,7 +77,7 @@ async function isNextOccurrence(
   const [next] = await exec
     .select({ id: meetings.id })
     .from(meetings)
-    .where(and(eq(meetings.seriesId, meeting.seriesId), gte(meetings.startsAt, now)))
+    .where(and(eq(meetings.seriesId, meeting.seriesId), onShelf(meetings), gte(meetings.startsAt, now)))
     .orderBy(asc(meetings.startsAt))
     .limit(1)
   return next?.id === meeting.id
@@ -87,7 +88,7 @@ async function sessionsOf(exec: Executor, meetingId: string) {
   return exec
     .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt })
     .from(meetings)
-    .where(eq(meetings.parentMeetingId, meetingId))
+    .where(and(eq(meetings.parentMeetingId, meetingId), onShelf(meetings)))
     .orderBy(sql`${meetings.startsAt} asc nulls last`, asc(meetings.createdAt))
 }
 
@@ -108,7 +109,7 @@ export async function nextForProject(
   projectId: string,
   now: Date,
 ): Promise<string | null> {
-  const tree = await listProjects(exec, contextId)
+  const tree = await listProjects(exec, contextId, 'all')
   const family = [projectId, ...descendantIds(tree, [projectId])]
   const carrying = await exec
     .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt, createdAt: meetings.createdAt })
@@ -117,6 +118,7 @@ export async function nextForProject(
       and(
         eq(meetings.contextId, contextId),
         isNull(meetings.parentMeetingId),
+        onShelf(meetings),
         inArray(
           meetings.id,
           exec
@@ -189,7 +191,7 @@ export async function getCandidates(
   const projectIds = new Set(projectRows.map((row) => row.projectId))
   /* Projects within the meeting's are suggested too; projects they sit within
      are reachable under "more". Neither is ever placed. */
-  const tree = projectIds.size > 0 ? await listProjects(exec, meeting.contextId) : []
+  const tree = projectIds.size > 0 ? await listProjects(exec, meeting.contextId, 'all') : []
   const below = descendantIds(tree, projectIds)
   const above = ancestorIds(tree, projectIds)
   const projectName = new Map(tree.map((project) => [project.id, project.name]))
@@ -309,6 +311,9 @@ export async function placeAutomatic(
   now: Date = new Date(),
 ): Promise<number> {
   return inTransaction(exec, async (tx) => {
+    // Put away: nothing more is placed on it.
+    const meeting = await loadMeeting(tx, meetingId)
+    if (meeting.archivedAt || meeting.deletedAt) return 0
     if ((await sessionsOf(tx, meetingId)).length > 0) return 0
     const { toPlace } = await getCandidates(tx, meetingId, now)
     await appendItemLines(

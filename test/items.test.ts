@@ -140,17 +140,22 @@ describe('lifecycle', () => {
     expect((await dropItem(db, actor, action.id)).status).toBe('dropped')
   })
 
-  it('deletes an item that stands alone, and refuses one in a thread', async () => {
+  it('deletes a closed item that stands alone, and refuses an open one or one in a thread', async () => {
     const { parish } = await makeWorld()
     const mistake = await createItem(db, actor, { contextId: parish.id, text: 'test' })
+    await expect(deleteItem(db, actor, mistake.id)).rejects.toThrow('done or drop it first')
+    await dropItem(db, actor, mistake.id)
     await deleteItem(db, actor, mistake.id)
     await expect(getItem(db, mistake.id)).rejects.toThrow()
+    expect(await listItems(db, { contextId: parish.id })).toEqual([])
 
     const parent = await createItem(db, actor, { contextId: parish.id, text: 'the first' })
     const child = await createItem(db, actor, { contextId: parish.id, text: 'the next', parentItemId: parent.id })
-    await expect(deleteItem(db, actor, parent.id)).rejects.toThrow('Drop it instead')
-    await expect(deleteItem(db, actor, child.id)).rejects.toThrow('Drop it instead')
-    expect((await getItem(db, parent.id)).status).toBe('open')
+    await dropItem(db, actor, parent.id)
+    await dropItem(db, actor, child.id)
+    await expect(deleteItem(db, actor, parent.id)).rejects.toThrow('part of the record')
+    await expect(deleteItem(db, actor, child.id)).rejects.toThrow('part of the record')
+    expect((await getItem(db, parent.id)).status).toBe('dropped')
   })
 
   it('keeps a decision out of the open states', async () => {

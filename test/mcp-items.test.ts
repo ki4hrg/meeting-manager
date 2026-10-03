@@ -206,3 +206,23 @@ describe('directory tools', () => {
     await read.close()
   })
 })
+
+describe('set_archived', () => {
+  it('takes a project off the lists and name lookups, and brings it back', async () => {
+    const archived = await call('set_archived', { kind: 'project', id: world.retreat.id, archived: true })
+    expect(dataOf(archived)).toMatchObject({ archived: true })
+    const listed = dataOf<{ projects: Array<{ name: string }> }>(await call('list_projects', { context: 'Parish' }))
+    expect(listed.projects.map((p) => p.name)).toEqual(['Capital campaign'])
+    const capture = await call('capture_item', { text: 'Book the hall', project: 'retreat', context: 'Parish' })
+    expect(capture.isError).toBe(true)
+
+    await call('set_archived', { kind: 'project', id: world.retreat.id, archived: false })
+    expect((await call('capture_item', { text: 'Book the hall', project: 'retreat', context: 'Parish' })).isError).toBeFalsy()
+  })
+
+  it('refuses archiving yourself', async () => {
+    const result = await call('set_archived', { kind: 'person', id: world.john.id, archived: true })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toContain('yourself')
+  })
+})

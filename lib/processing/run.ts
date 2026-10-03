@@ -28,7 +28,9 @@ import {
 import { getAgenda } from '../agenda/lines'
 import {
   agendaLines,
+  contexts,
   groups,
+  meetings,
   notes,
   people,
   processingRuns,
@@ -38,6 +40,7 @@ import {
   type ProposalPayload,
   type RunOutput,
 } from '../db/schema'
+import { notDeleted, onShelf } from '../db/shelf'
 import { findSelf } from '../directory/people'
 import { isOpen, listItems, type ItemView } from '../items/items'
 import { getMeeting, type MeetingView } from '../meetings/meetings'
@@ -69,12 +72,24 @@ export async function queueRun(exec: Executor, noteId: string): Promise<Run | nu
   const note = await getNote(exec, noteId)
   // An unfiled note has no context to be read against; it is run once filed.
   if (note.meetingId === null) return null
+  if (!(await inLiveContext(exec, note.meetingId))) return null
   const [row] = await exec
     .insert(processingRuns)
     .values({ noteId, contentHash: note.contentHash })
     .onConflictDoNothing({ target: [processingRuns.noteId, processingRuns.contentHash] })
     .returning()
   return row ?? null
+}
+
+/* Nothing is run in an archived context: its notes wait there until it is restored. */
+async function inLiveContext(exec: Executor, meetingId: string): Promise<boolean> {
+  const [row] = await exec
+    .select({ id: meetings.id })
+    .from(meetings)
+    .innerJoin(contexts, eq(contexts.id, meetings.contextId))
+    .where(and(eq(meetings.id, meetingId), notDeleted(meetings), onShelf(contexts)))
+    .limit(1)
+  return !!row
 }
 
 /**
@@ -204,16 +219,16 @@ export async function buildExtractionInput(exec: Executor, noteId: string): Prom
   const itemText = new Map(openItems.map((item) => [item.id, item.text]))
 
   const [allPeople, contextGroups, contextProjects] = await Promise.all([
-    exec.select({ id: people.id, name: people.name }).from(people).orderBy(asc(people.name)),
+    exec.select({ id: people.id, name: people.name }).from(people).where(onShelf(people)).orderBy(asc(people.name)),
     exec
       .select({ id: groups.id, name: groups.name })
       .from(groups)
-      .where(eq(groups.contextId, meeting.contextId))
+      .where(and(eq(groups.contextId, meeting.contextId), onShelf(groups)))
       .orderBy(asc(groups.name)),
     exec
       .select({ id: projects.id, name: projects.name })
       .from(projects)
-      .where(eq(projects.contextId, meeting.contextId))
+      .where(and(eq(projects.contextId, meeting.contextId), onShelf(projects)))
       .orderBy(asc(projects.name)),
   ])
 
@@ -464,7 +479,10 @@ export async function processQueued(
   const queued = await exec
     .select({ id: processingRuns.id })
     .from(processingRuns)
-    .where(eq(processingRuns.status, 'queued'))
+    .innerJoin(notes, eq(notes.id, processingRuns.noteId))
+    .innerJoin(meetings, eq(meetings.id, notes.meetingId))
+    .innerJoin(contexts, eq(contexts.id, meetings.contextId))
+    .where(and(eq(processingRuns.status, 'queued'), notDeleted(meetings), onShelf(contexts)))
     .orderBy(asc(processingRuns.createdAt), asc(processingRuns.id))
 
   let processed = 0

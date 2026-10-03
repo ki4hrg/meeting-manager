@@ -78,6 +78,13 @@
       "when": 1791042727942,
       "tag": "0010_clammy_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791043209509,
+      "tag": "0011_bright_paper_doll",
+      "breakpoints": true
     }
   ]
 }

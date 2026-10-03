@@ -1,29 +1,38 @@
 /* Contexts: the hard boundary projects, groups and items sit inside. */
 
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { NotFoundError, ValidationError, type Executor } from '../core/types'
 import { contexts } from '../db/schema'
+import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 
 export type Context = typeof contexts.$inferSelect
 
-export async function listContexts(exec: Executor): Promise<Context[]> {
-  return exec.select().from(contexts).orderBy(asc(contexts.sortOrder), asc(contexts.createdAt))
+export async function listContexts(exec: Executor, shelf: Shelf = 'live'): Promise<Context[]> {
+  return exec
+    .select()
+    .from(contexts)
+    .where(onShelf(contexts, shelf))
+    .orderBy(asc(contexts.sortOrder), asc(contexts.createdAt))
 }
 
 export async function getContext(exec: Executor, id: string): Promise<Context> {
-  const [row] = await exec.select().from(contexts).where(eq(contexts.id, id)).limit(1)
+  const [row] = await exec
+    .select()
+    .from(contexts)
+    .where(and(eq(contexts.id, id), notDeleted(contexts)))
+    .limit(1)
   if (!row) throw new NotFoundError('Context', id)
   return row
 }
 
 async function assertNameFree(exec: Executor, name: string, exceptId?: string) {
   const [taken] = await exec
-    .select({ id: contexts.id })
+    .select({ id: contexts.id, archivedAt: contexts.archivedAt, deletedAt: contexts.deletedAt })
     .from(contexts)
     .where(sql`lower(${contexts.name}) = lower(${name})`)
     .limit(1)
   if (taken && taken.id !== exceptId) {
-    throw new ValidationError(`There is already a context called ${name}.`)
+    throw new ValidationError(`There is already a context called ${name}${shelvedNote(taken)}.`)
   }
 }
 

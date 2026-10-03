@@ -5,6 +5,7 @@ import { NotFoundError, ValidationError, inTransaction, type ActorContext, type 
 import { groups, people, projects, series, seriesPeople, seriesProjects } from '../db/schema'
 import type { BlockSettings, SkeletonSection } from '../db/schema'
 import { parseOutline, type OutlineItem } from '../agenda/outline'
+import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 import { getContext } from '../directory/contexts'
 import { carryRoster, rosterOf } from './roster'
 
@@ -21,6 +22,7 @@ export type SeriesView = {
   blocks: BlockSettings
   people: { id: string; name: string }[]
   projects: { id: string; name: string }[]
+  archivedAt: Date | null
 }
 
 // ─── reading ─────────────────────────────────────────────────────────────────
@@ -87,25 +89,30 @@ async function loadViews(exec: Executor, where: SQL | undefined): Promise<Series
     blocks: s.blocks,
     people: bySeriesPeople.get(s.id) ?? [],
     projects: bySeriesProjects.get(s.id) ?? [],
+    archivedAt: s.archivedAt,
   }))
 }
 
 export async function getSeries(exec: Executor, id: string): Promise<SeriesView> {
-  const [view] = await loadViews(exec, eq(series.id, id))
+  const [view] = await loadViews(exec, and(eq(series.id, id), notDeleted(series)))
   if (!view) throw new NotFoundError('Series', id)
   return view
 }
 
-export async function listSeries(exec: Executor, contextId: string): Promise<SeriesView[]> {
+export async function listSeries(
+  exec: Executor,
+  contextId: string,
+  shelf: Shelf = 'live',
+): Promise<SeriesView[]> {
   await getContext(exec, contextId)
-  return loadViews(exec, eq(series.contextId, contextId))
+  return loadViews(exec, and(eq(series.contextId, contextId), onShelf(series, shelf)))
 }
 
 export async function findSeriesByCalendar(
   exec: Executor,
   calendarSeriesId: string,
 ): Promise<SeriesView | null> {
-  const [view] = await loadViews(exec, eq(series.calendarSeriesId, calendarSeriesId))
+  const [view] = await loadViews(exec, and(eq(series.calendarSeriesId, calendarSeriesId), notDeleted(series)))
   return view ?? null
 }
 
@@ -137,12 +144,12 @@ async function assertProjectIn(exec: Executor, projectId: string, contextId: str
 
 async function assertNameFree(exec: Executor, contextId: string, name: string, exceptId?: string) {
   const [taken] = await exec
-    .select({ id: series.id })
+    .select({ id: series.id, archivedAt: series.archivedAt, deletedAt: series.deletedAt })
     .from(series)
     .where(and(eq(series.contextId, contextId), sql`lower(${series.name}) = lower(${name})`))
     .limit(1)
   if (taken && taken.id !== exceptId) {
-    throw new ValidationError(`There is already a series called ${name}.`)
+    throw new ValidationError(`There is already a series called ${name}${shelvedNote(taken)}.`)
   }
 }
 
@@ -401,6 +408,7 @@ export async function setSeriesProjects(
   })
 }
 
+/** Gone at once. What a person removes is archived, then deleted (lib/archive). */
 export async function deleteSeries(exec: Executor, id: string): Promise<void> {
   await getSeries(exec, id)
   await exec.delete(series).where(eq(series.id, id))

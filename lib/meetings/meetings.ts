@@ -26,6 +26,7 @@ import {
   seriesProjects,
   type BlockSettings,
 } from '../db/schema'
+import { notDeleted, onShelf, type Shelf } from '../db/shelf'
 import { getContext } from '../directory/contexts'
 import { getProject } from '../projects/projects'
 
@@ -44,6 +45,7 @@ export type MeetingView = {
   people: { id: string; name: string }[]
   projects: { id: string; name: string }[]
   sessions: { id: string; title: string; startsAt: Date | null; endsAt: Date | null }[]
+  archivedAt: Date | null
 }
 
 // ─── reading ─────────────────────────────────────────────────────────────────
@@ -107,7 +109,7 @@ async function loadViews(
       parentMeetingId: meetings.parentMeetingId,
     })
     .from(meetings)
-    .where(inArray(meetings.parentMeetingId, meetingIds))
+    .where(and(inArray(meetings.parentMeetingId, meetingIds), onShelf(meetings)))
     .orderBy(asc(meetings.startsAt), asc(meetings.createdAt))
 
   const byMeetingPeople = new Map<string, { id: string; name: string }[]>()
@@ -150,6 +152,7 @@ async function loadViews(
     people: byMeetingPeople.get(m.id) ?? [],
     projects: byMeetingProjects.get(m.id) ?? [],
     sessions: byParent.get(m.id) ?? [],
+    archivedAt: m.archivedAt,
   }))
 }
 
@@ -170,7 +173,7 @@ export function isOver(
 }
 
 export async function getMeeting(exec: Executor, id: string): Promise<MeetingView> {
-  const [view] = await loadViews(exec, eq(meetings.id, id))
+  const [view] = await loadViews(exec, and(eq(meetings.id, id), notDeleted(meetings)))
   if (!view) throw new NotFoundError('Meeting', id)
   return view
 }
@@ -179,7 +182,8 @@ export async function findMeetingByEvent(
   exec: Executor,
   calendarEventId: string,
 ): Promise<MeetingView | null> {
-  const [view] = await loadViews(exec, eq(meetings.calendarEventId, calendarEventId))
+  /* An archived meeting still holds its event: archiving one is how an event is put away. */
+  const [view] = await loadViews(exec, and(eq(meetings.calendarEventId, calendarEventId), notDeleted(meetings)))
   return view ?? null
 }
 
@@ -195,6 +199,8 @@ export type MeetingFilter = {
   between?: { from: Date; to: Date }
   now?: Date
   limit?: number
+  /** Live by default; `archived` for the collapsed Archived section. */
+  shelf?: Shelf
 }
 
 export async function listMeetings(
@@ -203,7 +209,7 @@ export async function listMeetings(
 ): Promise<MeetingView[]> {
   await getContext(exec, filter.contextId)
   const now = filter.now ?? new Date()
-  const conditions: SQL[] = [eq(meetings.contextId, filter.contextId)]
+  const conditions: SQL[] = [eq(meetings.contextId, filter.contextId), onShelf(meetings, filter.shelf)]
 
   if (filter.topLevelOnly) {
     conditions.push(sql`${meetings.parentMeetingId} is null`)
@@ -277,6 +283,7 @@ export async function meetingsNear(
     exec,
     and(
       eq(meetings.contextId, contextId),
+      onShelf(meetings),
       sql`${meetings.parentMeetingId} is null`,
       sql`(${meetings.startsAt} is null or ${meetings.startsAt} between ${from}::timestamptz and ${to}::timestamptz)`,
     ),
@@ -674,6 +681,10 @@ export async function detachFromEvent(
   return getMeeting(exec, id)
 }
 
+/**
+ * Gone at once, for a meeting an accepted proposal made and then took back.
+ * What a person removes is archived, then deleted (lib/archive).
+ */
 export async function deleteMeeting(
   exec: Executor,
   _actor: ActorContext,
@@ -699,6 +710,7 @@ export async function previousOccurrence(
       .where(
         and(
           eq(meetings.seriesId, meeting.series.id),
+          onShelf(meetings),
           sql`${meetings.startsAt} < ${now.toISOString()}::timestamp with time zone`,
           sql`${meetings.startsAt} is not null`,
         ),
@@ -716,6 +728,7 @@ export async function previousOccurrence(
     .where(
       and(
         eq(meetings.seriesId, meeting.series.id),
+        onShelf(meetings),
         sql`${meetings.startsAt} < ${meeting.startsAt?.toISOString()}::timestamp with time zone`,
       ),
     )
@@ -736,7 +749,11 @@ export async function nextOccurrence(
     .select({ id: meetings.id })
     .from(meetings)
     .where(
-      and(eq(meetings.seriesId, seriesId), sql`${meetings.startsAt} >= ${then.toISOString()}::timestamp with time zone`),
+      and(
+        eq(meetings.seriesId, seriesId),
+        onShelf(meetings),
+        sql`${meetings.startsAt} >= ${then.toISOString()}::timestamp with time zone`,
+      ),
     )
     .orderBy(asc(meetings.startsAt))
     .limit(1)

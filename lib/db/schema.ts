@@ -54,6 +54,20 @@ const timestamps = {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }
 
+/* Archive, then delete (docs/SPEC.md, item 9). Archived, a row leaves every
+   list, picker and name lookup, but what points at it still reads it.
+   Deleted, it is gone from every screen and query, and is removed for good
+   30 days later (lib/archive/purge.ts). */
+const shelved = {
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}
+
+/* Kept 30 days after a delete, for Restore; no archive step of its own. */
+const deletable = {
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}
+
 // ─── sign-in ─────────────────────────────────────────────────────────────────
 
 /* One user. /setup creates it and then closes; nothing assumes the count beyond that. */
@@ -193,6 +207,7 @@ export const contexts = pgTable(
     name: text('name').notNull(),
     sortOrder: integer('sort_order').notNull().default(0),
     ...timestamps,
+    ...shelved,
   },
   (t) => [uniqueIndex('contexts_name_key').on(sql`lower(${t.name})`)],
 )
@@ -206,6 +221,7 @@ export const people = pgTable(
     /* The one row that is John. "I owe" and "owed to me" are read against it. */
     isSelf: boolean('is_self').notNull().default(false),
     ...timestamps,
+    ...shelved,
   },
   (t) => [
     uniqueIndex('people_self_key').on(t.isSelf).where(sql`${t.isSelf}`),
@@ -239,6 +255,7 @@ export const groups = pgTable(
       .references(() => contexts.id),
     name: text('name').notNull(),
     ...timestamps,
+    ...shelved,
   },
   (t) => [uniqueIndex('groups_name_key').on(t.contextId, sql`lower(${t.name})`)],
 )
@@ -275,6 +292,7 @@ export const projects = pgTable(
     /* A project within another, in the same context, any depth, no cycles. */
     parentId: uuid('parent_id').references((): AnyPgColumn => projects.id, { onDelete: 'set null' }),
     ...timestamps,
+    ...shelved,
   },
   (t) => [
     uniqueIndex('projects_name_key').on(t.contextId, sql`lower(${t.name})`),
@@ -292,6 +310,7 @@ export const milestones = pgTable(
     title: text('title').notNull(),
     dueOn: date('due_on'),
     ...timestamps,
+    ...deletable,
   },
   (t) => [index('milestones_project_idx').on(t.projectId)],
 )
@@ -305,6 +324,7 @@ export const projectLinks = pgTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     label: text('label').notNull(),
     url: text('url').notNull(),
+    ...deletable,
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('project_links_project_idx').on(t.projectId)],
@@ -359,6 +379,7 @@ export const items = pgTable(
     parkedAt: timestamp('parked_at', { withTimezone: true }),
     laterOn: date('later_on'),
     ...timestamps,
+    ...deletable,
   },
   (t) => [
     check(
@@ -457,6 +478,7 @@ export const series = pgTable(
       .notNull()
       .default({ followUps: false, sinceLast: false, lookahead: false }),
     ...timestamps,
+    ...shelved,
   },
   (t) => [
     uniqueIndex('series_name_key').on(t.contextId, sql`lower(${t.name})`),
@@ -523,6 +545,7 @@ export const meetings = pgTable(
     /* Null inherits the series' blocks. */
     blocks: jsonb('blocks').$type<BlockSettings>(),
     ...timestamps,
+    ...shelved,
   },
   (t) => [
     /* One meeting per calendar event: attaching a stub cannot make a duplicate. */
@@ -885,6 +908,7 @@ export const documents = pgTable(
     /* Markdown. */
     body: text('body').notNull().default(''),
     ...timestamps,
+    ...deletable,
   },
   (t) => [
     index('documents_project_idx').on(t.projectId),

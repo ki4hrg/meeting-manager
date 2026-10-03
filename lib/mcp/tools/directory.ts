@@ -1,6 +1,7 @@
 /* Contexts, people, groups and projects: enough to capture against by name. */
 
 import { z } from 'zod'
+import { archive, unarchive } from '../../archive/archive'
 import { ValidationError } from '@/lib/core/types'
 import { isUuid, matchName } from '../../core/match'
 import { createContext, listContexts } from '../../directory/contexts'
@@ -291,6 +292,28 @@ export const updateProjectTool = defineTool({
     }),
 })
 
+export const setArchivedTool = defineTool({
+  name: 'set_archived',
+  title: 'Archive or restore',
+  description:
+    'Archive a context, person, group, project, series or meeting, or bring one back. Archived, ' +
+    'it leaves every list and name lookup, but what points at it still reads it. Deleting is ' +
+    'done on screen only. An item is put away by closing it instead.',
+  scope: 'meetings:write',
+  input: z.object({
+    kind: z.enum(['context', 'person', 'group', 'project', 'series', 'meeting']),
+    id: z.uuid(),
+    archived: z.boolean(),
+    idempotency_key: idempotencyKey,
+  }),
+  handler: async (input, context) =>
+    write(context, 'set_archived', input, async (tx) => {
+      if (input.archived) await archive(tx, input.kind, input.id)
+      else await unarchive(tx, input.kind, input.id)
+      return { kind: input.kind, id: input.id, archived: input.archived }
+    }),
+})
+
 export const directoryTools = [
   listContextsTool,
   createContextTool,
@@ -302,4 +325,5 @@ export const directoryTools = [
   listProjectsTool,
   createProjectTool,
   updateProjectTool,
+  setArchivedTool,
 ]

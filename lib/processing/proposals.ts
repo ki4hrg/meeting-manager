@@ -44,7 +44,7 @@ import {
   type ProposalResult,
   type ProposedParty,
 } from '../db/schema'
-import { createDocument, deleteDocument } from '../documents/documents'
+import { createDocument, discardDocument } from '../documents/documents'
 import { resolveParty, resolvePerson } from '../directory/resolve'
 import {
   ITEM_KINDS,
@@ -994,7 +994,7 @@ async function undoDocument(exec: Executor, actor: ActorContext, documentId: str
       'This document has been edited since it was accepted. Delete it from its project instead.',
     )
   }
-  await deleteDocument(exec, actor, documentId)
+  await discardDocument(exec, documentId)
 }
 
 /* A stub is untouched while it is still undated and holds nothing but what

@@ -7,10 +7,11 @@
  * at all. Nothing is processed here; the caller kicks the job.
  */
 
-import { inArray } from 'drizzle-orm'
+import { and, inArray } from 'drizzle-orm'
 import { isUuid } from '../core/match'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
 import { people } from '../db/schema'
+import { notDeleted } from '../db/shelf'
 import { saveNote } from '../notes/notes'
 import { queueRun } from '../processing/run'
 import { createMeeting, type MeetingView } from './meetings'
@@ -63,7 +64,10 @@ export async function logMeeting(
        logged meeting is about who was there, so someone unknown is refused
        rather than left out. */
     const known = personIds.every(isUuid)
-      ? await tx.select({ id: people.id }).from(people).where(inArray(people.id, personIds))
+      ? await tx
+          .select({ id: people.id })
+          .from(people)
+          .where(and(inArray(people.id, personIds), notDeleted(people)))
       : []
     if (known.length !== personIds.length) {
       throw new ValidationError('One of those people is not in the directory.')

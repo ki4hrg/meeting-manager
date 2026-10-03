@@ -956,3 +956,25 @@ describe('the next meeting for a project', () => {
     ).rejects.toThrow(/another context/)
   })
 })
+
+describe('an archived meeting', () => {
+  it('places nothing, and is passed over as a series’ next occurrence and a project’s next meeting', async () => {
+    const w = await makeWorld()
+    const { archive } = await import('../lib/archive/archive')
+    const series = await createSeries(db, { contextId: w.parish.id, name: 'Staff weekly' })
+    const at = (iso: string) =>
+      createMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: new Date(iso), projectIds: [w.retreat.id] })
+    const skipped = await at('2026-10-06T15:00:00Z')
+    const next = await at('2026-10-13T15:00:00Z')
+    const forSeries = await createItem(db, actor, { contextId: w.parish.id, text: 'for staff', target: { seriesId: series.id } })
+    const forProject = await createItem(db, actor, { contextId: w.parish.id, text: 'for the retreat', target: { projectId: w.retreat.id } })
+    const forMeeting = await createItem(db, actor, { contextId: w.parish.id, text: 'for that one', target: { meetingId: skipped.id } })
+
+    await archive(db, 'meeting', skipped.id)
+    expect(await placeAutomatic(db, actor, skipped.id, NOW)).toBe(0)
+    expect(await db.select().from(agendaLines).where(eq(agendaLines.meetingId, skipped.id))).toEqual([])
+    expect(ids((await getCandidates(db, next.id, NOW)).toPlace)).toEqual(ids([forSeries, forProject]))
+    // What was aimed at it alone waits; it is not passed on.
+    expect(ids((await getCandidates(db, next.id, NOW)).toPlace)).not.toContain(forMeeting.id)
+  })
+})

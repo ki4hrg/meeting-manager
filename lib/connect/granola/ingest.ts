@@ -40,7 +40,9 @@
 import { randomUUID } from 'node:crypto'
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { inTransaction, type ActorContext, type Executor } from '../../core/types'
+import { notDeleted, onShelf } from '../../db/shelf'
 import {
+  contexts,
   integrationEvents,
   meetingPeople,
   meetingProjects,
@@ -50,6 +52,7 @@ import {
   type NoteAttendee,
   type NoteFiling,
 } from '../../db/schema'
+import { listContexts } from '../../directory/contexts'
 import { meetingFromNote } from '../../meetings/prep'
 import { findSeriesByCalendar } from '../../meetings/series'
 import { findNoteByExternalId, saveNote } from '../../notes/notes'
@@ -149,21 +152,26 @@ export async function contextForFolders(
     ]),
   )
   if (bound.size === 0) return { kind: 'unbound' }
+  /* A folder bound to an archived context is dormant: it stops the climb, so
+     the note waits in the Inbox rather than following a parent's binding. */
+  const live = new Set((await listContexts(exec)).map((context) => context.id))
 
   const parentOf = new Map<string, string | null>(
     folders.map((folder) => [folder.id, folder.parent_folder_id]),
   )
   let loaded = false
 
-  const contexts = new Set<string>()
+  const homes = new Set<string>()
   const projects = new Set<string>()
   for (const folder of folders) {
     let current: string | null = folder.id
     for (let depth = 0; current && depth < MAX_DEPTH; depth++) {
       const binding = bound.get(current)
       if (binding) {
-        contexts.add(binding.contextId)
-        if (binding.projectId) projects.add(binding.projectId)
+        if (live.has(binding.contextId)) {
+          homes.add(binding.contextId)
+          if (binding.projectId) projects.add(binding.projectId)
+        }
         break
       }
       if (!parentOf.has(current) && !loaded) {
@@ -174,9 +182,9 @@ export async function contextForFolders(
     }
   }
 
-  if (contexts.size === 0) return { kind: 'unbound' }
-  if (contexts.size > 1) return { kind: 'ambiguous' }
-  return { kind: 'bound', contextId: [...contexts][0]!, projectIds: [...projects] }
+  if (homes.size === 0) return { kind: 'unbound' }
+  if (homes.size > 1) return { kind: 'ambiguous' }
+  return { kind: 'bound', contextId: [...homes][0]!, projectIds: [...projects] }
 }
 
 // ─── what the note says ──────────────────────────────────────────────────────
@@ -216,7 +224,9 @@ export async function knownPeople(exec: Executor, emails: string[]): Promise<str
     .select({ personId: personEmails.personId })
     .from(personEmails)
     .innerJoin(people, eq(people.id, personEmails.personId))
-    .where(and(inArray(sql`lower(${personEmails.email})`, emails), eq(people.isSelf, false)))
+    .where(
+      and(inArray(sql`lower(${personEmails.email})`, emails), eq(people.isSelf, false), notDeleted(people)),
+    )
   return [...new Set(rows.map((row) => row.personId))]
 }
 
@@ -303,7 +313,7 @@ async function findMeeting(
     const [held] = await exec
       .select({ id: meetings.id, contextId: meetings.contextId })
       .from(meetings)
-      .where(eq(meetings.calendarEventId, eventId))
+      .where(and(eq(meetings.calendarEventId, eventId), notDeleted(meetings)))
       .limit(1)
     if (held?.contextId === contextId) {
       return { target: { meetingId: held.id, via: 'event' }, eventTaken: true }
@@ -322,6 +332,7 @@ async function findMeeting(
     .where(
       and(
         eq(meetings.contextId, contextId),
+        onShelf(meetings),
         isNotNull(meetings.startsAt),
         /* A meeting on a calendar event of its own is a different event from
            the one this note names. */
@@ -429,10 +440,12 @@ export async function placeNote(
 /* The meeting already made for this calendar event, in whichever context. */
 async function meetingForEvent(exec: Executor, eventId: string | null): Promise<string | null> {
   if (!eventId) return null
+  /* Not in an archived context: a note for it waits in the Inbox instead. */
   const [held] = await exec
     .select({ id: meetings.id })
     .from(meetings)
-    .where(eq(meetings.calendarEventId, eventId))
+    .innerJoin(contexts, eq(contexts.id, meetings.contextId))
+    .where(and(eq(meetings.calendarEventId, eventId), notDeleted(meetings), onShelf(contexts)))
     .limit(1)
   return held?.id ?? null
 }

@@ -15,10 +15,11 @@ import {
 } from '../connect/connections'
 import { fetchGoogleCalendarEvents, type GoogleCalendarEvent } from '../connect/google/calendar'
 import { fromLocalInput } from '../core/dates'
-import { inArray, isNull } from 'drizzle-orm'
+import { and, inArray, isNull } from 'drizzle-orm'
 import type { Executor } from '../core/types'
-import { meetings, personEmails, series, users } from '../db/schema'
-import { findSelf } from '../directory/people'
+import { meetings, series, users } from '../db/schema'
+import { notDeleted } from '../db/shelf'
+import { findSelf, liveEmails } from '../directory/people'
 
 export interface CalendarEvent {
   calendarId: string
@@ -125,7 +126,7 @@ async function fetchBound(
   const zone = timeZone === undefined ? await userTimeZone(exec) : timeZone
 
   const emailToPersonId = new Map<string, string>()
-  for (const row of await exec.select().from(personEmails)) {
+  for (const row of await liveEmails(exec)) {
     emailToPersonId.set(row.email.toLowerCase(), row.personId)
   }
 
@@ -241,21 +242,24 @@ export async function eventsHere(
 
   const [prepped, mapped] = await Promise.all([
     exec
-      .select({ eventId: meetings.calendarEventId, contextId: meetings.contextId })
+      .select({ eventId: meetings.calendarEventId, contextId: meetings.contextId, archivedAt: meetings.archivedAt })
       .from(meetings)
-      .where(inArray(meetings.calendarEventId, eventIds)),
+      .where(and(inArray(meetings.calendarEventId, eventIds), notDeleted(meetings))),
     seriesIds.length === 0
       ? []
       : exec
           .select({ seriesId: series.calendarSeriesId, contextId: series.contextId })
           .from(series)
-          .where(inArray(series.calendarSeriesId, seriesIds)),
+          .where(and(inArray(series.calendarSeriesId, seriesIds), notDeleted(series))),
   ])
   const meetingHome = new Map(prepped.map((row) => [row.eventId!, row.contextId]))
+  // An archived meeting puts its event away: it shows nowhere.
+  const putAway = new Set(prepped.filter((row) => row.archivedAt).map((row) => row.eventId!))
   const seriesHome = new Map(mapped.map((row) => [row.seriesId!, row.contextId]))
 
   const here = new Map<string, CalendarEvent>()
   for (const { event, contextId: boundTo } of bound) {
+    if (putAway.has(event.eventId)) continue
     const home =
       meetingHome.get(event.eventId) ??
       (event.seriesId ? seriesHome.get(event.seriesId) : undefined) ??
@@ -288,7 +292,7 @@ export async function matchPeople(
   const self = await findSelf(exec)
 
   // Fetch all email records
-  const emails = await exec.select().from(personEmails)
+  const emails = await liveEmails(exec)
 
   const result: Array<{ personId: string; name: string }> = []
   const seen = new Set<string>()

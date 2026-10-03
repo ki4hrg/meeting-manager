@@ -640,6 +640,25 @@ describe('where an event belongs', () => {
     expect(here.filter((id) => there.includes(id))).toEqual([])
     expect([...here, ...there].sort()).toEqual(['choir', 'shared', 'standup', 'vestry', 'weekly-14'])
   })
+
+  it('puts an event away with its archived meeting, and shows nothing from an archived context', async () => {
+    const { work, church, inContext, eventOf } = await twoContexts()
+    const { archive, softDelete, unarchive } = await import('../lib/archive/archive')
+    const now = new Date('2026-10-05T15:00:00Z')
+    const standup = await prepFromEvent(db, actor, { contextId: work.id, event: await eventOf(work.id, 'standup') }, now)
+
+    await archive(db, 'meeting', standup.id)
+    expect(await inContext(work.id)).toEqual(['vestry', 'weekly-14', 'shared'])
+    // Deleted, the meeting lets its event go, and the event is offered again.
+    await softDelete(db, 'meeting', standup.id)
+    expect(await inContext(work.id)).toEqual(['standup', 'vestry', 'weekly-14', 'shared'])
+
+    // The church calendar is still read; its events show in no live context.
+    await archive(db, 'context', church.id)
+    expect(await inContext(work.id)).toEqual(['standup', 'vestry', 'weekly-14', 'shared'])
+    await unarchive(db, 'context', church.id)
+    expect(await inContext(church.id)).toEqual(['choir', 'shared'])
+  })
 })
 
 describe('matchPeople', () => {

@@ -3,6 +3,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { NotFoundError, ValidationError, type Executor } from '../core/types'
 import { groupMembers, groups, people } from '../db/schema'
+import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 import { getContext } from './contexts'
 import { getPerson } from './people'
 
@@ -10,7 +11,11 @@ export type Group = typeof groups.$inferSelect
 
 export type GroupWithCount = Group & { memberCount: number }
 
-export async function listGroups(exec: Executor, contextId: string): Promise<GroupWithCount[]> {
+export async function listGroups(
+  exec: Executor,
+  contextId: string,
+  shelf: Shelf = 'live',
+): Promise<GroupWithCount[]> {
   return exec
     .select({
       id: groups.id,
@@ -18,28 +23,34 @@ export async function listGroups(exec: Executor, contextId: string): Promise<Gro
       name: groups.name,
       createdAt: groups.createdAt,
       updatedAt: groups.updatedAt,
+      archivedAt: groups.archivedAt,
+      deletedAt: groups.deletedAt,
       memberCount: sql<number>`(select count(*)::int from ${groupMembers}
         where ${groupMembers.groupId} = ${groups.id})`,
     })
     .from(groups)
-    .where(eq(groups.contextId, contextId))
+    .where(and(eq(groups.contextId, contextId), onShelf(groups, shelf)))
     .orderBy(sql`lower(${groups.name})`)
 }
 
 export async function getGroup(exec: Executor, id: string): Promise<Group> {
-  const [row] = await exec.select().from(groups).where(eq(groups.id, id)).limit(1)
+  const [row] = await exec
+    .select()
+    .from(groups)
+    .where(and(eq(groups.id, id), notDeleted(groups)))
+    .limit(1)
   if (!row) throw new NotFoundError('Group', id)
   return row
 }
 
 async function assertNameFree(exec: Executor, contextId: string, name: string, exceptId?: string) {
   const [taken] = await exec
-    .select({ id: groups.id })
+    .select({ id: groups.id, archivedAt: groups.archivedAt, deletedAt: groups.deletedAt })
     .from(groups)
     .where(and(eq(groups.contextId, contextId), sql`lower(${groups.name}) = lower(${name})`))
     .limit(1)
   if (taken && taken.id !== exceptId) {
-    throw new ValidationError(`There is already a group called ${name}.`)
+    throw new ValidationError(`There is already a group called ${name}${shelvedNote(taken)}.`)
   }
 }
 
@@ -77,7 +88,7 @@ export async function listMembers(exec: Executor, groupId: string): Promise<Memb
     .select({ id: people.id, name: people.name, isSelf: people.isSelf })
     .from(groupMembers)
     .innerJoin(people, eq(people.id, groupMembers.personId))
-    .where(eq(groupMembers.groupId, groupId))
+    .where(and(eq(groupMembers.groupId, groupId), notDeleted(people)))
     .orderBy(sql`lower(${people.name})`)
 }
 
