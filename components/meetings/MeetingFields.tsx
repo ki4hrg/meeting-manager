@@ -19,7 +19,7 @@ type Current = {
   endsAt: Date | null
   people: Option[]
   projects: Option[]
-  group: Option | null
+  groups: Option[]
   series: Option | null
 }
 
@@ -58,12 +58,19 @@ export function MeetingFields({
       </Field>
       <WhenFields startsAt={meeting?.startsAt} endsAt={meeting?.endsAt} timeZone={timeZone} />
 
-      {/* The same pickers as a series' roster and projects. Empty lists draw nothing. */}
+      {/* The same pickers as a series' roster and projects. Groups sit among the
+          people, each standing for its members. Empty lists draw nothing. */}
       <PartyPicker
         label="People"
         name="personIds"
-        options={choices.people.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
-        selected={meeting?.people.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+        options={[
+          ...choices.people.map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
+          ...choices.groups.map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
+        ]}
+        selected={[
+          ...(meeting?.groups ?? []).map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
+          ...(meeting?.people ?? []).map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
+        ]}
         allowNew
       />
       <CheckList
@@ -73,33 +80,17 @@ export function MeetingFields({
         selected={meeting?.projects.map((project) => project.id)}
       />
 
-      {choices.groups.length + choices.series.length > 0 ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {choices.groups.length > 0 ? (
-            <Field label="Group">
-              <Select name="groupId" defaultValue={meeting?.group?.id ?? ''}>
-                <option value="">—</option>
-                {choices.groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : null}
-          {choices.series.length > 0 ? (
-            <Field label="Series">
-              <Select name="seriesId" defaultValue={meeting?.series?.id ?? ''}>
-                <option value="">—</option>
-                {choices.series.map((series) => (
-                  <option key={series.id} value={series.id}>
-                    {series.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : null}
-        </div>
+      {choices.series.length > 0 ? (
+        <Field label="Series">
+          <Select name="seriesId" defaultValue={meeting?.series?.id ?? ''}>
+            <option value="">—</option>
+            {choices.series.map((series) => (
+              <option key={series.id} value={series.id}>
+                {series.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
       ) : null}
     </>
   )

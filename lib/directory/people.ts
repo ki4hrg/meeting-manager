@@ -2,7 +2,7 @@
 
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { NotFoundError, ValidationError, inTransaction, type Executor } from '../core/types'
-import { people, personEmails } from '../db/schema'
+import { groupEmails, groups, people, personEmails } from '../db/schema'
 import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 
 export type Person = {
@@ -75,6 +75,17 @@ function cleanEmail(value: string | null | undefined): string | null {
   return email
 }
 
+/* An address on a group's list is refused for a person, naming the group. */
+async function assertNotOnGroup(exec: Executor, email: string): Promise<void> {
+  const [group] = await exec
+    .select({ name: groups.name })
+    .from(groupEmails)
+    .innerJoin(groups, eq(groups.id, groupEmails.groupId))
+    .where(sql`lower(${groupEmails.email}) = ${email}`)
+    .limit(1)
+  if (group) throw new ValidationError(`${email} already belongs to ${group.name}.`)
+}
+
 /** Who has an address already, if anyone. */
 async function holderOf(
   exec: Executor,
@@ -106,6 +117,7 @@ async function setPrimaryEmail(exec: Executor, personId: string, email: string |
   if (email) {
     const taken = await holderOf(exec, email)
     if (taken && taken.personId !== personId) throw belongsTo(email, taken)
+    if (!taken) await assertNotOnGroup(exec, email)
     if (taken) {
       await exec
         .update(personEmails)
@@ -217,6 +229,7 @@ export async function addPersonEmail(exec: Executor, personId: string, value: st
     if (taken.personId !== personId) throw belongsTo(email, taken)
     return
   }
+  await assertNotOnGroup(exec, email)
   const [has] = await exec
     .select({ id: personEmails.id })
     .from(personEmails)

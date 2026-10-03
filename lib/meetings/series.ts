@@ -2,7 +2,7 @@
 
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { NotFoundError, ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
-import { groups, people, projects, series, seriesPeople, seriesProjects } from '../db/schema'
+import { groups, people, projects, series, seriesGroups, seriesPeople, seriesProjects } from '../db/schema'
 import type { BlockSettings, SkeletonSection } from '../db/schema'
 import { parseOutline, type OutlineItem } from '../agenda/outline'
 import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
@@ -16,7 +16,8 @@ export type SeriesView = {
   id: string
   contextId: string
   name: string
-  group: { id: string; name: string } | null
+  /** Groups on its roster: each carries to every meeting. */
+  groups: { id: string; name: string }[]
   calendarSeriesId: string | null
   skeleton: SkeletonSection[]
   blocks: BlockSettings
@@ -29,9 +30,8 @@ export type SeriesView = {
 
 async function loadViews(exec: Executor, where: SQL | undefined): Promise<SeriesView[]> {
   const query = exec
-    .select({ series: series, groupName: groups.name })
+    .select({ series: series })
     .from(series)
-    .leftJoin(groups, eq(groups.id, series.groupId))
     .where(where)
     .orderBy(sql`lower(${series.name})`)
 
@@ -51,6 +51,13 @@ async function loadViews(exec: Executor, where: SQL | undefined): Promise<Series
     .innerJoin(people, eq(people.id, seriesPeople.personId))
     .where(inArray(seriesPeople.seriesId, seriesIds))
     .orderBy(asc(people.name))
+
+  const groupRows = await exec
+    .select({ seriesId: seriesGroups.seriesId, groupId: groups.id, groupName: groups.name })
+    .from(seriesGroups)
+    .innerJoin(groups, eq(groups.id, seriesGroups.groupId))
+    .where(inArray(seriesGroups.seriesId, seriesIds))
+    .orderBy(asc(groups.name))
 
   const projectRows = await exec
     .select({
@@ -79,11 +86,11 @@ async function loadViews(exec: Executor, where: SQL | undefined): Promise<Series
     bySeriesProjects.set(row.seriesId, list)
   }
 
-  return rows.map(({ series: s, groupName }) => ({
+  return rows.map(({ series: s }) => ({
     id: s.id,
     contextId: s.contextId,
     name: s.name,
-    group: s.groupId ? { id: s.groupId, name: groupName ?? '' } : null,
+    groups: groupRows.filter((row) => row.seriesId === s.id).map((row) => ({ id: row.groupId, name: row.groupName })),
     calendarSeriesId: s.calendarSeriesId,
     skeleton: s.skeleton,
     blocks: s.blocks,
@@ -230,6 +237,8 @@ export async function createSeries(
   input: {
     contextId: string
     name: string
+    /** Its groups; `groupId` is one. */
+    groupIds?: string[]
     groupId?: string
     personIds?: string[]
     projectIds?: string[]
@@ -243,7 +252,8 @@ export async function createSeries(
   await getContext(exec, input.contextId)
   await assertNameFree(exec, input.contextId, name)
 
-  if (input.groupId) await assertGroupIn(exec, input.groupId, input.contextId)
+  const groupIds = [...new Set([...(input.groupIds ?? []), ...(input.groupId ? [input.groupId] : [])])]
+  for (const groupId of groupIds) await assertGroupIn(exec, groupId, input.contextId)
   // A project named twice is one project, not a primary-key violation.
   const projectIds = [...new Set(input.projectIds ?? [])]
   for (const projectId of projectIds) {
@@ -275,7 +285,6 @@ export async function createSeries(
       .values({
         contextId: input.contextId,
         name,
-        groupId: input.groupId,
         skeleton,
         blocks: cleanBlocks(input.blocks ?? { followUps: false, sinceLast: false, lookahead: false }),
         calendarSeriesId: input.calendarSeriesId ? blankToNull(input.calendarSeriesId) : null,
@@ -292,6 +301,9 @@ export async function createSeries(
         projectIds.map((projectId) => ({ seriesId: row!.id, projectId })),
       )
     }
+    if (groupIds.length) {
+      await tx.insert(seriesGroups).values(groupIds.map((groupId) => ({ seriesId: row!.id, groupId })))
+    }
 
     return getSeries(tx, row!.id)
   })
@@ -303,6 +315,8 @@ export async function updateSeries(
   id: string,
   input: {
     name?: string
+    /** Replaces its groups; `groupId` sets one, or none with null. */
+    groupIds?: string[]
     groupId?: string | null
     skeleton?: SkeletonSection[]
     blocks?: BlockSettings
@@ -311,9 +325,15 @@ export async function updateSeries(
 ): Promise<SeriesView> {
   const view = await getSeries(exec, id)
 
-  if (input.groupId !== undefined && input.groupId !== null) {
-    await assertGroupIn(exec, input.groupId, view.contextId)
-  }
+  const groupIds =
+    input.groupIds !== undefined
+      ? [...new Set(input.groupIds)]
+      : input.groupId !== undefined
+        ? input.groupId
+          ? [input.groupId]
+          : []
+        : undefined
+  for (const groupId of groupIds ?? []) await assertGroupIn(exec, groupId, view.contextId)
   if (input.calendarSeriesId !== undefined && input.calendarSeriesId !== null) {
     const [taken] = await exec
       .select({ id: series.id })
@@ -336,7 +356,6 @@ export async function updateSeries(
     await assertNameFree(exec, view.contextId, name, id)
     patch.name = name
   }
-  if (input.groupId !== undefined) patch.groupId = input.groupId
   if (input.skeleton !== undefined) patch.skeleton = cleanSkeleton(input.skeleton)
   if (input.blocks !== undefined) patch.blocks = cleanBlocks(input.blocks)
   if (input.calendarSeriesId !== undefined) {
@@ -350,7 +369,13 @@ export async function updateSeries(
       .update(series)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(series.id, id))
-    if (input.groupId !== undefined) await carryRoster(tx, SERIES_ACTOR, id, rosterOf(view))
+    if (groupIds !== undefined) {
+      await tx.delete(seriesGroups).where(eq(seriesGroups.seriesId, id))
+      if (groupIds.length > 0) {
+        await tx.insert(seriesGroups).values(groupIds.map((groupId) => ({ seriesId: id, groupId })))
+      }
+      await carryRoster(tx, SERIES_ACTOR, id, rosterOf(view))
+    }
     return getSeries(tx, id)
   })
 }

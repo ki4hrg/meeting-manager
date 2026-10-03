@@ -23,6 +23,7 @@ import {
 } from '../../core/types'
 import { notes, type NoteAttendee } from '../../db/schema'
 import { getContext } from '../../directory/contexts'
+import { groupsByEmail } from '../../directory/groups'
 import { getMeeting } from '../../meetings/meetings'
 import { getNote } from '../../notes/notes'
 import { queueRun } from '../../processing/run'
@@ -143,6 +144,11 @@ export async function fileHeldNote(
             filing: note.filing ?? NO_FILING,
             personIds: await knownPeople(
               tx,
+              note.attendees.map((attendee) => attendee.email),
+            ),
+            groupIds: await groupsByEmail(
+              tx,
+              contextId,
               note.attendees.map((attendee) => attendee.email),
             ),
             title: note.title,

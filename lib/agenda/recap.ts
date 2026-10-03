@@ -20,15 +20,9 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { formatDay, formatSpan, formatWeekday, todayIn } from '../core/dates'
 import { NotFoundError, type Executor } from '../core/types'
-import {
-  meetingPeople,
-  meetings,
-  notes,
-  people,
-  personEmails,
-  processingRuns,
-} from '../db/schema'
+import { meetings, notes, personEmails, processingRuns } from '../db/schema'
 import { onShelf } from '../db/shelf'
+import { getMeeting } from '../meetings/meetings'
 import { isOpen, listItems, type ItemKind, type ItemStatus, type ItemView } from '../items/items'
 import { lookaheadParts, markdownLeaf, rows, toHtml, toMarkdown, type Entry, type Part } from './brief'
 import { computeBlocks, itemsOf } from './generated'
@@ -284,15 +278,15 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
     ahead.milestones.length + ahead.deadlines.length + ahead.meetings.length > 0 ? ahead : null
 
   // ─── who it goes to ────────────────────────────────────────────────────────
-  const attendeeRows = await exec
-    .selectDistinct({ id: people.id, name: people.name, isSelf: people.isSelf })
-    .from(meetingPeople)
-    .innerJoin(people, eq(people.id, meetingPeople.personId))
-    .where(inArray(meetingPeople.meetingId, coveredIds))
-    .orderBy(asc(people.name))
-  const attendees = attendeeRows
-    .filter((person) => !person.isSelf && person.id !== opts.selfId)
-    .map(({ id, name }) => ({ id, name }))
+  /* Who was at it or any of its sessions: their people and, until attendance
+     is settled, their groups' members. John is never among them. */
+  const byId = new Map<string, { id: string; name: string }>()
+  for (const id of coveredIds) {
+    for (const person of (await getMeeting(exec, id)).attendees) byId.set(person.id, person)
+  }
+  const attendees = [...byId.values()]
+    .filter((person) => person.id !== opts.selfId)
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   const emails =
     attendees.length === 0

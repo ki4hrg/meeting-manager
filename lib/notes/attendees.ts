@@ -12,8 +12,9 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
-import { meetingPeople, notes, people, personEmails, type NoteAttendee } from '../db/schema'
+import { meetingGroups, meetingPeople, meetings, notes, people, personEmails, type NoteAttendee } from '../db/schema'
 import { notDeleted } from '../db/shelf'
+import { addGroupEmail, allGroupEmails, getGroup } from '../directory/groups'
 import { addPersonEmail, createPerson, getPerson, type Person } from '../directory/people'
 
 /** Who this meeting's notes name that the directory does not have, in the order given. */
@@ -39,6 +40,9 @@ export async function unknownAttendees(exec: Executor, meetingId: string): Promi
     .innerJoin(people, eq(people.id, personEmails.personId))
     .where(and(inArray(sql`lower(${personEmails.email})`, [...named.keys()]), notDeleted(people)))
   for (const row of known) named.delete(row.email)
+  // A group's list address is known too: it brought the group.
+  const lists = await allGroupEmails(exec)
+  for (const email of [...named.keys()]) if (lists.has(email)) named.delete(email)
   return [...named.values()]
 }
 
@@ -76,6 +80,23 @@ export async function nameAttendee(
       await tx.insert(meetingPeople).values({ meetingId, personId: person.id }).onConflictDoNothing()
     }
     return person
+  })
+}
+
+/** An unknown attendee was a group's list: the group takes the address and joins the meeting. */
+export async function attendeeIsGroup(
+  exec: Executor,
+  meetingId: string,
+  email: string,
+  groupId: string,
+): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const attendee = await offered(tx, meetingId, email)
+    const group = await getGroup(tx, groupId)
+    const [meeting] = await tx.select({ contextId: meetings.contextId }).from(meetings).where(eq(meetings.id, meetingId))
+    if (group.contextId !== meeting?.contextId) throw new ValidationError('That group belongs to another context.')
+    await addGroupEmail(tx, groupId, attendee.email)
+    await tx.insert(meetingGroups).values({ meetingId, groupId }).onConflictDoNothing()
   })
 }
 

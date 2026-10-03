@@ -15,7 +15,7 @@ import { ITEM_KINDS } from '@/lib/items/items'
 import { PROCESS_NOTES, kick } from '@/lib/jobs'
 import { logMeeting } from '@/lib/meetings/log'
 import { getMeeting } from '@/lib/meetings/meetings'
-import { dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
+import { attendeeIsGroup, dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
 import { getNote, meetingOf, moveNote, saveNote } from '@/lib/notes/notes'
 import {
   acceptProposal,
@@ -92,7 +92,9 @@ async function quietly<T>(lookup: Promise<T>): Promise<T | null> {
 export async function logMeetingAction(formData: FormData): Promise<ActionResult> {
   let id = ''
   const result = await act(async (actor, user) => {
-    const personIds = values(formData, 'people')
+    const picked = values(formData, 'people')
+    const personIds = picked.filter((value) => !value.startsWith('group:'))
+    const groupIds = picked.filter((value) => value.startsWith('group:')).map((value) => value.slice(6))
     // A name typed and not picked resolves as it does everywhere, or is refused by name.
     for (const name of typed(formData, 'peopleText')) {
       personIds.push((await resolvePerson(db, name)).id)
@@ -107,7 +109,7 @@ export async function logMeetingAction(formData: FormData): Promise<ActionResult
       startsAt: starts === '' ? null : fromLocalInput(starts, user.timeZone),
       endsAt: starts === '' || ends === '' ? null : fromLocalInput(ends, user.timeZone),
       personIds: [...new Set(personIds)],
-      groupId: field(formData, 'groupId') || null,
+      groupIds,
       projectIds: values(formData, 'projectIds'),
       // Not `field()`: a note's indentation and blank lines are its own.
       notes: String(formData.get('notes') ?? ''),
@@ -377,6 +379,10 @@ export async function nameAttendeeAction(formData: FormData): Promise<ActionResu
       return
     }
     const [type, id] = field(formData, 'party').split(':')
+    if (type === 'group' && id) {
+      await attendeeIsGroup(db, meeting.id, email, id)
+      return
+    }
     if (type !== 'person' || !id) throw new ValidationError('Pick who this is.')
     await nameAttendee(db, actor, meeting.id, email, { personId: id })
   })

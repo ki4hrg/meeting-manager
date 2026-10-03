@@ -1,3 +1,6 @@
+import { RollCall } from '@/components/meetings/RollCall'
+import { knownPeople } from '@/lib/connect/granola/ingest'
+import { attendanceLocked, rollCall, settleIfOver } from '@/lib/meetings/attendance'
 import { notFound } from 'next/navigation'
 import { ActionSelect } from '@/components/ActionSelect'
 import { FormModal } from '@/components/forms'
@@ -25,7 +28,7 @@ import { listProposals, type ProposalView } from '@/lib/processing/proposals'
 import { latestRun } from '@/lib/processing/run'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
-import { openMeetingAction } from '../../actions'
+import { openMeetingAction, settleAttendanceAction } from '../../actions'
 import { addNoteAction, moveNoteAction } from '../../processing-actions'
 
 const SUMMARY =
@@ -42,10 +45,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const context = await requireContext()
   const { user, self, today } = await viewer()
 
-  const meeting = await getMeeting(db, id).catch((err) => {
+  const found = await getMeeting(db, id).catch((err) => {
     if (err instanceof NotFoundError) notFound()
     throw err
   })
+  // A meeting under review is over: who was there is settled before it is read.
+  const meeting = (await settleIfOver(db, id)) ? await getMeeting(db, id) : found
   /* As on the meeting's own page: with another context selected, nothing of it is drawn. */
   if (meeting.contextId !== context.id) {
     const home = (await allContexts()).find((one) => one.id === meeting.contextId)
@@ -65,6 +70,24 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   ])
 
   const choices = { people, groups, projects }
+
+  /* Who was there can be corrected until something from the notes is
+     accepted. The notes' own attendees, when in the directory, are offered as
+     people who came; they never take anyone off. */
+  const locked = await attendanceLocked(db, id)
+  const roll = locked ? [] : await rollCall(db, id)
+  if (!locked) {
+    const listed = new Set(roll.map((entry) => entry.id))
+    const named = await knownPeople(
+      db,
+      notes.flatMap((note) => note.attendees.map((attendee) => attendee.email)),
+    )
+    for (const person of people) {
+      if (named.includes(person.id) && !listed.has(person.id)) {
+        roll.push({ id: person.id, name: person.name, present: false, via: 'person' })
+      }
+    }
+  }
   const cards = (list: ProposalView[]) => (
     <CardGrid>
       {list.map((proposal) => (
@@ -184,6 +207,20 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
       {/* Who was there comes before what was said: a name settled here is one
           the proposals below can be given to. */}
+      {locked ? null : (
+        <Section title="Attendance">
+          <Card>
+            <RollCall
+              action={settleAttendanceAction}
+              meetingId={meeting.id}
+              entries={roll}
+              people={people
+                .filter((person) => !person.isSelf)
+                .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
+            />
+          </Card>
+        </Section>
+      )}
       {strangers.length > 0 ? (
         <div className="mb-8 flex flex-wrap items-center gap-2">
           <Icon
@@ -198,6 +235,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
               email={one.email}
               name={one.name}
               people={people.filter((person) => !person.isSelf)}
+              groups={groups}
             />
           ))}
         </div>

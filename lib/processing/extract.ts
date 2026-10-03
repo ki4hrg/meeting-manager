@@ -247,7 +247,7 @@ export function toOutput(wire: WireOutput, input: ExtractionInput): ExtractionOu
      The meeting's own people and projects are added in case the directory was
      built without them. */
   const people = unique([input.self, ...input.meeting.people, ...input.directory.people])
-  const groups = unique([...(input.meeting.group ? [input.meeting.group] : []), ...input.directory.groups])
+  const groups = unique([...input.meeting.groups, ...input.directory.groups])
   const projects = unique([...input.meeting.projects, ...input.directory.projects])
 
   const partyPool = [

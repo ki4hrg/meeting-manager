@@ -277,6 +277,23 @@ export const groupMembers = pgTable(
   ],
 )
 
+/* A distribution list's addresses. An address is on one person or one group, never both. */
+export const groupEmails = pgTable(
+  'group_emails',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('group_emails_email_key').on(sql`lower(${t.email})`),
+    index('group_emails_group_idx').on(t.groupId),
+  ],
+)
+
 // ─── projects ────────────────────────────────────────────────────────────────
 
 export const projects = pgTable(
@@ -458,7 +475,7 @@ export type SkeletonSection = {
 }
 
 /*
- * A recurring meeting: its roster, default projects, group, standing agenda
+ * A recurring meeting: its roster, default projects, groups, standing agenda
  * and generated-block defaults. A calendar recurring event maps to one series.
  */
 export const series = pgTable(
@@ -469,7 +486,6 @@ export const series = pgTable(
       .notNull()
       .references(() => contexts.id),
     name: text('name').notNull(),
-    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
     /* The calendar's id for the recurring event (Google's recurringEventId). */
     calendarSeriesId: text('calendar_series_id'),
     skeleton: jsonb('skeleton').$type<SkeletonSection[]>().notNull().default([]),
@@ -503,6 +519,20 @@ export const seriesPeople = pgTable(
   (t) => [primaryKey({ columns: [t.seriesId, t.personId] })],
 )
 
+/* Groups on the roster: each carries to every meeting of the series. */
+export const seriesGroups = pgTable(
+  'series_groups',
+  {
+    seriesId: uuid('series_id')
+      .notNull()
+      .references(() => series.id, { onDelete: 'cascade' }),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.seriesId, t.groupId] }), index('series_groups_group_idx').on(t.groupId)],
+)
+
 export const seriesProjects = pgTable(
   'series_projects',
   {
@@ -532,7 +562,6 @@ export const meetings = pgTable(
       .notNull()
       .references(() => contexts.id),
     seriesId: uuid('series_id').references(() => series.id, { onDelete: 'set null' }),
-    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
     parentMeetingId: uuid('parent_meeting_id').references((): AnyPgColumn => meetings.id, {
       onDelete: 'cascade',
     }),
@@ -544,6 +573,10 @@ export const meetings = pgTable(
     calendarEventId: text('calendar_event_id'),
     /* Null inherits the series' blocks. */
     blocks: jsonb('blocks').$type<BlockSettings>(),
+    /* When who was there was settled: by the roll call, or the first look
+       after the meeting ended. Until then its groups stand for their members
+       as they are; from then on meeting_people is the record. */
+    attendanceAt: timestamp('attendance_at', { withTimezone: true }),
     ...timestamps,
     ...shelved,
   },
@@ -574,8 +607,23 @@ export const meetingPeople = pgTable(
   ],
 )
 
-/* Someone on a series' roster left off one of its meetings ("Adlene is out
-   this week"), so a later roster change does not put them back. */
+/* A meeting's groups. Live until its attendance is settled (meetings.attendance_at). */
+export const meetingGroups = pgTable(
+  'meeting_groups',
+  {
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.meetingId, t.groupId] }), index('meeting_groups_group_idx').on(t.groupId)],
+)
+
+/* Someone expected at a meeting and left off it alone ("Adlene is out this
+   week"): from the series' roster or one of its groups. A later roster or
+   group change does not put them back. */
 export const meetingAbsences = pgTable(
   'meeting_absences',
   {

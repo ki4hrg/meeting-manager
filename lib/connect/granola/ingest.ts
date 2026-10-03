@@ -44,6 +44,7 @@ import { notDeleted, onShelf } from '../../db/shelf'
 import {
   contexts,
   integrationEvents,
+  meetingGroups,
   meetingPeople,
   meetingProjects,
   meetings,
@@ -53,6 +54,7 @@ import {
   type NoteFiling,
 } from '../../db/schema'
 import { listContexts } from '../../directory/contexts'
+import { groupsByEmail } from '../../directory/groups'
 import { meetingFromNote } from '../../meetings/prep'
 import { findSeriesByCalendar } from '../../meetings/series'
 import { findNoteByExternalId, saveNote } from '../../notes/notes'
@@ -394,6 +396,8 @@ export async function placeNote(
     projectIds: string[]
     filing: NoteFiling
     personIds: string[]
+    /** Groups whose list addresses the note names: they join the meeting. */
+    groupIds?: string[]
     title: string | null
   },
 ): Promise<{ meetingId: string; via: 'event' | 'time' | 'new' }> {
@@ -432,6 +436,12 @@ export async function placeNote(
     await tx
       .insert(meetingProjects)
       .values(input.projectIds.map((projectId) => ({ meetingId, projectId })))
+      .onConflictDoNothing()
+  }
+  if (input.groupIds?.length) {
+    await tx
+      .insert(meetingGroups)
+      .values(input.groupIds.map((groupId) => ({ meetingId, groupId })))
       .onConflictDoNothing()
   }
   return { meetingId, via }
@@ -517,6 +527,7 @@ export async function ingestNote(
           projectIds: home.projectIds,
           filing,
           personIds: await knownPeople(tx, attendeesOf(note)),
+          groupIds: await groupsByEmail(tx, home.contextId, attendeesOf(note)),
           title,
         })
         meetingId = placed.meetingId

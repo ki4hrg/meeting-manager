@@ -19,7 +19,7 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { BlockSettings } from '@/lib/db/schema'
-import { listGroups } from '@/lib/directory/groups'
+import { allGroupEmails, listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
 import { calendarLinkOf, unlinkedRecurring } from '@/lib/meetings/prep'
@@ -33,6 +33,7 @@ import {
   moveSeriesAction,
   openSeriesAction,
   prepNextInSeriesAction,
+  removeSeriesGroupAction,
   removeSeriesPersonAction,
   removeSeriesProjectAction,
   setSeriesBlockAction,
@@ -91,7 +92,10 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
   const allPeople = await listPeople(db)
   const self = allPeople.find((person) => person.isSelf)
   // Invited on the calendar and in nobody's directory entry: each can be added in one step.
-  const strangers = (link?.next?.attendees ?? []).filter((attendee) => !attendee.personId && !attendee.declined && attendee.email)
+  const lists = await allGroupEmails(db)
+  const strangers = (link?.next?.attendees ?? []).filter(
+    (attendee) => !attendee.personId && !attendee.declined && attendee.email && !lists.has(attendee.email.toLowerCase()),
+  )
   const invitedKnown = (link?.next?.attendees ?? []).some(
     (attendee) => attendee.personId && !attendee.declined && !onRoster.has(attendee.personId),
   )
@@ -120,11 +124,6 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
         crumbs={[{ href: '/series', label: 'Series' }]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {series.group ? (
-              <Chip icon="group" href={`/groups/${series.group.id}`}>
-                {series.group.name}
-              </Chip>
-            ) : null}
             {link ? (
               // The recurring event it follows: when it comes round, opening the next one.
               <Chip
@@ -144,16 +143,6 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
               <input type="hidden" name="id" value={series.id} />
               <Field label="Name" required>
                 <Input name="name" defaultValue={series.name} required />
-              </Field>
-              <Field label="Group">
-                <Select name="groupId" defaultValue={series.group?.id ?? ''}>
-                  <option value="">—</option>
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-                </Select>
               </Field>
               {link ? (
                 <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -239,20 +228,25 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
         <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
           <Section
             title="Roster"
-            count={series.people.length}
+            count={series.people.length + series.groups.length}
             action={
               <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" size="sm" submit="Add">
                 <input type="hidden" name="id" value={series.id} />
                 <PartyPicker
                   label="People"
                   name="personIds"
-                  options={otherPeople.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+                  options={[
+                    ...otherPeople.map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
+                    ...groups
+                      .filter((group) => !series.groups.some((one) => one.id === group.id))
+                      .map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
+                  ]}
                   allowNew
                 />
               </FormModal>
             }
           >
-            {series.people.length === 0 && strangers.length === 0 ? (
+            {series.people.length + series.groups.length === 0 && strangers.length === 0 ? (
               <EmptyState icon="person" />
             ) : (
               <Card>
@@ -263,6 +257,20 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                       Me
                     </Chip>
                   ) : null}
+                  {series.groups.map((group) => (
+                    <RemovableChip
+                      key={group.id}
+                      icon="group"
+                      href={`/groups/${group.id}`}
+                      remove={{
+                        action: removeSeriesGroupAction,
+                        fields: { id: series.id, groupId: group.id },
+                        label: `Remove ${group.name}`,
+                      }}
+                    >
+                      {group.name}
+                    </RemovableChip>
+                  ))}
                   {series.people.map((person) => (
                     <RemovableChip
                       key={person.id}
@@ -298,13 +306,24 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                     <Field label="This is">
                       <Select name="personId" defaultValue="">
                         <option value="">—</option>
-                        {allPeople
-                          .filter((person) => !person.isSelf)
-                          .map((person) => (
-                            <option key={person.id} value={person.id}>
-                              {person.name}
-                            </option>
-                          ))}
+                        <optgroup label="People">
+                          {allPeople
+                            .filter((person) => !person.isSelf)
+                            .map((person) => (
+                              <option key={person.id} value={person.id}>
+                                {person.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                        {groups.length > 0 ? (
+                          <optgroup label="Groups">
+                            {groups.map((group) => (
+                              <option key={group.id} value={`group:${group.id}`}>
+                                {group.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
                       </Select>
                     </Field>
                     <Field label="Name">

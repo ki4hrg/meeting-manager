@@ -25,6 +25,7 @@ import {
   groups,
   itemParties,
   items,
+  meetingGroups,
   meetingPeople,
   meetingProjects,
   meetings,
@@ -33,6 +34,7 @@ import {
   projectLinks,
   projects,
   series,
+  seriesGroups,
   seriesPeople,
 } from '../db/schema'
 import { notDeleted, onShelf } from '../db/shelf'
@@ -181,13 +183,18 @@ export async function previewDelete(exec: Executor, kind: ArchiveKind, id: strin
     if (openItems) blockers.push(`On ${plural(openItems, 'open item')}`)
     const onSeries = await exec
       .select({ name: series.name })
-      .from(series)
-      .where(and(eq(series.groupId, id), notDeleted(series)))
-    for (const one of onSeries) blockers.push(`The group of ${one.name}`)
+      .from(seriesGroups)
+      .innerJoin(series, eq(series.id, seriesGroups.seriesId))
+      .where(and(eq(seriesGroups.groupId, id), notDeleted(series)))
+    for (const one of onSeries) blockers.push(`On the ${one.name} roster`)
     const upcoming = await count(
-      exec.select({ n: N }).from(meetings).where(and(eq(meetings.groupId, id), notDeleted(meetings), NOT_OVER)),
+      exec
+        .select({ n: N })
+        .from(meetingGroups)
+        .innerJoin(meetings, eq(meetings.id, meetingGroups.meetingId))
+        .where(and(eq(meetingGroups.groupId, id), notDeleted(meetings), NOT_OVER)),
     )
-    if (upcoming) blockers.push(`The group of ${plural(upcoming, 'meeting')} still to come`)
+    if (upcoming) blockers.push(`At ${plural(upcoming, 'meeting')} still to come`)
   }
 
   if (kind === 'project') {

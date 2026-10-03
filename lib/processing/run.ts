@@ -42,6 +42,7 @@ import {
 } from '../db/schema'
 import { notDeleted, onShelf } from '../db/shelf'
 import { findSelf } from '../directory/people'
+import { settleIfOver } from '../meetings/attendance'
 import { isOpen, listItems, type ItemView } from '../items/items'
 import { getMeeting, type MeetingView } from '../meetings/meetings'
 import { getNote, listNotes, meetingOf } from '../notes/notes'
@@ -146,12 +147,13 @@ async function userTimeZone(exec: Executor): Promise<string | null> {
   return row?.timeZone ?? null
 }
 
-/* Open items the meeting could be about: on its agenda, or involving one of
-   its people, its group or one of its projects. John is not among a meeting's
+/* Open items the meeting could be about: on its agenda, or involving someone
+   at it, one of its groups or one of its projects. John is not among a meeting's
    people, so nothing is pulled in through him alone. Bound to the meeting's
    context by the query itself. */
 async function openItemsFor(exec: Executor, meeting: MeetingView, placed: Set<string>): Promise<ItemView[]> {
-  const personIds = new Set(meeting.people.map((person) => person.id))
+  const personIds = new Set(meeting.attendees.map((person) => person.id))
+  const groupIds = new Set(meeting.groups.map((group) => group.id))
   const projectIds = new Set(meeting.projects.map((project) => project.id))
   const open = await listItems(exec, { contextId: meeting.contextId, open: true })
   return open.filter(
@@ -159,7 +161,7 @@ async function openItemsFor(exec: Executor, meeting: MeetingView, placed: Set<st
       placed.has(item.id) ||
       (item.project !== null && projectIds.has(item.project.id)) ||
       item.parties.some((party) =>
-        party.type === 'person' ? personIds.has(party.id) : party.id === meeting.group?.id,
+        party.type === 'person' ? personIds.has(party.id) : groupIds.has(party.id),
       ),
   )
 }
@@ -240,8 +242,8 @@ export async function buildExtractionInput(exec: Executor, noteId: string): Prom
       id: meeting.id,
       title: meeting.title,
       startsAt: meeting.startsAt ? toLocalInput(meeting.startsAt, timeZone).replace('T', ' ') : null,
-      people: meeting.people,
-      group: meeting.group,
+      people: meeting.attendees,
+      groups: meeting.groups,
       projects: meeting.projects,
     },
     self: self ? { id: self.id, name: self.name } : { id: '', name: 'Me' },
@@ -402,6 +404,8 @@ export async function processRun(
       return await finish(exec, runId, { status: 'done', error: 'The note changed before this ran.' })
     }
 
+    // Who was there is settled before the notes are read against it.
+    await settleIfOver(exec, meetingOf(note))
     const meeting = await getMeeting(exec, meetingOf(note))
     const where = { meetingId: meeting.id, noteId: note.id, runId }
 

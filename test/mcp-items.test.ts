@@ -226,3 +226,19 @@ describe('set_archived', () => {
     expect(textOf(result)).toContain('yourself')
   })
 })
+
+describe('group addresses', () => {
+  it('are set on create_group and replaced by update_group', async () => {
+    const made = dataOf<{ group: { id: string; emails: string[] } }>(
+      await call('create_group', { name: 'Finance', context: 'Parish', emails: ['finance@example.test'] }),
+    )
+    expect(made.group.emails).toEqual(['finance@example.test'])
+    const updated = dataOf<{ group: { name: string; emails: string[] } }>(
+      await call('update_group', { group: 'finance', name: 'Finance committee', emails: ['money@example.test'] }),
+    )
+    expect(updated.group).toMatchObject({ name: 'Finance committee', emails: ['money@example.test'] })
+    const taken = await call('update_group', { group: 'finance committee', emails: ['sarah@example.test'] })
+    expect(taken.isError).toBe(true)
+    expect(textOf(taken)).toContain('belongs to Sarah Jones')
+  })
+})

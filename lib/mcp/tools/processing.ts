@@ -143,8 +143,9 @@ function meetingOut(meeting: MeetingView, clock: Clock) {
     ends_at: meeting.endsAt?.toISOString() ?? null,
     ends_at_local: localOf(meeting.endsAt, clock),
     series: meeting.series,
-    group: meeting.group,
+    groups: meeting.groups,
     people: meeting.people,
+    attendees: meeting.attendees,
     projects: meeting.projects,
     parent_meeting_id: meeting.parentMeetingId,
   }
@@ -255,7 +256,11 @@ export const logMeetingTool = defineTool({
     starts_at: z.string().min(1).optional().describe(momentArg),
     minutes: z.number().int().min(0).max(1440).optional().describe('How long it ran.'),
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
-    group: z.string().min(1).optional().describe('Group name or id.'),
+    group: z.string().min(1).optional().describe('Group name or id: one of groups.'),
+    groups: z
+      .array(z.string().min(1))
+      .optional()
+      .describe('Groups, by name or id. With nobody in people, their members were there.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
     idempotency_key: idempotencyKey,
   }),
@@ -265,9 +270,12 @@ export const logMeetingTool = defineTool({
       const target = await inferContext(tx, {
         context: input.context,
         project: input.projects?.[0],
-        parties: input.group ? [input.group] : [],
+        parties: [...(input.group ? [input.group] : []), ...(input.groups ?? [])],
       })
-      const group = input.group ? await resolveGroup(tx, target.id, input.group) : null
+      const groupIds: string[] = []
+      for (const ref of [...(input.group ? [input.group] : []), ...(input.groups ?? [])]) {
+        groupIds.push((await resolveGroup(tx, target.id, ref)).id)
+      }
 
       const personIds: string[] = []
       for (const ref of input.people ?? []) personIds.push((await resolvePerson(tx, ref)).id)
@@ -285,7 +293,7 @@ export const logMeetingTool = defineTool({
           startsAt: input.starts_at ? momentFrom(input.starts_at, clock) : null,
           minutes: input.minutes,
           personIds: [...new Set(personIds)],
-          groupId: group?.id,
+          groupIds,
           projectIds: [...new Set(projectIds)],
           notes: input.notes,
         },

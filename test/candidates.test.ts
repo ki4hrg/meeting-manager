@@ -256,10 +256,10 @@ describe('candidates', () => {
       const meetingRows = await db.insert(schema.meetings).values({
         id: randomUUID(),
         contextId: parish.id,
-        groupId: staff.id,
         title: 'Staff meeting',
         startsAt: new Date('2026-10-05T10:00:00Z'),
       }).returning()
+      await db.insert(schema.meetingGroups).values({ meetingId: meetingRows[0]!.id, groupId: staff.id })
       if (meetingRows.length !== 1) throw new Error('Expected one meeting')
       const meeting = meetingRows[0]!
 

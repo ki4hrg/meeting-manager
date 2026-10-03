@@ -6,6 +6,7 @@ import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { SkeletonSection } from '@/lib/db/schema'
 import { getContext } from '@/lib/directory/contexts'
+import { addGroupEmail } from '@/lib/directory/groups'
 import { addPersonEmail, createPerson } from '@/lib/directory/people'
 import { moveSeries } from '@/lib/meetings/move'
 import { calendarLinkOf, linkSeriesCalendar, prepNextInSeries } from '@/lib/meetings/prep'
@@ -18,7 +19,7 @@ import {
   skeletonFromOutline,
   updateSeries,
 } from '@/lib/meetings/series'
-import { act, field, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { act, field, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 const ids = (formData: FormData, name: string): string[] =>
@@ -31,7 +32,7 @@ export async function createSeriesAction(formData: FormData): Promise<ActionResu
     await createSeries(db, {
       contextId: context.id,
       name: field(formData, 'name'),
-      groupId: field(formData, 'groupId') || undefined,
+      groupIds: pickedGroups(formData, 'personIds'),
       personIds: await pickedPeople(db, formData, 'personIds'),
       projectIds: ids(formData, 'projectIds'),
     })
@@ -41,10 +42,7 @@ export async function createSeriesAction(formData: FormData): Promise<ActionResu
 export async function updateSeriesAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     const id = field(formData, 'id')
-    await updateSeries(db, id, {
-      name: field(formData, 'name'),
-      groupId: field(formData, 'groupId') || null,
-    })
+    await updateSeries(db, id, { name: field(formData, 'name') })
     // Unlinking is a box ticked in Edit; linking picks one of the context's recurring events.
     if (formData.has('unlinkCalendar')) await updateSeries(db, id, { calendarSeriesId: null })
     const calendar = field(formData, 'calendarSeriesId')
@@ -120,6 +118,13 @@ export async function rosterInviteeAction(formData: FormData): Promise<ActionRes
     const series = await getSeries(db, field(formData, 'id'))
     const email = field(formData, 'email')
     const existing = field(formData, 'personId')
+    // A list address: the group takes it and joins the roster.
+    if (existing.startsWith('group:')) {
+      const groupId = existing.slice(6)
+      await addGroupEmail(db, groupId, email)
+      await updateSeries(db, series.id, { groupIds: [...series.groups.map((group) => group.id), groupId] })
+      return
+    }
     let personId: string
     if (existing) {
       await addPersonEmail(db, existing, email)
@@ -134,9 +139,25 @@ export async function rosterInviteeAction(formData: FormData): Promise<ActionRes
 export async function addSeriesPeopleAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
     const adding = await pickedPeople(db, formData, 'personIds')
-    if (adding.length === 0) throw new ValidationError('Pick a person.')
+    const groups = pickedGroups(formData, 'personIds')
+    if (adding.length + groups.length === 0) throw new ValidationError('Pick a person or a group.')
     const series = await getSeries(db, field(formData, 'id'))
-    await setSeriesPeople(db, series.id, [...series.people.map((person) => person.id), ...adding])
+    if (adding.length > 0) {
+      await setSeriesPeople(db, series.id, [...series.people.map((person) => person.id), ...adding])
+    }
+    if (groups.length > 0) {
+      await updateSeries(db, series.id, { groupIds: [...series.groups.map((group) => group.id), ...groups] })
+    }
+  })
+}
+
+export async function removeSeriesGroupAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    const series = await getSeries(db, field(formData, 'id'))
+    const groupId = field(formData, 'groupId')
+    await updateSeries(db, series.id, {
+      groupIds: series.groups.map((group) => group.id).filter((id) => id !== groupId),
+    })
   })
 }
 

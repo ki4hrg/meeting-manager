@@ -25,7 +25,7 @@ export type ExtractionInput = {
     startsAt: string | null
     /** Everyone there but John. */
     people: { id: string; name: string }[]
-    group: { id: string; name: string } | null
+    groups: { id: string; name: string }[]
     projects: { id: string; name: string }[]
   }
   /** John, so "I'll send it" resolves to an owner. */
@@ -39,7 +39,7 @@ export type ExtractionInput = {
     transcript: string | null
   }
   agenda: { lineId: string; section: string | null; text: string; itemId: string | null }[]
-  /** Open items of the meeting's context that involve its people, group or projects. */
+  /** Open items of the meeting's context that involve its people, groups or projects. */
   openItems: {
     id: string
     kind: ItemKindName

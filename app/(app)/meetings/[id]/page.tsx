@@ -1,3 +1,5 @@
+import { RollCall } from '@/components/meetings/RollCall'
+import { rollCall, settleIfOver } from '@/lib/meetings/attendance'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { CopyButton } from '@/components/CopyButton'
@@ -9,7 +11,7 @@ import { MeetingFields, WhenFields } from '@/components/meetings/MeetingFields'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { Suggestions } from '@/components/meetings/Suggestions'
 import { QuickAdd } from '@/components/QuickAdd'
-import { Section } from '@/components/ui/Card'
+import { Card, Section } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
@@ -38,6 +40,7 @@ import {
   importOutlineAction,
   moveMeetingAction,
   openMeetingAction,
+  settleAttendanceAction,
   updateMeetingAction,
 } from '../actions'
 
@@ -49,7 +52,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   const { user, self, today } = await viewer()
   const timeZone = user.timeZone
 
-  const meeting = await getMeeting(db, id).catch((err) => {
+  let meeting = await getMeeting(db, id).catch((err) => {
     if (err instanceof NotFoundError) notFound()
     throw err
   })
@@ -70,6 +73,12 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   for (const one of rollup ? meeting.sessions : [meeting]) {
     if (!isOver(one)) await placeAutomatic(db, webActor(user), one.id)
   }
+  /* The first look after it ended settles who was there, if no roll call did. */
+  if (await settleIfOver(db, id)) meeting = await getMeeting(db, id)
+  // While it is under way, who is here is taken here.
+  const underWay =
+    !rollup && !meeting.attendanceAt && meeting.startsAt !== null && meeting.startsAt <= new Date() && !isOver(meeting)
+  const roll = underWay ? await rollCall(db, id) : []
 
   const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, pending] = await Promise.all([
     getAgenda(db, id, { timeZone }),
@@ -231,18 +240,19 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
               {meeting.series.name}
             </Chip>
           ) : null}
-          {meeting.group ? (
-            <Chip href={`/groups/${meeting.group.id}`} icon="group">
-              {meeting.group.name}
-            </Chip>
-          ) : null}
           {/* John is at every meeting: first, and never on its list of people. */}
           {self ? (
             <Chip href={`/people/${self.id}`} icon="person">
               Me
             </Chip>
           ) : null}
-          {meeting.people.map((person) => (
+          {/* A group stands for its members until who was there is settled; then they are named. */}
+          {meeting.groups.map((group) => (
+            <Chip key={group.id} href={`/groups/${group.id}`} icon="group">
+              {group.name}
+            </Chip>
+          ))}
+          {(meeting.attendanceAt ? meeting.attendees : meeting.people).map((person) => (
             <Chip key={person.id} href={`/people/${person.id}`} icon="person">
               {person.name}
             </Chip>
@@ -253,6 +263,21 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
             </Chip>
           ))}
         </div>
+
+        {underWay ? (
+          <Section title="Attendance">
+            <Card>
+              <RollCall
+                action={settleAttendanceAction}
+                meetingId={meeting.id}
+                entries={roll}
+                people={people
+                  .filter((person) => !person.isSelf)
+                  .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
+              />
+            </Card>
+          </Section>
+        ) : null}
 
         {rollup ? (
           <>

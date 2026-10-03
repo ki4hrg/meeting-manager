@@ -3,6 +3,7 @@ import { CopyButton } from '@/components/CopyButton'
 import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
+import { RollCall } from '@/components/meetings/RollCall'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { UnfiledCard } from '@/components/meetings/UnfiledCard'
 import { WhenInputs } from '@/components/meetings/WhenInputs'
@@ -213,6 +214,20 @@ export default function DesignPage() {
           </LinkCard>
           <EmptyState icon="project" action={{ label: 'New project', href: '/design' }} />
         </CardGrid>
+      </Section>
+
+      <Section title="Attendance">
+        <Card>
+          <RollCall
+            action={sampleAction}
+            meetingId="sample"
+            entries={[
+              { id: 'a', name: 'Sarah Jones', present: true },
+              { id: 'b', name: 'Tom Baker', present: false },
+            ]}
+            people={[{ value: 'c', name: 'Bishop Wright', icon: 'person' }]}
+          />
+        </Card>
       </Section>
 
       <Section title="Archive">

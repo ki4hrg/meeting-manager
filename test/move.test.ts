@@ -190,7 +190,7 @@ describe('moving a meeting', () => {
       calendarEventId: 'evt-1',
       people: [{ id: w.bishop.id, name: 'Bishop Wright' }],
       projects: [],
-      group: null,
+      groups: [],
       series: null,
     })
 
@@ -304,7 +304,7 @@ describe('moving a meeting', () => {
       'Coffee with the bishop has produced items here, and they do not move. It stays.',
     )
     const after = await getMeeting(db, meeting.id)
-    expect(after).toMatchObject({ contextId: w.parish.id, group: { id: w.staff.id } })
+    expect(after).toMatchObject({ contextId: w.parish.id, groups: [{ id: w.staff.id }] })
     expect(after.projects).toHaveLength(1)
     expect(await outline(meeting.id)).toEqual(before)
   })
@@ -385,7 +385,7 @@ describe('sessions', () => {
       parentMeetingId: parent.id,
       people: [{ id: w.sarah.id }],
       projects: [],
-      group: null,
+      groups: [],
     })
     expect(await outline(session.id)).toEqual(['Welcome'])
     expect((await getItem(db, item.id)).targetMeetingId).toBeNull()
@@ -467,7 +467,7 @@ describe('moving a series', () => {
       id: weekly.id,
       contextId: w.diocese.id,
       name: 'Bishop weekly',
-      group: null,
+      groups: [],
       projects: [],
       people: [{ id: w.bishop.id, name: 'Bishop Wright' }],
       skeleton: [{ title: 'Standing', lines: [{ text: 'Diary', minutes: 5 }] }],

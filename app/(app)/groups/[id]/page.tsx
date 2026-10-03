@@ -11,15 +11,22 @@ import { Field, Input } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { RemovableChip } from '@/components/ui/RemovableChip'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
-import { getGroup, listMembers } from '@/lib/directory/groups'
+import { getGroup, listGroupEmails, listMembers } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { viewer } from '@/lib/web/context'
-import { addMemberAction, removeMemberAction, renameGroupAction } from '../../actions'
+import {
+  addGroupEmailAction,
+  addMemberAction,
+  removeGroupEmailAction,
+  removeMemberAction,
+  renameGroupAction,
+} from '../../actions'
 import { prepWithGroupAction } from '../../meetings/actions'
 
 const has = (item: ItemView, groupId: string, role: 'owner' | 'with') =>
@@ -51,6 +58,7 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
   })
 
   const archived = !!group.archivedAt
+  const emails = await listGroupEmails(db, id)
 
   return (
     <>
@@ -76,6 +84,24 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
       />
       {archived ? <ArchivedBar kind="group" id={group.id} /> : null}
       <Muted archived={archived}>
+        {/* A list address: an invitee at it brings the group to the meeting. */}
+        <div className="-mt-4 mb-8 flex flex-wrap items-center gap-2">
+          {emails.map((email) => (
+            <RemovableChip
+              key={email}
+              icon="mail"
+              remove={{ action: removeGroupEmailAction, fields: { groupId: group.id, email }, label: `Remove ${email}` }}
+            >
+              {email}
+            </RemovableChip>
+          ))}
+          <FormModal action={addGroupEmailAction} title="Add email" label="Email" icon="plus" variant="ghost" size="sm" submit="Add">
+            <input type="hidden" name="groupId" value={group.id} />
+            <Field label="Email" required>
+              <Input name="email" type="email" required />
+            </Field>
+          </FormModal>
+        </div>
 
         <Section
           title="Waiting"

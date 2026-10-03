@@ -69,11 +69,26 @@ export function partyRef(value: string): PartyRef | null {
 export async function pickedPeople(exec: Executor, formData: FormData, name: string): Promise<string[]> {
   const ids: string[] = []
   for (const value of formData.getAll(name).map(String).filter(Boolean)) {
+    // Groups ride in the same picker; `pickedGroups` reads them.
+    if (value.startsWith('group:')) continue
     if (value.startsWith('new:')) ids.push((await createPerson(exec, { name: value.slice(4) })).id)
-    else ids.push(value)
+    else ids.push(value.replace(/^person:/, ''))
   }
   for (const typed of field(formData, `${name}Text`).split(',')) {
     if (typed.trim()) ids.push((await resolvePerson(exec, typed.trim())).id)
   }
   return [...new Set(ids)]
+}
+
+/** The groups a picker submits under `name`, as `group:<id>`, among its people. */
+export function pickedGroups(formData: FormData, name: string): string[] {
+  return [
+    ...new Set(
+      formData
+        .getAll(name)
+        .map(String)
+        .filter((value) => value.startsWith('group:'))
+        .map((value) => value.slice(6)),
+    ),
+  ]
 }

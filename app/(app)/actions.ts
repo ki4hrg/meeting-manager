@@ -7,7 +7,7 @@ import { placeItem } from '@/lib/agenda/candidates'
 import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
-import { addMember, createGroup, removeMember, renameGroup } from '@/lib/directory/groups'
+import { addGroupEmail, addMember, createGroup, removeGroupEmail, removeMember, renameGroup } from '@/lib/directory/groups'
 import {
   addPersonEmail,
   createPerson,
@@ -253,6 +253,18 @@ export async function addPersonEmailAction(formData: FormData): Promise<ActionRe
 export async function removePersonEmailAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
     await removePersonEmail(db, field(formData, 'personId'), field(formData, 'email'))
+  })
+}
+
+export async function addGroupEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await addGroupEmail(db, field(formData, 'groupId'), field(formData, 'email'))
+  })
+}
+
+export async function removeGroupEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await removeGroupEmail(db, field(formData, 'groupId'), field(formData, 'email'))
   })
 }
 
