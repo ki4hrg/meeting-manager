@@ -1,6 +1,6 @@
 /* Projects, with their milestones and links. Each belongs to one context. */
 
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { parseDay } from '../core/dates'
 import { NotFoundError, ValidationError, type Executor } from '../core/types'
 import { milestones, projectLinks, projects } from '../db/schema'
@@ -100,10 +100,11 @@ export async function listMilestones(exec: Executor, projectId: string): Promise
     .orderBy(sql`${milestones.dueOn} asc nulls last`, asc(milestones.createdAt))
 }
 
-/** The next unfinished, dated milestone of each project in a context. */
+/** The next milestone of each project in a context, from `today` (the user's day) on. */
 export async function nextMilestones(
   exec: Executor,
   contextId: string,
+  today: string,
 ): Promise<Map<string, Milestone>> {
   const rows = await exec
     .select({ milestone: milestones })
@@ -112,7 +113,7 @@ export async function nextMilestones(
     .where(
       and(
         eq(projects.contextId, contextId),
-        sql`${milestones.doneAt} is null and ${milestones.dueOn} is not null`,
+        gte(milestones.dueOn, today),
       ),
     )
     .orderBy(asc(milestones.dueOn))
@@ -137,20 +138,6 @@ export async function addMilestone(
     .values({ projectId: input.projectId, title, dueOn: parseDay(input.dueOn) })
     .returning()
   return row!
-}
-
-export async function setMilestoneDone(
-  exec: Executor,
-  id: string,
-  done: boolean,
-): Promise<Milestone> {
-  const [row] = await exec
-    .update(milestones)
-    .set({ doneAt: done ? new Date() : null, updatedAt: new Date() })
-    .where(eq(milestones.id, id))
-    .returning()
-  if (!row) throw new NotFoundError('Milestone', id)
-  return row
 }
 
 export async function deleteMilestone(exec: Executor, id: string): Promise<void> {

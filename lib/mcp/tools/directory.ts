@@ -173,7 +173,6 @@ export const listProjectsTool = defineTool({
             id: m.id,
             title: m.title,
             due_on: m.dueOn,
-            done: m.doneAt !== null,
           })),
         })),
       ),
@@ -248,7 +247,6 @@ export const updateProjectTool = defineTool({
             id: m.id,
             title: m.title,
             due_on: m.dueOn,
-            done: m.doneAt !== null,
           })),
         },
       }

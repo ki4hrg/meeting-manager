@@ -29,7 +29,6 @@ import {
   addMilestoneAction,
   deleteLinkAction,
   deleteMilestoneAction,
-  toggleMilestoneAction,
   updateProjectAction,
 } from '../../actions'
 
@@ -72,6 +71,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   })
 
   const milestones = await listMilestones(db, id)
+  // Upcoming by date, then undated, then past ones, latest first.
+  const ordered = [
+    ...milestones.filter((m) => m.dueOn !== null && m.dueOn >= today),
+    ...milestones.filter((m) => m.dueOn === null),
+    ...milestones.filter((m) => m.dueOn !== null && m.dueOn < today).reverse(),
+  ]
   const links = await listLinks(db, id)
   const all = await listItems(db, { contextId: project.contextId, projectId: id })
   const meetings = await listMeetings(db, { contextId: project.contextId, projectId: id })
@@ -141,30 +146,19 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           ) : (
             <Card>
               <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-                {milestones.map((milestone) => {
-                  const done = milestone.doneAt !== null
+                {ordered.map((milestone) => {
+                  const past = milestone.dueOn !== null && milestone.dueOn < today
                   return (
                     <li key={milestone.id} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
-                      <ActionButton
-                        action={toggleMilestoneAction}
-                        fields={{ id: milestone.id, done: String(!done) }}
-                        variant="ghost"
-                        size="sm"
-                        aria-label={done ? 'Mark not done' : 'Mark done'}
-                        aria-pressed={done}
-                        className={
-                          done
-                            ? '!text-green-600 dark:!text-green-400'
-                            : '!text-gray-300 dark:!text-gray-600'
-                        }
-                      >
-                        <Icon name="action" className="h-5 w-5" />
-                      </ActionButton>
+                      <Icon
+                        name="flag"
+                        className={`h-4 w-4 shrink-0 ${
+                          past ? 'text-gray-300 dark:text-gray-600' : 'text-gray-400 dark:text-gray-500'
+                        }`}
+                      />
                       <span
                         className={`min-w-0 flex-1 truncate text-sm font-medium ${
-                          done
-                            ? 'text-gray-500 line-through dark:text-gray-400'
-                            : 'text-gray-900 dark:text-gray-100'
+                          past ? 'text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-gray-100'
                         }`}
                       >
                         {milestone.title}
@@ -174,7 +168,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                           label={formatDay(milestone.dueOn, today)}
                           dueOn={milestone.dueOn}
                           today={today}
-                          open={!done}
+                          open={!past}
                         />
                       ) : null}
                       <ActionButton

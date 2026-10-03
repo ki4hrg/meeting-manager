@@ -36,7 +36,6 @@ import {
   createProject,
   deleteLink,
   deleteMilestone,
-  setMilestoneDone,
   updateProject,
   type ProjectStatus,
 } from '@/lib/projects/projects'
@@ -279,12 +278,6 @@ export async function addMilestoneAction(formData: FormData): Promise<ActionResu
       title: field(formData, 'title'),
       dueOn: field(formData, 'dueOn'),
     })
-  })
-}
-
-export async function toggleMilestoneAction(formData: FormData): Promise<ActionResult> {
-  return act(async () => {
-    await setMilestoneDone(db, field(formData, 'id'), field(formData, 'done') === 'true')
   })
 }
 

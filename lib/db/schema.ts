@@ -286,7 +286,6 @@ export const milestones = pgTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
     dueOn: date('due_on'),
-    doneAt: timestamp('done_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [index('milestones_project_idx').on(t.projectId)],

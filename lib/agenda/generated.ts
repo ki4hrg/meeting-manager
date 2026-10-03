@@ -219,7 +219,6 @@ async function lookaheadFor(
             and(
               inArray(milestones.projectId, projectIds),
               eq(projects.contextId, meeting.contextId),
-              isNull(milestones.doneAt),
               gte(milestones.dueOn, today),
               lte(milestones.dueOn, until),
             ),

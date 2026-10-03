@@ -43,6 +43,13 @@
       "when": 1790979606325,
       "tag": "0005_oval_the_hand",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790996719789,
+      "tag": "0006_melted_ghost_rider",
+      "breakpoints": true
     }
   ]
 }

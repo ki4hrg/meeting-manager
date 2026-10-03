@@ -23,6 +23,7 @@ import { addMember } from '../lib/directory/groups'
 import { completeItem, createItem, recordDecision } from '../lib/items/items'
 import { createMeeting } from '../lib/meetings/meetings'
 import { createSeries } from '../lib/meetings/series'
+import { addMilestone, nextMilestones } from '../lib/projects/projects'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 
@@ -631,5 +632,26 @@ describe('the recap', () => {
     const recap = await getRecap(db, meeting.id, { today: TODAY, timeZone: null, selfId: w.john.id, now: NOW })
     expect(recap.lookahead?.deadlines.map((deadline) => deadline.text)).toEqual(['raised and dated'])
     expect(renderRecap(recap)).not.toContain('private and dated')
+  })
+})
+
+describe('milestones in the lookahead', () => {
+  it('a milestone is upcoming or past by its date alone', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Retreat planning',
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+      projectIds: [w.retreat.id],
+    })
+    await addMilestone(db, { projectId: w.retreat.id, title: 'Venue booked', dueOn: '2026-10-04' })
+    await addMilestone(db, { projectId: w.retreat.id, title: 'Retreat day', dueOn: TODAY })
+    await addMilestone(db, { projectId: w.retreat.id, title: 'Someday' })
+
+    const blocks = await computeBlocks(db, meeting.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(blocks.lookahead?.milestones.map((m) => m.title)).toEqual(['Retreat day'])
+    const next = await nextMilestones(db, w.parish.id, TODAY)
+    expect(next.get(w.retreat.id)?.title).toBe('Retreat day')
+    expect((await nextMilestones(db, w.parish.id, '2026-10-06')).has(w.retreat.id)).toBe(false)
   })
 })

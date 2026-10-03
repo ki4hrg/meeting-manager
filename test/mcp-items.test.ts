@@ -162,7 +162,7 @@ describe('directory tools', () => {
       add_milestone: { title: 'Deposit', due_on: '2026-12-01' },
     })
     expect(dataOf(project)).toMatchObject({
-      project: { status: 'paused', milestones: [{ title: 'Deposit', due_on: '2026-12-01', done: false }] },
+      project: { status: 'paused', milestones: [{ title: 'Deposit', due_on: '2026-12-01' }] },
     })
 
     const people = dataOf<{ people: Array<{ name: string }> }>(await call('list_people', { search: 'sar' }))

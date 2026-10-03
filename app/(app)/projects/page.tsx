@@ -17,7 +17,7 @@ export default async function ProjectsPage() {
   const { today } = await viewer()
   const projects = await listProjects(db, context.id)
   const counts = await openCounts(db, context.id)
-  const milestones = await nextMilestones(db, context.id)
+  const milestones = await nextMilestones(db, context.id, today)
 
   return (
     <>
