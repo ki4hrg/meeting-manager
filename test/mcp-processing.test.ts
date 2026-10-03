@@ -58,7 +58,7 @@ type Proposal = {
   change?: string
   item?: Item | null
   verbatim: boolean
-  low_confidence: boolean
+  owner_guessed: boolean
   unresolved: string[]
   made: { item: Item | null; document: { id: string; title: string } | null; meeting: { id: string; title: string } | null } | null
   resolved_at: string | null
@@ -251,7 +251,7 @@ describe('list_proposals', () => {
       ['item', 'topic', 'pending'],
       ['item', 'action', 'pending'],
     ])
-    expect(list.proposals.every((proposal) => proposal.verbatim && !proposal.low_confidence)).toBe(true)
+    expect(list.proposals.every((proposal) => proposal.verbatim && !proposal.owner_guessed)).toBe(true)
 
     expect(byKind(list, 'decision')).toMatchObject({
       project: { id: world.retreat.id, name: 'Retreat' },

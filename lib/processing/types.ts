@@ -68,7 +68,7 @@ export type ExtractionInput = {
 export type ExtractionDraft = {
   payload: ProposalPayload
   /** The owner was a guess. */
-  lowConfidence: boolean
+  ownerGuessed: boolean
   agendaLineId: string | null
 }
 

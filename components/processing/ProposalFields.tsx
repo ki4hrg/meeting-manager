@@ -10,6 +10,8 @@ export type ProposalChoices = {
   people: Option[]
   groups: Option[]
   projects: Option[]
+  /** Where an item can be raised: the context's series. */
+  series?: Option[]
 }
 
 /* What an update does to its item, as the select and the card both word it. */
@@ -35,6 +37,22 @@ function ProjectField({ projects, value }: { projects: Option[]; value: string |
         {projects.map((project) => (
           <option key={project.id} value={project.id}>
             {project.name}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  )
+}
+
+function SeriesField({ series, value }: { series: Option[]; value: string | null | undefined }) {
+  if (series.length === 0) return null
+  return (
+    <Field label="Raise at">
+      <Select name="seriesId" defaultValue={value ?? ''}>
+        <option value="">—</option>
+        {series.map((one) => (
+          <option key={one.id} value={one.id}>
+            {one.name}
           </option>
         ))}
       </Select>
@@ -132,6 +150,7 @@ export function ProposalFields({
           <Field label="Due">
             <Input name="dueOn" type="date" defaultValue={payload.dueOn ?? ''} />
           </Field>
+          <SeriesField series={choices.series ?? []} value={payload.seriesId} />
         </div>
         <Field label="Detail">
           <Textarea name="detail" rows={3} defaultValue={payload.detail ?? ''} />

@@ -40,6 +40,7 @@ import {
   people,
   projects,
   proposals,
+  series,
   type ProposalPayload,
   type ProposalResult,
   type ProposedParty,
@@ -80,7 +81,7 @@ type StubPayload = Extract<ProposalPayload, { type: 'stub' }>
 export type ProposalDraft = {
   payload: ProposalPayload
   verbatim?: boolean
-  lowConfidence?: boolean
+  ownerGuessed?: boolean
   agendaLineId?: string | null
 }
 
@@ -101,13 +102,15 @@ export type ProposalView = {
   status: ProposalStatus
   payload: ProposalPayload
   verbatim: boolean
-  lowConfidence: boolean
+  ownerGuessed: boolean
   position: number
   /** An item's parties, or a stub's people, with their names as they stand now. */
   parties: ProposalParty[]
   /** Names still to be settled; accepting is refused while there are any. */
   unresolved: string[]
   project: { id: string; name: string } | null
+  /** For an item: the series it is to be raised at. */
+  series: { id: string; name: string } | null
   /** The agenda line this came up under. */
   agendaLine: { id: string; text: string } | null
   /** For an update: the item it would change, as it stands. */
@@ -198,6 +201,15 @@ async function projectIn(exec: Executor, id: string, contextId: string): Promise
     .select({ id: projects.id })
     .from(projects)
     .where(and(eq(projects.id, id), eq(projects.contextId, contextId)))
+    .limit(1)
+  return Boolean(row)
+}
+
+async function seriesIn(exec: Executor, id: string, contextId: string): Promise<boolean> {
+  const [row] = await exec
+    .select({ id: series.id })
+    .from(series)
+    .where(and(eq(series.id, id), eq(series.contextId, contextId)))
     .limit(1)
   return Boolean(row)
 }
@@ -311,6 +323,13 @@ export async function cleanPayload(
       else problems.push(`${str(input.dueOn)} is not a date (use YYYY-MM-DD).`)
     }
 
+    let seriesId: string | null = null
+    if (input.seriesId != null && input.seriesId !== '') {
+      const id = uuid(input.seriesId)
+      if (id && (await seriesIn(exec, id, contextId))) seriesId = id
+      else problems.push('That series is not in this context.')
+    }
+
     const payload: ItemPayload = {
       type: 'item',
       kind,
@@ -321,6 +340,7 @@ export async function cleanPayload(
       projectId: await cleanProject(exec, contextId, input.projectId, problems),
       dueOn,
       parentItemId,
+      seriesId,
     }
     return { payload, problems }
   }
@@ -418,6 +438,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
   const personIds = new Set<string>()
   const groupIds = new Set<string>()
   const projectIds = new Set<string>()
+  const seriesIds = new Set<string>()
   const itemIds = new Map<string, Set<string>>() // by context
   const lineIds = new Set<string>()
   const documentIds = new Set<string>()
@@ -439,6 +460,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
         else if (party.groupId) groupIds.add(party.groupId)
       }
       if (payload.projectId) projectIds.add(payload.projectId)
+      if (payload.seriesId) seriesIds.add(payload.seriesId)
       wantItem(row, payload.parentItemId)
       wantItem(row, row.result?.itemId)
     } else if (payload.type === 'update') {
@@ -481,6 +503,17 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
             .select({ id: projects.id, name: projects.name, contextId: projects.contextId })
             .from(projects)
             .where(inArray(projects.id, [...projectIds]))
+        ).map((row) => [row.id, row]),
+  )
+
+  const seriesRows = new Map(
+    seriesIds.size === 0
+      ? []
+      : (
+          await exec
+            .select({ id: series.id, name: series.name, contextId: series.contextId })
+            .from(series)
+            .where(inArray(series.id, [...seriesIds]))
         ).map((row) => [row.id, row]),
   )
 
@@ -559,6 +592,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
     const projectId =
       payload.type === 'item' || payload.type === 'document' ? (payload.projectId ?? null) : null
     const project = projectId ? projectRows.get(projectId) : undefined
+    const raiseAt = payload.type === 'item' && payload.seriesId ? seriesRows.get(payload.seriesId) : undefined
     const line = row.agendaLineId ? lines.get(row.agendaLineId) : undefined
 
     return {
@@ -569,12 +603,14 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
       status: row.status,
       payload,
       verbatim: row.verbatim,
-      lowConfidence: row.lowConfidence,
+      ownerGuessed: row.ownerGuessed,
       position: row.position,
       parties,
       unresolved: parties.filter((party) => party.unresolved).map((party) => party.name),
       project:
         project && project.contextId === contextId ? { id: project.id, name: project.name } : null,
+      series:
+        raiseAt && raiseAt.contextId === contextId ? { id: raiseAt.id, name: raiseAt.name } : null,
       agendaLine:
         line && line.meetingId === row.meetingId
           ? { id: line.id, text: line.text ?? line.itemText ?? '' }
@@ -689,7 +725,7 @@ export async function addProposals(
         fingerprint,
         payload,
         verbatim: draft.verbatim ?? false,
-        lowConfidence: draft.lowConfidence ?? false,
+        ownerGuessed: draft.ownerGuessed ?? false,
         agendaLineId:
           draft.agendaLineId && meetingLines.has(draft.agendaLineId) ? draft.agendaLineId : null,
         position: position++,
@@ -723,7 +759,7 @@ async function lockProposal(exec: Executor, id: string): Promise<Proposal> {
  * The fingerprint is not recomputed: the row keeps standing for what the note
  * said, so an edited proposal still stops the original being proposed again. A
  * verbatim proposal stays verbatim (its wording is not the model's to change;
- * it is still John's). An edit settles a low-confidence guess.
+ * it is still John's). An edit settles a guessed owner.
  */
 export async function editProposal(
   exec: Executor,
@@ -748,7 +784,7 @@ export async function editProposal(
 
     await tx
       .update(proposals)
-      .set({ payload: cleaned.payload, lowConfidence: false, updatedAt: new Date() })
+      .set({ payload: cleaned.payload, ownerGuessed: false, updatedAt: new Date() })
       .where(eq(proposals.id, id))
     return getProposal(tx, id)
   })
@@ -812,6 +848,7 @@ async function acceptItem(
     parties,
     parentItemId: payload.parentItemId ?? null,
     originMeetingId: meeting.id,
+    ...(payload.seriesId ? { target: { seriesId: payload.seriesId } } : {}),
   })
 
   if (resolution && payload.kind === 'question') {
@@ -929,7 +966,8 @@ export async function acceptProposal(
 
     await tx
       .update(proposals)
-      .set({ status: 'accepted', result, resolvedAt: new Date(), updatedAt: new Date() })
+      // Accepting it confirms whatever was guessed: undone, it does not come back as a guess.
+      .set({ status: 'accepted', ownerGuessed: false, result, resolvedAt: new Date(), updatedAt: new Date() })
       .where(eq(proposals.id, id))
     return getProposal(tx, id)
   })
@@ -1093,7 +1131,7 @@ export async function undoProposal(
 }
 
 /**
- * Accept every pending proposal that needs no thought: not low-confidence, no
+ * Accept every pending proposal that needs no thought: no guessed owner, no
  * party still to be named. Each is its own transaction, so one refusal (an
  * item that was closed in the meantime, say) leaves the rest accepted. `left`
  * is how many are still pending afterwards; `refused` says why for those that
@@ -1114,7 +1152,7 @@ export async function approveAll(
   let accepted = 0
   const refused: { id: string; message: string }[] = []
   for (const row of pending) {
-    if (row.lowConfidence || unresolvedIn(row.payload).length > 0) continue
+    if (row.ownerGuessed || unresolvedIn(row.payload).length > 0) continue
     try {
       const view = await acceptProposal(exec, actor, row.id)
       if (view.status === 'accepted') accepted++

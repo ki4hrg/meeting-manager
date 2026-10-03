@@ -13,8 +13,9 @@ function names(parties: ItemParty[]): string {
 /**
  * Who an item involves, without the words "owner" or "with": owners come
  * first under a person or group icon, and an arrow leads to who it is with.
+ * An owner that is only a guess is marked on the owner itself.
  */
-export function PartyLine({ parties }: { parties: ItemParty[] }) {
+export function PartyLine({ parties, ownerGuessed = false }: { parties: ItemParty[]; ownerGuessed?: boolean }) {
   const owners = parties.filter((party) => party.role === 'owner')
   const withs = parties.filter((party) => party.role === 'with')
   if (parties.length === 0) return <span />
@@ -24,7 +25,16 @@ export function PartyLine({ parties }: { parties: ItemParty[] }) {
 
   return (
     <span className="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-      {owners.length > 0 ? (
+      {owners.length > 0 && ownerGuessed ? (
+        <span title="Owner is a guess" className="flex min-w-0">
+          <Badge tone="amber">
+            <Icon name={icon(owners)} className="h-3 w-3 shrink-0" label="Owner" />
+            <span className="truncate">{names(owners)}</span>
+            <span aria-hidden>?</span>
+            <span className="sr-only">(a guess)</span>
+          </Badge>
+        </span>
+      ) : owners.length > 0 ? (
         <>
           <Icon name={icon(owners)} className="h-3.5 w-3.5 shrink-0" label="Owner" />
           <span className="truncate">{names(owners)}</span>

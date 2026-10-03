@@ -269,7 +269,7 @@ describe('a well-formed answer', () => {
 
     expect(draft(output, 0)).toEqual({
       payload: { type: 'update', itemId: 'item-open', change: 'answer', text: 'Sarah is leading it.' },
-      lowConfidence: false,
+      ownerGuessed: false,
       agendaLineId: 'line-1',
     })
 
@@ -288,12 +288,12 @@ describe('a well-formed answer', () => {
         dueOn: '2026-10-02',
         parentItemId: 'item-open',
       },
-      lowConfidence: false,
+      ownerGuessed: false,
       agendaLineId: 'line-1',
     })
 
     const question = draft(output, 2)
-    expect(question.lowConfidence).toBe(true)
+    expect(question.ownerGuessed).toBe(true)
     if (question.payload.type !== 'item') throw new Error('expected an item')
     expect(question.payload.parties).toEqual([
       { role: 'owner', name: 'Sarah Jones', personId: 'p-sarah' },
@@ -369,7 +369,7 @@ describe('a well-formed answer', () => {
     /* The update to an unknown item is gone; the one to a known item survives without its invented line. */
     expect(draft(output, 0)).toEqual({
       payload: { type: 'update', itemId: 'item-open', change: 'discussed', text: null },
-      lowConfidence: false,
+      ownerGuessed: false,
       agendaLineId: null,
     })
 
@@ -414,7 +414,7 @@ describe('a well-formed answer', () => {
     if (venue.type !== 'item') throw new Error('expected an item')
     expect(venue.dueOn).toBeNull()
     /* Inferred, but there is no owner to have inferred. */
-    expect(draft(output, 2).lowConfidence).toBe(false)
+    expect(draft(output, 2).ownerGuessed).toBe(false)
   })
 })
 

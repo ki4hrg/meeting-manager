@@ -23,6 +23,7 @@ import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { getMeeting } from '@/lib/meetings/meetings'
+import { listSeries } from '@/lib/meetings/series'
 import { unknownAttendees } from '@/lib/notes/attendees'
 import { listNotes } from '@/lib/notes/notes'
 import { listProposals, type ProposalView } from '@/lib/processing/proposals'
@@ -59,7 +60,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     return <LivesIn title={meeting.title} context={home} action={openMeetingAction} id={meeting.id} />
   }
 
-  const [run, proposals, notes, parent, people, groups, projects, strangers] = await Promise.all([
+  const [run, proposals, notes, parent, people, groups, projects, series, strangers] = await Promise.all([
     latestRun(db, id),
     listProposals(db, id),
     listNotes(db, id),
@@ -67,10 +68,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     listPeople(db),
     listGroups(db, context.id),
     listProjectChoices(db, context.id),
+    listSeries(db, context.id),
     unknownAttendees(db, id),
   ])
 
-  const choices = { people, groups, projects }
+  const choices = { people, groups, projects, series }
 
   /* Who was there can be corrected until something from the notes is
      accepted. The notes' own attendees, when in the directory, are offered as
@@ -108,7 +110,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const accepted = proposals.filter((proposal) => proposal.status === 'accepted')
   const rejected = proposals.filter((proposal) => proposal.status === 'rejected')
   // What approve-all passes over: a guess, or a name still to be settled.
-  const needsLook = (proposal: ProposalView) => proposal.lowConfidence || proposal.unresolved.length > 0
+  const needsLook = (proposal: ProposalView) => proposal.ownerGuessed || proposal.unresolved.length > 0
   const unsure = pending.filter(needsLook)
   const ready = pending.filter((proposal) => !needsLook(proposal))
 

@@ -309,7 +309,7 @@ export function toOutput(wire: WireOutput, input: ExtractionInput): ExtractionOu
     updated.add(key)
     drafts.push({
       payload: { type: 'update', itemId: update.itemId, change: update.change, text },
-      lowConfidence: false,
+      ownerGuessed: false,
       agendaLineId: lineId(update.agendaLineId),
     })
   }
@@ -340,7 +340,7 @@ export function toOutput(wire: WireOutput, input: ExtractionInput): ExtractionOu
     }
     drafts.push({
       payload,
-      lowConfidence: item.ownerInferred && owners.length > 0,
+      ownerGuessed: item.ownerInferred && owners.length > 0,
       agendaLineId: lineId(item.agendaLineId),
     })
   }
@@ -351,7 +351,7 @@ export function toOutput(wire: WireOutput, input: ExtractionInput): ExtractionOu
     if (!title || body === '') continue
     drafts.push({
       payload: { type: 'document', title, body, projectId: projectId(document.project) },
-      lowConfidence: false,
+      ownerGuessed: false,
       agendaLineId: null,
     })
   }
@@ -375,7 +375,7 @@ export function toOutput(wire: WireOutput, input: ExtractionInput): ExtractionOu
     }
     drafts.push({
       payload: { type: 'stub', title, people: stubPeople },
-      lowConfidence: false,
+      ownerGuessed: false,
       agendaLineId: null,
     })
   }

@@ -128,7 +128,7 @@ One pipeline; every stage is optional, with no rail.
   - `processing_runs` is keyed by note id and content hash. Each proposal has a fingerprint and rejections are remembered, so a re-delivered or edited note proposes only new material.
   - A meeting can hold several Granola notes. A note for a multi-day event asks which session at review.
   - A reconcile job catches missed webhook deliveries.
-- **Review:** one screen; accept, edit or reject each proposal, or approve all. Proposals whose owner was inferred with low confidence are highlighted and excluded from approve-all. Accepted proposals can be undone. Nothing reaches real items or Todoist before approval.
+- **Review:** one screen; accept, edit or reject each proposal, or approve all. Proposals whose owner was guessed are marked on the owner and excluded from approve-all. Accepted proposals can be undone. Nothing reaches real items or Todoist before approval.
 - **Export:** recap computed on demand: summary, decisions, owed items grouped by person and group, lookahead. Copy as rich text or Markdown; `mailto:` fills recipients and subject while the body goes to the clipboard. Also a per-person "your items" snippet.
 
 ## Hubs
@@ -264,7 +264,7 @@ Deploy per the global notes: image built in Actions and pushed to GHCR, compose 
    - **Phone-width overflow** *(John, 2026-10-03; done)*. Date and time inputs shrink inside narrow forms (iOS gives them an intrinsic width), long names truncate in badges and party chips, and headings wrap a long word such as an email address standing in for a name.
    - **Refinements after item 9** *(John, 2026-10-03; done 2026-10-03 except where marked)*:
      - **Who came with a group** reads apart from who is on a roster by name: each group is drawn in an outline around the people it brings, on the meeting page, the roll call and the series roster. `meeting_people.group_id` keeps it once attendance is settled.
-     - **Accept asks for what is missing.** Accept on a proposal with no owner (an action or question), no project (when the context has any) or no due date (an action) opens a short form with only those fields, each optional. The edit form has a second submit, Accept.
+     - **Accept asks for what is missing.** Accept on a proposal with no owner (an action or question), no project (when the context has any) or no due date (an action) opens a short form with only those fields, each optional. Saving the edit form accepts the proposal as edited *(John, 2026-10-03; replaces the second submit)*; the form also has Raise at, a series of the context. A guessed owner is marked on the owner (amber, with a question mark), not as a separate Unsure flag; accepting confirms the guess, and the database holds no accepted proposal still marked a guess (`proposals.owner_guessed`, John 2026-10-03).
      - **Documents a meeting's notes drafted** are listed on that meeting (a rollup lists its sessions'), as well as on their project's hub; the proposal names the meeting it goes to.
      - **"Me" in the people pickers**: a fixed first chip in the meeting, series and Log pickers.
      - **Attendance in the review**: the roll call while it can change, the settled roster once a proposal has been accepted.

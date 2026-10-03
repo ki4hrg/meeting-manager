@@ -312,7 +312,7 @@ async function vetDrafts(
     }
     kept.push({
       payload,
-      lowConfidence: draft.lowConfidence === true,
+      ownerGuessed: draft.ownerGuessed === true,
       agendaLineId: typeof draft.agendaLineId === 'string' ? draft.agendaLineId : null,
     })
   }
