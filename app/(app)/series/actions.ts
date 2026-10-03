@@ -2,12 +2,13 @@
 
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { ValidationError } from '@/lib/core/types'
+import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { SkeletonSection } from '@/lib/db/schema'
 import { getContext } from '@/lib/directory/contexts'
 import { moveSeries } from '@/lib/meetings/move'
 import { prepNextInSeries } from '@/lib/meetings/prep'
+import { syncRoster } from '@/lib/meetings/roster'
 import {
   createSeries,
   deleteSeries,
@@ -208,4 +209,11 @@ export async function prepNextInSeriesAction(formData: FormData): Promise<Action
   // On to the agenda that was just started.
   if (!result.error) redirect(`/meetings/${meetingId}`)
   return result
+}
+
+/** Give the series' upcoming meetings edited by hand what its roster has and they lack. */
+export async function syncRosterAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await inTransaction(db, (tx) => syncRoster(tx, actor, field(formData, 'id')))
+  })
 }

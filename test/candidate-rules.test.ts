@@ -21,8 +21,10 @@ import { agendaLines, items } from '../lib/db/schema'
 import { createPerson } from '../lib/directory/people'
 import { addMember } from '../lib/directory/groups'
 import { completeItem, createItem, recordDecision } from '../lib/items/items'
-import { createMeeting } from '../lib/meetings/meetings'
-import { createSeries } from '../lib/meetings/series'
+import { createMeeting, getMeeting, setMeetingPeople, updateMeeting } from '../lib/meetings/meetings'
+import { prepMeeting } from '../lib/meetings/prep'
+import { joinRoster, outOfStep, recordAbsences, syncRoster } from '../lib/meetings/roster'
+import { createSeries, setSeriesPeople } from '../lib/meetings/series'
 import { addMilestone, nextMilestones } from '../lib/projects/projects'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
@@ -298,6 +300,84 @@ describe('a series target', () => {
     await placeAutomatic(db, actor, next.id, NOW)
     await placeAutomatic(db, actor, next.id, NOW)
     expect(await db.select().from(agendaLines)).toHaveLength(1)
+  })
+})
+
+describe('a roster change', () => {
+  // Far enough ahead that the meetings are not over whenever the suite runs.
+  const at = (day: string) => new Date(`2030-01-${day}T15:00:00Z`)
+
+  it('reaches the series’ upcoming meetings, and an item for the person added is placed', async () => {
+    const w = await makeWorld()
+    const adlene = await createPerson(db, { name: 'Adlene' })
+    const series = await createSeries(db, { contextId: w.parish.id, name: 'Adlene/John Check-In' })
+    const first = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('07') })
+    const second = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('14') })
+    const topic = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'Accountability process for team-to-team collaborations',
+      parties: [{ personId: adlene.id, role: 'owner' }],
+    })
+    const owedToHer = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'ask about the handbook',
+      parties: [{ personId: adlene.id, role: 'with' }],
+    })
+    expect(offered(await getCandidates(db, first.id, NOW))).toEqual([])
+
+    await setSeriesPeople(db, series.id, [adlene.id])
+
+    for (const meeting of [first, second]) {
+      expect((await getMeeting(db, meeting.id)).people.map((person) => person.id)).toEqual([adlene.id])
+    }
+    const placed = (await getAgenda(db, first.id)).nodes.flatMap((node) =>
+      node.type === 'line' && node.item ? [node.item.id] : [],
+    )
+    expect(placed).toEqual([owedToHer.id])
+    // What she owes is one click away in her 1:1, as at prep.
+    expect(grouped((await getCandidates(db, first.id, NOW)).suggested)).toEqual([topic.id])
+  })
+
+  it('leaves a meeting edited by hand until asked, and never puts back someone left off it', async () => {
+    const w = await makeWorld()
+    const series = await createSeries(db, { contextId: w.parish.id, name: 'Staff', personIds: [w.sarah.id] })
+    const out = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('07') })
+    const edited = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('14') })
+    const untouched = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('21') })
+    // Sarah is out on the 7th; the bishop joins on the 14th.
+    await setMeetingPeople(db, actor, out.id, [])
+    await recordAbsences(db, out.id)
+    await setMeetingPeople(db, actor, edited.id, [w.sarah.id, w.bishop.id])
+    await recordAbsences(db, edited.id)
+
+    await setSeriesPeople(db, series.id, [w.sarah.id, w.tom.id])
+
+    const people = async (id: string) => (await getMeeting(db, id)).people.map((person) => person.id).sort()
+    expect(await people(out.id)).toEqual([w.tom.id])
+    expect(await people(edited.id)).toEqual([w.sarah.id, w.bishop.id].sort())
+    expect(await people(untouched.id)).toEqual([w.sarah.id, w.tom.id].sort())
+
+    expect((await outOfStep(db, series.id)).map((meeting) => meeting.id)).toEqual([edited.id])
+    expect(await syncRoster(db, actor, series.id)).toBe(1)
+    expect(await people(edited.id)).toEqual([w.sarah.id, w.tom.id, w.bishop.id].sort())
+    expect(await people(out.id)).toEqual([w.tom.id])
+    expect(await outOfStep(db, series.id)).toEqual([])
+  })
+
+  it('a meeting newly in a series takes its roster and projects', async () => {
+    const w = await makeWorld()
+    const series = await createSeries(db, {
+      contextId: w.parish.id,
+      name: 'Staff',
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+    })
+    const byHand = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Check-in', startsAt: at('07') })
+    await updateMeeting(db, actor, byHand.id, { seriesId: series.id })
+    expect(await joinRoster(db, actor, byHand.id)).toBe(true)
+    const meeting = await getMeeting(db, byHand.id)
+    expect(meeting.people.map((person) => person.id)).toEqual([w.sarah.id])
+    expect(meeting.projects.map((project) => project.id)).toEqual([w.retreat.id])
   })
 })
 

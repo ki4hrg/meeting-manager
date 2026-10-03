@@ -1,11 +1,15 @@
 /* Series: recurring meetings with their roster, defaults and skeleton. */
 
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
-import { NotFoundError, ValidationError, inTransaction, type Executor } from '../core/types'
+import { NotFoundError, ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
 import { groups, people, projects, series, seriesPeople, seriesProjects } from '../db/schema'
 import type { BlockSettings, SkeletonSection } from '../db/schema'
 import { parseOutline, type OutlineItem } from '../agenda/outline'
 import { getContext } from '../directory/contexts'
+import { carryRoster, rosterOf } from './roster'
+
+/* A roster change reaches the series' meetings as the series' own doing. */
+const SERIES_ACTOR: ActorContext = { userId: null, source: 'system', requestId: 'series-roster' }
 
 export type SeriesView = {
   id: string
@@ -334,12 +338,14 @@ export async function updateSeries(
       : null
   }
 
-  await exec
-    .update(series)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(series.id, id))
-
-  return getSeries(exec, id)
+  return inTransaction(exec, async (tx) => {
+    await tx
+      .update(series)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(series.id, id))
+    if (input.groupId !== undefined) await carryRoster(tx, SERIES_ACTOR, id, rosterOf(view))
+    return getSeries(tx, id)
+  })
 }
 
 export async function setSeriesPeople(
@@ -347,7 +353,7 @@ export async function setSeriesPeople(
   id: string,
   personIds: string[],
 ): Promise<SeriesView> {
-  await getSeries(exec, id)
+  const before = rosterOf(await getSeries(exec, id))
 
   /* John is silently dropped from people lists */
   let filtered = personIds
@@ -366,6 +372,7 @@ export async function setSeriesPeople(
         filtered.map((personId) => ({ seriesId: id, personId })),
       )
     }
+    await carryRoster(tx, SERIES_ACTOR, id, before)
     return getSeries(tx, id)
   })
 }
@@ -389,6 +396,7 @@ export async function setSeriesProjects(
         projectIds.map((projectId) => ({ seriesId: id, projectId })),
       )
     }
+    await carryRoster(tx, SERIES_ACTOR, id, rosterOf(view))
     return getSeries(tx, id)
   })
 }

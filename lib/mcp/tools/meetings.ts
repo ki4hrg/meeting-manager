@@ -50,6 +50,7 @@ import {
   updateMeeting,
   type MeetingView,
 } from '../../meetings/meetings'
+import { clearAbsences, joinRoster, recordAbsences } from '../../meetings/roster'
 import { moveMeeting, moveSeries } from '../../meetings/move'
 import { prepMeeting, prepNextInSeries, prepWithPerson } from '../../meetings/prep'
 import {
@@ -670,6 +671,16 @@ export const updateMeetingTool = defineTool({
           input.id,
           await projectsFrom(tx, contextId, input.projects),
         )
+      }
+      /* As in the edit form: people named within a series leave the rest of
+         the roster off this meeting alone; a meeting newly in a series takes
+         its roster. */
+      const seriesNow = series === undefined ? (before.series?.id ?? null) : series
+      if (seriesNow && seriesNow === (before.series?.id ?? null)) {
+        if (input.people) await recordAbsences(tx, input.id)
+      } else {
+        await clearAbsences(tx, [input.id])
+        if (seriesNow) await joinRoster(tx, actor, input.id)
       }
       const view = await meetingView(tx, input.id, clock)
       return destination

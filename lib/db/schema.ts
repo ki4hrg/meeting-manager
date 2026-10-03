@@ -534,6 +534,21 @@ export const meetingPeople = pgTable(
   ],
 )
 
+/* Someone on a series' roster left off one of its meetings ("Adlene is out
+   this week"), so a later roster change does not put them back. */
+export const meetingAbsences = pgTable(
+  'meeting_absences',
+  {
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.meetingId, t.personId] })],
+)
+
 export const meetingProjects = pgTable(
   'meeting_projects',
   {

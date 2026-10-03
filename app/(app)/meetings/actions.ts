@@ -35,6 +35,7 @@ import {
   seriesFromEvent,
 } from '@/lib/meetings/prep'
 import { act, field, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { clearAbsences, joinRoster, recordAbsences } from '@/lib/meetings/roster'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 async function contextId(): Promise<string> {
@@ -127,14 +128,24 @@ export async function updateMeetingAction(formData: FormData): Promise<ActionRes
   return act(async (actor, user) => {
     const id = field(formData, 'id')
     await inTransaction(db, async (tx) => {
+      const before = await getMeeting(tx, id)
+      const seriesId = field(formData, 'seriesId') || null
       await updateMeeting(tx, actor, id, {
         title: field(formData, 'title'),
         ...timesFrom(formData, user.timeZone),
-        seriesId: field(formData, 'seriesId') || null,
+        seriesId,
         groupId: field(formData, 'groupId') || null,
       })
       await setMeetingPeople(tx, actor, id, await pickedPeople(tx, formData, 'personIds'))
       await setMeetingProjects(tx, actor, id, ids(formData, 'projectIds'))
+      /* Within its series, whoever on the roster was taken off is left off
+         this meeting alone. Newly in a series, it takes the roster. */
+      if (seriesId && seriesId === (before.series?.id ?? null)) {
+        await recordAbsences(tx, id)
+      } else {
+        await clearAbsences(tx, [id])
+        if (seriesId) await joinRoster(tx, actor, id)
+      }
     })
   })
 }

@@ -21,6 +21,7 @@ import type { BlockSettings } from '@/lib/db/schema'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
+import { outOfStep } from '@/lib/meetings/roster'
 import { getSeries } from '@/lib/meetings/series'
 import { listProjects } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
@@ -36,6 +37,7 @@ import {
   setSeriesBlockAction,
   unlinkSeriesCalendarAction,
   updateSeriesAction,
+  syncRosterAction,
 } from '../actions'
 
 const BLOCKS: Array<{ block: keyof BlockSettings; icon: IconName; label: string }> = [
@@ -81,6 +83,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
   const [stub] = await listMeetings(db, { contextId: context.id, seriesId: id, when: 'stubs', limit: 1 })
   const next = (await nextOccurrence(db, id)) ?? stub ?? null
   const history = await listMeetings(db, { contextId: context.id, seriesId: id, when: 'past' })
+  const behind = await outOfStep(db, id)
 
   // Sections and their lines as one flat list, for the preview.
   const agenda = next ? await getAgenda(db, next.id, { timeZone: user.timeZone }) : null
@@ -237,6 +240,15 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
               </div>
             </Card>
           )}
+          {/* Meetings edited by hand do not follow the roster on their own. */}
+          {behind.length > 0 ? (
+            <div className="mt-3 flex justify-end">
+              <ActionButton action={syncRosterAction} fields={{ id: series.id }} variant="secondary" size="sm">
+                <Icon name="refresh" className="h-4 w-4" />
+                {`Update ${behind.length} upcoming`}
+              </ActionButton>
+            </div>
+          ) : null}
         </Section>
 
         <Section
