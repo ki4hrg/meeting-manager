@@ -17,10 +17,10 @@ const PREFIX: Record<ItemKind, string> = { topic: 'T', question: 'Q', action: 'A
 const KINDS = Object.keys(PREFIX) as ItemKind[]
 const KIND_OF_PREFIX = /^([tqad]):\s*/i
 
-/* The @ or # token the caret is at the end of, if any. */
-const ACTIVE_TOKEN = /(?:^|\s)([@#])([\p{L}\p{N}_/-]*)$/u
+/* The @, # or > token the caret is at the end of, if any. */
+const ACTIVE_TOKEN = /(?:^|\s)([@#>])([\p{L}\p{N}_/-]*)$/u
 
-type Suggestion = { name: string; icon: 'person' | 'group' | 'project' }
+type Suggestion = { name: string; icon: 'person' | 'group' | 'project' | 'refresh' }
 
 function kindOf(line: string, fallback: ItemKind): ItemKind {
   const prefix = KIND_OF_PREFIX.exec(line.trimStart())
@@ -29,7 +29,7 @@ function kindOf(line: string, fallback: ItemKind): ItemKind {
 }
 
 /**
- * Quick-add: one line, `@person` or `@group`, `#project`, and an optional
+ * Quick-add: one line, `@person` or `@group`, `#project`, `>series`, and an optional
  * kind prefix. In the top bar it captures into the selected context; on a hub
  * page it carries that page's person, group or project as presets.
  */
@@ -78,7 +78,9 @@ export function QuickAdd({
             ...directory.people.map((p) => ({ name: p.name, icon: 'person' as const })),
             ...directory.groups.map((g) => ({ name: g.name, icon: 'group' as const })),
           ]
-        : directory.projects.map((p) => ({ name: p.name, icon: 'project' as const }))
+        : active[1] === '#'
+          ? directory.projects.map((p) => ({ name: p.name, icon: 'project' as const }))
+          : directory.series.map((s) => ({ name: s.name, icon: 'refresh' as const }))
     suggestions = (partial === '' ? pool : matchName(pool, partial)).slice(0, 6)
     // Already typed out in full: nothing left to suggest, so Enter submits.
     if (suggestions.length === 1 && normalise(suggestions[0]!.name) === normalise(partial)) {
@@ -192,7 +194,7 @@ export function QuickAdd({
               data-bwignore
               data-form-type="other"
               aria-label="New item"
-              placeholder="@person  #project"
+              placeholder="@person  #project  >series"
               className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </div>

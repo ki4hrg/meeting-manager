@@ -24,8 +24,9 @@ function wordsOf(value: string): string[] {
 
 /**
  * Candidates a token could mean. An exact name wins outright; otherwise any
- * name, or word in a name, that starts with the token. `sarah-jones`,
- * `SarahJones` and `sarah` all reach "Sarah Jones".
+ * name that starts with the token, from its first word or any later one.
+ * `sarah-jones`, `SarahJones` and `sarah` all reach "Sarah Jones", and
+ * `check-in` reaches "Adlene/John Check-In".
  */
 export function matchName<T extends { name: string }>(candidates: T[], token: string): T[] {
   const wanted = normalise(token)
@@ -34,11 +35,10 @@ export function matchName<T extends { name: string }>(candidates: T[], token: st
   const exact = candidates.filter((candidate) => normalise(candidate.name) === wanted)
   if (exact.length > 0) return exact
 
-  return candidates.filter(
-    (candidate) =>
-      normalise(candidate.name).startsWith(wanted) ||
-      wordsOf(candidate.name).some((word) => word.startsWith(wanted)),
-  )
+  return candidates.filter((candidate) => {
+    const words = wordsOf(candidate.name)
+    return words.some((_, index) => words.slice(index).join('').startsWith(wanted))
+  })
 }
 
 /** The token that names something unambiguously: "Sarah Jones" becomes "Sarah-Jones". */

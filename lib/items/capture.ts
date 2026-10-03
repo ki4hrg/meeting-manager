@@ -3,8 +3,9 @@
  *
  *   Q: what is the lunch menu @sarah @tom #retreat
  *
- * A kind prefix (T: Q: A: D:), any number of @person or @group mentions and a
- * #project, all optional. With none of them the line is a topic in the Inbox.
+ * A kind prefix (T: Q: A: D:), any number of @person or @group mentions, a
+ * #project and a >series to raise it at, all optional. With none of them the
+ * line is a topic in the Inbox.
  *
  * Who a mention is depends on the kind, by the rule that separates the kinds
  * themselves: a topic is raised `with` someone; a question or an action is
@@ -13,7 +14,7 @@
  */
 
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
-import { resolveParty, resolveProject, type Party } from '../directory/resolve'
+import { resolveParty, resolveProject, resolveSeries, type Party } from '../directory/resolve'
 import { createItem, type ItemKind, type ItemView, type PartyInput, type PartyRole } from './items'
 
 const KIND_PREFIX: Record<string, ItemKind> = {
@@ -23,21 +24,26 @@ const KIND_PREFIX: Record<string, ItemKind> = {
   d: 'decision',
 }
 
-const TOKEN = /^([@#])([\p{L}\p{N}][\p{L}\p{N}_/-]*)([.,;:!?]*)$/u
+const TOKEN = /^([@#>])([\p{L}\p{N}][\p{L}\p{N}_/-]*)([.,;:!?]*)$/u
 
 export type ParsedWord =
   | { type: 'text'; value: string }
-  | { type: 'mention' | 'project'; name: string; trailing: string }
+  | { type: 'mention' | 'project' | 'series'; name: string; trailing: string }
 
 export type ParsedLine = {
   kind: ItemKind | null
   words: ParsedWord[]
   mentions: string[]
   projects: string[]
+  series: string[]
 }
 
-/** Pure: splits a line into its prefix, its tokens and its words. Resolves nothing. */
-export function parseLine(line: string): ParsedLine {
+/**
+ * Pure: splits a line into its prefix, its tokens and its words. Resolves
+ * nothing. `>series` is quick-add's alone: in a note's verbatim lines a `>`
+ * stays part of the text.
+ */
+export function parseLine(line: string, opts: { series?: boolean } = {}): ParsedLine {
   let rest = line.trim()
   let kind: ItemKind | null = null
 
@@ -52,18 +58,18 @@ export function parseLine(line: string): ParsedLine {
     .filter(Boolean)
     .map((word) => {
       const token = TOKEN.exec(word)
-      if (!token) return { type: 'text', value: word }
+      if (!token || (token[1] === '>' && !opts.series)) return { type: 'text', value: word }
       return {
-        type: token[1] === '@' ? 'mention' : 'project',
+        type: token[1] === '@' ? 'mention' : token[1] === '#' ? 'project' : 'series',
         name: token[2]!,
         trailing: token[3] ?? '',
       }
     })
 
-  const names = (type: 'mention' | 'project') =>
+  const names = (type: 'mention' | 'project' | 'series') =>
     words.flatMap((word) => (word.type === type ? [word.name] : []))
 
-  return { kind, words, mentions: names('mention'), projects: names('project') }
+  return { kind, words, mentions: names('mention'), projects: names('project'), series: names('series') }
 }
 
 /*
@@ -119,11 +125,15 @@ export async function captureLine(
   actor: ActorContext,
   input: { contextId: string; line: string; presets?: CapturePresets },
 ): Promise<ItemView> {
-  const parsed = parseLine(input.line)
+  const parsed = parseLine(input.line, { series: true })
   const presets = input.presets ?? {}
   const kind = parsed.kind ?? presets.kind ?? 'topic'
 
   if (parsed.projects.length > 1) throw new ValidationError('An item belongs to one project.')
+  if (parsed.series.length > 1) throw new ValidationError('An item is raised at one series.')
+  if (parsed.series.length > 0 && kind === 'decision') {
+    throw new ValidationError('A decision is a record, not something to raise.')
+  }
 
   return inTransaction(exec, async (tx) => {
     const resolved = new Map<string, Party>()
@@ -133,6 +143,7 @@ export async function captureLine(
     const project = parsed.projects[0]
       ? await resolveProject(tx, input.contextId, parsed.projects[0])
       : null
+    const raiseAt = parsed.series[0] ? await resolveSeries(tx, input.contextId, parsed.series[0]) : null
 
     const mentioned = [...new Map([...resolved.values()].map((party) => [party.id, party])).values()]
     const selfNamed = parsed.mentions.some((name) => name.toLowerCase() === 'me')
@@ -152,6 +163,7 @@ export async function captureLine(
       if (word.type === 'mention') {
         return word.name.toLowerCase() === 'me' ? 'me' : resolved.get(word.name)!.name
       }
+      if (word.type === 'series') return raiseAt!.name
       return word.type === 'project' ? project!.name : ''
     })
     if (text === '') throw new ValidationError('Enter some text.')
@@ -163,9 +175,12 @@ export async function captureLine(
       projectId: project?.id ?? presets.projectId ?? null,
       parties,
       parentItemId: presets.parentItemId ?? null,
-      /* Something to raise is aimed at the meeting; a decision is not raised,
-         it was made there. */
-      ...(presets.targetMeetingId
+      /* A >series says where it is raised, over the meeting it was captured
+         on. Otherwise something to raise is aimed at that meeting; a decision
+         is not raised, it was made there. */
+      ...(raiseAt
+        ? { target: { seriesId: raiseAt.id } }
+        : presets.targetMeetingId
         ? kind === 'decision'
           ? { originMeetingId: presets.targetMeetingId }
           : { target: { meetingId: presets.targetMeetingId } }

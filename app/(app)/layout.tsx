@@ -8,6 +8,7 @@ import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { inboxCount } from '@/lib/items/items'
 import { listPeople } from '@/lib/directory/people'
+import { listSeries } from '@/lib/meetings/series'
 import { listProjects } from '@/lib/projects/projects'
 import { allContexts, currentContext, viewer } from '@/lib/web/context'
 import { logoutAction } from '../(auth)/actions'
@@ -35,8 +36,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         people: [{ name: 'me' }, ...(await listPeople(db)).map(({ name }) => ({ name }))],
         groups: (await listGroups(db, context.id)).map(({ name }) => ({ name })),
         projects: (await listProjects(db, context.id)).map(({ name }) => ({ name })),
+        series: (await listSeries(db, context.id)).map(({ name }) => ({ name })),
       }
-    : { people: [], groups: [], projects: [] }
+    : { people: [], groups: [], projects: [], series: [] }
 
   // The Inbox's count: open items with nowhere to go, unfiled notes, and meetings to review.
   const waiting = context

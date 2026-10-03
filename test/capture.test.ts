@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { matchName, tokenFor } from '../lib/core/match'
 import { inferContext } from '../lib/directory/resolve'
 import { captureLine, parseLine } from '../lib/items/capture'
+import { createMeeting } from '../lib/meetings/meetings'
+import { createSeries } from '../lib/meetings/series'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 
@@ -13,6 +15,14 @@ describe('parseLine', () => {
     expect(parsed.kind).toBe('question')
     expect(parsed.mentions).toEqual(['sarah', 'Tom-Baker'])
     expect(parsed.projects).toEqual(['retreat'])
+  })
+
+  it('reads a >series only for quick-add', () => {
+    expect(parseLine('ask about it >Adlene-John', { series: true }).series).toEqual(['Adlene-John'])
+    // In a note's verbatim lines a > is part of what was written.
+    const verbatim = parseLine('ask about it >Adlene-John')
+    expect(verbatim.series).toEqual([])
+    expect(verbatim.words.at(-1)).toEqual({ type: 'text', value: '>Adlene-John' })
   })
 
   it('leaves an email address and a bare line alone', () => {
@@ -31,6 +41,9 @@ describe('matchName', () => {
     expect(matchName(names, 'sar')).toHaveLength(2)
     expect(matchName(names, 'jones')).toEqual([{ name: 'Sarah Jones' }])
     expect(matchName(names, tokenFor('Sarah Jones'))).toEqual([{ name: 'Sarah Jones' }])
+    // From a later word on, across words: what a series is called by.
+    expect(matchName([{ name: 'Adlene/John Check-In' }], 'check-in')).toEqual([{ name: 'Adlene/John Check-In' }])
+    expect(matchName([{ name: 'Adlene/John Check-In' }], 'johncheck')).toHaveLength(1)
   })
 })
 
@@ -98,6 +111,33 @@ describe('captureLine', () => {
     await expect(
       captureLine(db, actor, { contextId: parish.id, line: 'hello #synod' }),
     ).rejects.toThrow('No project matches synod')
+  })
+
+  it('raises an item at a series with >, and only there', async () => {
+    const { parish, sarah } = await makeWorld()
+    const checkIn = await createSeries(db, { contextId: parish.id, name: 'Sarah/John Check-In', personIds: [sarah.id] })
+    const item = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'accountability process @sarah >check-in',
+    })
+    expect(item).toMatchObject({ text: 'accountability process', targetSeriesId: checkIn.id, targetMeetingId: null })
+    expect(item.parties).toMatchObject([{ id: sarah.id, role: 'with' }])
+
+    // Over the meeting a line was captured on, too.
+    const meeting = await createMeeting(db, actor, { contextId: parish.id, title: 'Staff' })
+    const there = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'later >check-in',
+      presets: { targetMeetingId: meeting.id },
+    })
+    expect(there).toMatchObject({ targetSeriesId: checkIn.id, targetMeetingId: null })
+
+    await expect(
+      captureLine(db, actor, { contextId: parish.id, line: 'D: settled >check-in' }),
+    ).rejects.toThrow('not something to raise')
+    await expect(captureLine(db, actor, { contextId: parish.id, line: 'x >nothing' })).rejects.toThrow(
+      'No series matches',
+    )
   })
 
   it('applies presets, and lets the line override the kind', async () => {
