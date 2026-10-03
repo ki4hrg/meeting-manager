@@ -1,9 +1,10 @@
+import { ArchivedSection } from '@/components/archive/Archive'
 import { FormModal } from '@/components/forms'
 import { CardGrid, CardHeader, LinkCard } from '@/components/ui/Card'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { CheckList } from '@/components/ui/CheckList'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Field, Input, Select } from '@/components/ui/Field'
+import { Field, Input } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Badge } from '@/components/ui/StatusBadge'
@@ -21,6 +22,7 @@ export default async function SeriesListPage() {
   const context = await requireContext()
   const { user } = await viewer()
   const series = await listSeries(db, context.id)
+  const archived = await listSeries(db, context.id, 'archived')
   const people = (await listPeople(db)).filter((person) => !person.isSelf)
   const groups = await listGroups(db, context.id)
   const projects = await listProjectChoices(db, context.id)
@@ -46,21 +48,12 @@ export default async function SeriesListPage() {
             <PartyPicker
               label="People"
               name="personIds"
-              options={people.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+              options={[
+                ...people.map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
+                ...groups.map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
+              ]}
               allowNew
             />
-            {groups.length > 0 ? (
-              <Field label="Group">
-                <Select name="groupId" defaultValue="">
-                  <option value="">—</option>
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            ) : null}
             <CheckList label="Projects" name="projectIds" options={projects} />
           </FormModal>
         }
@@ -86,10 +79,10 @@ export default async function SeriesListPage() {
                   }
                 />
                 <div className="flex min-w-0 items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-                  {one.group ? (
-                    <span className="flex shrink-0 items-center gap-1">
-                      <Icon name="group" className="h-3.5 w-3.5" label="Group" />
-                      {one.group.name}
+                  {one.groups.length > 0 ? (
+                    <span className="flex min-w-0 shrink-0 items-center gap-1">
+                      <Icon name="group" className="h-3.5 w-3.5" label="Groups" />
+                      <span className="truncate">{one.groups.map((group) => group.name).join(', ')}</span>
                     </span>
                   ) : null}
                   {one.people.length > 0 ? (
@@ -106,6 +99,10 @@ export default async function SeriesListPage() {
           })}
         </CardGrid>
       )}
+      <ArchivedSection
+        icon="refresh"
+        rows={archived.map((one) => ({ id: one.id, name: one.name, href: `/series/${one.id}` }))}
+      />
     </>
   )
 }

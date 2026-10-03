@@ -1,6 +1,35 @@
-# Handoff: build order items 7–11
+# Handoff
 
 Updated 2026-10-03. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+
+## Item 9 settled and built (2026-10-03)
+
+On branch `claude/fervent-johnson-h4n3xa`, one commit per piece, not yet deployed. Migrations `0010` (`items.parked_at`, `later_on`), `0011` (`archived_at`/`deleted_at`), `0012` (`meeting_groups`, `series_groups`, `group_emails`, `meetings.attendance_at`; copies each meeting's and series' group across and settles attendance on every meeting already over) and `0013` (drops `meetings.group_id`, `series.group_id`) run at boot. `pnpm test` (620 tests, 40 files), `pnpm typecheck` and `pnpm lint` are clean. Screens walked in a production build with Playwright, light, dark and phone width.
+
+**Built**
+
+- **I owe by horizon** (`lib/items/horizon.ts`): soon (14 days) first, then undated, then further out. Later on the item page parks it, with an optional day back; a deadline within 14 days brings it back; closing clears it. One collapsed Later section on home holds both lists' parked items. `update_item` takes `later`/`later_on`.
+- **Archive, then delete** (`lib/archive/archive.ts`, `lib/db/shelf.ts`): every list, picker, name lookup and MCP list hides archived rows; an id still reads them. Archive on each page; an archived page is muted under a bar with Restore and Delete; Delete names what it takes or what blocks it. Collapsed Archived sections on the list pages (meetings on Past; contexts on their cards). Settings lists what was deleted with Restore and Delete for good; a daily job (`purge-deleted`) removes it after 30 days. `set_archived` over MCP; deleting is on screen only.
+- **Archiving a context** as approved: calendars still read, events shown nowhere unless their meeting or series lives elsewhere; folders bound to it hold their notes in the Inbox and stop the climb to a parent folder; nothing is run there. Restore (and binding a folder) has the reconcile ask again about every waiting note, and restore runs it at once.
+- **Several groups** per meeting and series, live until attendance is settled (`lib/meetings/attendance.ts`): the roll call on the meeting page while it is under way, else the first open, review, recap or run after it ends. The review offers the roll call, with the notes' known attendees as people who came, until a proposal is accepted. People pickers take groups. A series' groups carry to its meetings.
+- **Group addresses**: chips on the group page; an invitee at one brings the group (prep from an event, series from an event, Granola notes) in that context only; "This is…" offers groups; `create_group` takes `emails`, new `update_group`.
+- **Attendees**: "Also add to <series>" in a series meeting's Edit (`add_to_series` over MCP). Invitees never rewrite a prepped meeting's people.
+
+**Decisions made without John**
+
+- Milestones, links and documents have no archive step: deleted directly, restorable for 30 days. A deleted meeting lets go of its calendar event (so it can be prepped again; restoring it does not re-link); an archived one keeps it and hides the event, which doubles as "hide this event".
+- Archive hides a row; it does not change the agenda rules for items about an archived person, group or project. An archived meeting places nothing, and is skipped as a series' or project's next meeting.
+- Delete refuses: a person on open items, a series roster or a meeting still to come; a group on open items, a roster or a meeting to come; a project with sub-projects, meetings, open items or a Granola folder; a series with meetings to come; a meeting that items or documents came out of. A deleted name or address still blocks reuse until it is gone for good (the refusal says so).
+- An item's Delete needs it closed, standing alone and on no agenda.
+- Moving a meeting or series to another context drops its groups; the people on it by name go with it.
+- A logged meeting is settled at once: those picked, or with a group and nobody picked, its members.
+- Group members marked out are kept in `meeting_absences`, which roster edits no longer clear wholesale.
+- The meeting chips keep showing its groups after attendance is settled, with the settled people beside them.
+
+**Known gaps**
+
+- A direct link to an item, meeting or project in a deleted context still opens it until the purge.
+- Two tests failed once each under full-suite load and passed on every rerun: `test/jobs.test.ts` (a 25 ms timer) and `granola-ingest`'s two concurrent notes of one event.
 
 ## Build order 7–11 (2026-10-03)
 
@@ -37,13 +66,10 @@ On branch `claude/serene-euler-fbpsv1`, one commit per item, not yet deployed. M
 
 **Not done, needs John**
 
-- **Archive, then delete** (item 9): four questions in the spec are open (meetings archived or deleted; items keep done/dropped; what archiving a context does to bindings; real or soft delete).
-- **Groups among a meeting's attendees** (item 9): one group or several, copy or live, and series carry-over are open, and each answer changes the candidate rules.
-- **Adding attendees on the meeting page**: the edit form now takes new people by typing; whether a change on one occurrence is offered to the series roster is open.
 - **The reach on project, series and group hubs** (item 7) and the New meeting form offering the calendar events on its date (item 8).
-- **A quick-add token for "next meeting for a project"**, and offering to pause a parent's sub-projects.
+- **Offering to pause a parent's sub-projects.** (No quick-add token for "next meeting for a project": John, 2026-10-03.)
 - **Todoist and sub-projects** must be settled before phase 4 binds projects.
-- Phase 4 (Todoist) and phase 5 (cutover) are untouched.
+- Phase 4 (Todoist) is untouched. Phase 5 (cutover from Meeter) is done (John, 2026-10-03).
 
 ## Earlier: phase 3 deployed and verified (2026-10-02)
 
@@ -135,7 +161,7 @@ Phases 0, 1 and 2 are complete and deployed. The app is usable for capture and f
 - **`users.time_zone` cannot be set in the app.** It is null, so everything uses the process `TZ` (compose sets America/Chicago). A field on Settings is small.
 - **Quick-add no longer disables while saving** (a disabled submit swallowed Enter on fast entry). A tab closed within a moment of Enter could lose that line.
 - **Settings is linked twice,** from the context switcher and the account menu.
-- **Nothing can be deleted or archived** except meetings and series: people, groups, projects, contexts and items still have no removal, and a person entered twice cannot be merged.
+- **A person entered twice cannot be merged.** (Archive and delete now cover every kind.)
 - **Granola probe not run.** `scripts/granola-probe.ts` needs `GRANOLA_API_KEY` in the local environment.
 
 ## How the calendar feed behaves

@@ -30,12 +30,14 @@ import {
   itemEvents,
   items,
   meetingDismissals,
+  meetingGroups,
   meetingProjects,
   meetings,
   notes,
   processingRuns,
   proposals,
   series,
+  seriesGroups,
   seriesProjects,
 } from '../db/schema'
 import { getContext } from '../directory/contexts'
@@ -148,11 +150,13 @@ async function relocate(
     for (const noteId of noteIds) await queueRun(tx, noteId)
   }
 
+  // Groups stay in their context; the people on it by name go with it.
+  await tx.delete(meetingGroups).where(inArray(meetingGroups.meetingId, ids))
+
   await tx
     .update(meetings)
     .set({
       contextId,
-      groupId: null,
       ...(opts.keepSeries ? {} : { seriesId: null }),
       updatedAt: new Date(),
     })
@@ -267,8 +271,9 @@ export async function moveSeries(
     }
     await tx
       .update(series)
-      .set({ contextId, groupId: null, updatedAt: new Date() })
+      .set({ contextId, updatedAt: new Date() })
       .where(eq(series.id, seriesId))
+    await tx.delete(seriesGroups).where(eq(seriesGroups.seriesId, seriesId))
 
     const views = async (ids: string[]) => {
       const list: MeetingView[] = []

@@ -137,3 +137,33 @@ export function Section({
     </section>
   )
 }
+
+/** A section that starts closed: what is kept but not in the way ("Later", "Archived"). */
+export function CollapsedSection({
+  title,
+  icon,
+  count,
+  children,
+}: {
+  title: string
+  icon?: IconName
+  count?: number
+  children: React.ReactNode
+}) {
+  return (
+    <details className="group mb-8">
+      <summary className="mb-4 flex cursor-pointer list-none items-center gap-2 rounded-md text-lg font-semibold text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-100 [&::-webkit-details-marker]:hidden">
+        {icon ? <Icon name={icon} className="h-5 w-5 text-gray-400 dark:text-gray-500" /> : null}
+        {title}
+        {count !== undefined ? (
+          <span className="text-sm font-normal tabular-nums text-gray-500 dark:text-gray-400">{count}</span>
+        ) : null}
+        <Icon
+          name="chevronDown"
+          className="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180 dark:text-gray-500"
+        />
+      </summary>
+      {children}
+    </details>
+  )
+}

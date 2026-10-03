@@ -134,7 +134,9 @@ describe('a meeting with a group', () => {
 
     const stub = await prepWithGroup(db, actor, { contextId: w.parish.id, groupId: w.staff.id }, NOW)
     expect(stub.title).toBe('Staff')
-    expect(stub.people.map((person) => person.name)).toEqual(['Sarah Jones', 'Tom Baker'])
+    // The group stands for its members.
+    expect(stub.people).toEqual([])
+    expect(stub.attendees.map((person) => person.name)).toEqual(['Sarah Jones', 'Tom Baker'])
     // By the candidate rules a group match is suggested, never placed unasked.
     expect(itemTexts(await getAgenda(db, stub.id))).toEqual([])
     const { suggested } = await getCandidates(db, stub.id, NOW)

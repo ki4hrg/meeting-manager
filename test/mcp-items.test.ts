@@ -146,6 +146,13 @@ describe('the thread through the tools', () => {
       with: [{ name: 'Tom Baker' }],
       project: { name: 'Capital campaign' },
     })
+
+    const parked = dataOf<{ item: Item }>(
+      await call('update_item', { id: item.id, later_on: '2027-02-01' }),
+    ).item
+    expect(parked).toMatchObject({ later: true, later_on: '2027-02-01' })
+    const back = dataOf<{ item: Item }>(await call('update_item', { id: item.id, later: false })).item
+    expect(back).not.toHaveProperty('later')
   })
 })
 
@@ -197,5 +204,41 @@ describe('directory tools', () => {
     expect(names).toContain('list_items')
     expect(names).not.toContain('capture_item')
     await read.close()
+  })
+})
+
+describe('set_archived', () => {
+  it('takes a project off the lists and name lookups, and brings it back', async () => {
+    const archived = await call('set_archived', { kind: 'project', id: world.retreat.id, archived: true })
+    expect(dataOf(archived)).toMatchObject({ archived: true })
+    const listed = dataOf<{ projects: Array<{ name: string }> }>(await call('list_projects', { context: 'Parish' }))
+    expect(listed.projects.map((p) => p.name)).toEqual(['Capital campaign'])
+    const capture = await call('capture_item', { text: 'Book the hall', project: 'retreat', context: 'Parish' })
+    expect(capture.isError).toBe(true)
+
+    await call('set_archived', { kind: 'project', id: world.retreat.id, archived: false })
+    expect((await call('capture_item', { text: 'Book the hall', project: 'retreat', context: 'Parish' })).isError).toBeFalsy()
+  })
+
+  it('refuses archiving yourself', async () => {
+    const result = await call('set_archived', { kind: 'person', id: world.john.id, archived: true })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toContain('yourself')
+  })
+})
+
+describe('group addresses', () => {
+  it('are set on create_group and replaced by update_group', async () => {
+    const made = dataOf<{ group: { id: string; emails: string[] } }>(
+      await call('create_group', { name: 'Finance', context: 'Parish', emails: ['finance@example.test'] }),
+    )
+    expect(made.group.emails).toEqual(['finance@example.test'])
+    const updated = dataOf<{ group: { name: string; emails: string[] } }>(
+      await call('update_group', { group: 'finance', name: 'Finance committee', emails: ['money@example.test'] }),
+    )
+    expect(updated.group).toMatchObject({ name: 'Finance committee', emails: ['money@example.test'] })
+    const taken = await call('update_group', { group: 'finance committee', emails: ['sarah@example.test'] })
+    expect(taken.isError).toBe(true)
+    expect(textOf(taken)).toContain('belongs to Sarah Jones')
   })
 })

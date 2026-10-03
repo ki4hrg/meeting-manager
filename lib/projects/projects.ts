@@ -4,6 +4,7 @@ import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { parseDay } from '../core/dates'
 import { NotFoundError, ValidationError, type Executor } from '../core/types'
 import { milestones, projectLinks, projects } from '../db/schema'
+import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 import { getContext } from '../directory/contexts'
 
 export type Project = typeof projects.$inferSelect
@@ -13,29 +14,34 @@ export type ProjectLink = typeof projectLinks.$inferSelect
 
 export const PROJECT_STATUSES: ProjectStatus[] = ['active', 'paused', 'done']
 
-export async function listProjects(exec: Executor, contextId: string): Promise<Project[]> {
+/** A context's projects; `all` for the tree itself, which still reads archived ones. */
+export async function listProjects(exec: Executor, contextId: string, shelf: Shelf = 'live'): Promise<Project[]> {
   return exec
     .select()
     .from(projects)
-    .where(eq(projects.contextId, contextId))
+    .where(and(eq(projects.contextId, contextId), onShelf(projects, shelf)))
     // Active first, finished last.
     .orderBy(projects.status, sql`lower(${projects.name})`)
 }
 
 export async function getProject(exec: Executor, id: string): Promise<Project> {
-  const [row] = await exec.select().from(projects).where(eq(projects.id, id)).limit(1)
+  const [row] = await exec
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, id), notDeleted(projects)))
+    .limit(1)
   if (!row) throw new NotFoundError('Project', id)
   return row
 }
 
 async function assertNameFree(exec: Executor, contextId: string, name: string, exceptId?: string) {
   const [taken] = await exec
-    .select({ id: projects.id })
+    .select({ id: projects.id, archivedAt: projects.archivedAt, deletedAt: projects.deletedAt })
     .from(projects)
     .where(and(eq(projects.contextId, contextId), sql`lower(${projects.name}) = lower(${name})`))
     .limit(1)
   if (taken && taken.id !== exceptId) {
-    throw new ValidationError(`There is already a project called ${name}.`)
+    throw new ValidationError(`There is already a project called ${name}${shelvedNote(taken)}.`)
   }
 }
 
@@ -49,7 +55,7 @@ async function assertParent(exec: Executor, contextId: string, parentId: string,
   const parent = await getProject(exec, parentId)
   if (parent.contextId !== contextId) throw new ValidationError('That project belongs to another context.')
   if (!childId) return
-  const all = await listProjects(exec, contextId)
+  const all = await listProjects(exec, contextId, 'all')
   if (parentId === childId || descendantIds(all, [childId]).has(parentId)) {
     throw new ValidationError('A project cannot sit inside itself.')
   }
@@ -168,7 +174,7 @@ export async function listMilestones(exec: Executor, projectId: string): Promise
   return exec
     .select()
     .from(milestones)
-    .where(eq(milestones.projectId, projectId))
+    .where(and(eq(milestones.projectId, projectId), notDeleted(milestones)))
     .orderBy(sql`${milestones.dueOn} asc nulls last`, asc(milestones.createdAt))
 }
 
@@ -186,6 +192,7 @@ export async function nextMilestones(
       and(
         eq(projects.contextId, contextId),
         gte(milestones.dueOn, today),
+        notDeleted(milestones),
       ),
     )
     .orderBy(asc(milestones.dueOn))
@@ -212,8 +219,9 @@ export async function addMilestone(
   return row!
 }
 
+/** Kept 30 days for Restore on Settings (lib/archive). */
 export async function deleteMilestone(exec: Executor, id: string): Promise<void> {
-  await exec.delete(milestones).where(eq(milestones.id, id))
+  await exec.update(milestones).set({ deletedAt: new Date() }).where(eq(milestones.id, id))
 }
 
 // ─── links ───────────────────────────────────────────────────────────────────
@@ -222,7 +230,7 @@ export async function listLinks(exec: Executor, projectId: string): Promise<Proj
   return exec
     .select()
     .from(projectLinks)
-    .where(eq(projectLinks.projectId, projectId))
+    .where(and(eq(projectLinks.projectId, projectId), notDeleted(projectLinks)))
     .orderBy(asc(projectLinks.createdAt))
 }
 
@@ -257,8 +265,9 @@ export async function addLink(
   return row!
 }
 
+/** Kept 30 days for Restore on Settings (lib/archive). */
 export async function deleteLink(exec: Executor, id: string): Promise<void> {
-  await exec.delete(projectLinks).where(eq(projectLinks.id, id))
+  await exec.update(projectLinks).set({ deletedAt: new Date() }).where(eq(projectLinks.id, id))
 }
 
 /** A context's projects for a picker: in tree order, each name indented by its depth. */

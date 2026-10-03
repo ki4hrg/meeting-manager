@@ -54,6 +54,20 @@ const timestamps = {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }
 
+/* Archive, then delete (docs/SPEC.md, item 9). Archived, a row leaves every
+   list, picker and name lookup, but what points at it still reads it.
+   Deleted, it is gone from every screen and query, and is removed for good
+   30 days later (lib/archive/purge.ts). */
+const shelved = {
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}
+
+/* Kept 30 days after a delete, for Restore; no archive step of its own. */
+const deletable = {
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}
+
 // ─── sign-in ─────────────────────────────────────────────────────────────────
 
 /* One user. /setup creates it and then closes; nothing assumes the count beyond that. */
@@ -193,6 +207,7 @@ export const contexts = pgTable(
     name: text('name').notNull(),
     sortOrder: integer('sort_order').notNull().default(0),
     ...timestamps,
+    ...shelved,
   },
   (t) => [uniqueIndex('contexts_name_key').on(sql`lower(${t.name})`)],
 )
@@ -206,6 +221,7 @@ export const people = pgTable(
     /* The one row that is John. "I owe" and "owed to me" are read against it. */
     isSelf: boolean('is_self').notNull().default(false),
     ...timestamps,
+    ...shelved,
   },
   (t) => [
     uniqueIndex('people_self_key').on(t.isSelf).where(sql`${t.isSelf}`),
@@ -239,6 +255,7 @@ export const groups = pgTable(
       .references(() => contexts.id),
     name: text('name').notNull(),
     ...timestamps,
+    ...shelved,
   },
   (t) => [uniqueIndex('groups_name_key').on(t.contextId, sql`lower(${t.name})`)],
 )
@@ -260,6 +277,23 @@ export const groupMembers = pgTable(
   ],
 )
 
+/* A distribution list's addresses. An address is on one person or one group, never both. */
+export const groupEmails = pgTable(
+  'group_emails',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('group_emails_email_key').on(sql`lower(${t.email})`),
+    index('group_emails_group_idx').on(t.groupId),
+  ],
+)
+
 // ─── projects ────────────────────────────────────────────────────────────────
 
 export const projects = pgTable(
@@ -275,6 +309,7 @@ export const projects = pgTable(
     /* A project within another, in the same context, any depth, no cycles. */
     parentId: uuid('parent_id').references((): AnyPgColumn => projects.id, { onDelete: 'set null' }),
     ...timestamps,
+    ...shelved,
   },
   (t) => [
     uniqueIndex('projects_name_key').on(t.contextId, sql`lower(${t.name})`),
@@ -292,6 +327,7 @@ export const milestones = pgTable(
     title: text('title').notNull(),
     dueOn: date('due_on'),
     ...timestamps,
+    ...deletable,
   },
   (t) => [index('milestones_project_idx').on(t.projectId)],
 )
@@ -305,6 +341,7 @@ export const projectLinks = pgTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     label: text('label').notNull(),
     url: text('url').notNull(),
+    ...deletable,
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('project_links_project_idx').on(t.projectId)],
@@ -354,7 +391,12 @@ export const items = pgTable(
     targetProjectId: uuid('target_project_id').references((): AnyPgColumn => projects.id, {
       onDelete: 'set null',
     }),
+    /* Parked for later: off "I owe" and "Waiting on" until later_on (never,
+       when null) or until its deadline comes close. Neither is a deadline. */
+    parkedAt: timestamp('parked_at', { withTimezone: true }),
+    laterOn: date('later_on'),
     ...timestamps,
+    ...deletable,
   },
   (t) => [
     check(
@@ -433,7 +475,7 @@ export type SkeletonSection = {
 }
 
 /*
- * A recurring meeting: its roster, default projects, group, standing agenda
+ * A recurring meeting: its roster, default projects, groups, standing agenda
  * and generated-block defaults. A calendar recurring event maps to one series.
  */
 export const series = pgTable(
@@ -444,7 +486,6 @@ export const series = pgTable(
       .notNull()
       .references(() => contexts.id),
     name: text('name').notNull(),
-    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
     /* The calendar's id for the recurring event (Google's recurringEventId). */
     calendarSeriesId: text('calendar_series_id'),
     skeleton: jsonb('skeleton').$type<SkeletonSection[]>().notNull().default([]),
@@ -453,6 +494,7 @@ export const series = pgTable(
       .notNull()
       .default({ followUps: false, sinceLast: false, lookahead: false }),
     ...timestamps,
+    ...shelved,
   },
   (t) => [
     uniqueIndex('series_name_key').on(t.contextId, sql`lower(${t.name})`),
@@ -475,6 +517,20 @@ export const seriesPeople = pgTable(
       .references(() => people.id, { onDelete: 'cascade' }),
   },
   (t) => [primaryKey({ columns: [t.seriesId, t.personId] })],
+)
+
+/* Groups on the roster: each carries to every meeting of the series. */
+export const seriesGroups = pgTable(
+  'series_groups',
+  {
+    seriesId: uuid('series_id')
+      .notNull()
+      .references(() => series.id, { onDelete: 'cascade' }),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.seriesId, t.groupId] }), index('series_groups_group_idx').on(t.groupId)],
 )
 
 export const seriesProjects = pgTable(
@@ -506,7 +562,6 @@ export const meetings = pgTable(
       .notNull()
       .references(() => contexts.id),
     seriesId: uuid('series_id').references(() => series.id, { onDelete: 'set null' }),
-    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
     parentMeetingId: uuid('parent_meeting_id').references((): AnyPgColumn => meetings.id, {
       onDelete: 'cascade',
     }),
@@ -518,7 +573,12 @@ export const meetings = pgTable(
     calendarEventId: text('calendar_event_id'),
     /* Null inherits the series' blocks. */
     blocks: jsonb('blocks').$type<BlockSettings>(),
+    /* When who was there was settled: by the roll call, or the first look
+       after the meeting ended. Until then its groups stand for their members
+       as they are; from then on meeting_people is the record. */
+    attendanceAt: timestamp('attendance_at', { withTimezone: true }),
     ...timestamps,
+    ...shelved,
   },
   (t) => [
     /* One meeting per calendar event: attaching a stub cannot make a duplicate. */
@@ -547,8 +607,23 @@ export const meetingPeople = pgTable(
   ],
 )
 
-/* Someone on a series' roster left off one of its meetings ("Adlene is out
-   this week"), so a later roster change does not put them back. */
+/* A meeting's groups. Live until its attendance is settled (meetings.attendance_at). */
+export const meetingGroups = pgTable(
+  'meeting_groups',
+  {
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.meetingId, t.groupId] }), index('meeting_groups_group_idx').on(t.groupId)],
+)
+
+/* Someone expected at a meeting and left off it alone ("Adlene is out this
+   week"): from the series' roster or one of its groups. A later roster or
+   group change does not put them back. */
 export const meetingAbsences = pgTable(
   'meeting_absences',
   {
@@ -881,6 +956,7 @@ export const documents = pgTable(
     /* Markdown. */
     body: text('body').notNull().default(''),
     ...timestamps,
+    ...deletable,
   },
   (t) => [
     index('documents_project_idx').on(t.projectId),

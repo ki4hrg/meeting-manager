@@ -1,3 +1,4 @@
+import { ArchivedSection } from '@/components/archive/Archive'
 import { FormModal } from '@/components/forms'
 import { CardGrid, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -14,6 +15,7 @@ import { createGroupAction } from '../actions'
 export default async function GroupsPage() {
   const context = await requireContext()
   const groups = await listGroups(db, context.id)
+  const archived = await listGroups(db, context.id, 'archived')
   const counts = await openCounts(db, context.id)
 
   return (
@@ -56,6 +58,10 @@ export default async function GroupsPage() {
           })}
         </CardGrid>
       )}
+      <ArchivedSection
+        icon="group"
+        rows={archived.map((group) => ({ id: group.id, name: group.name, href: `/groups/${group.id}` }))}
+      />
     </>
   )
 }

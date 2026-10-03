@@ -437,7 +437,7 @@ describe('buildExtractionInput', () => {
         { id: w.sarah.id, name: 'Sarah Jones' },
         { id: w.tom.id, name: 'Tom Baker' },
       ]),
-      group: null,
+      groups: [],
       projects: [{ id: w.retreat.id, name: 'Retreat' }],
     })
     expect(input.meeting.people).toHaveLength(2)
@@ -521,7 +521,7 @@ describe('buildExtractionInput', () => {
     const { note } = await paste(meeting.id, 'notes')
 
     const input = await buildExtractionInput(db, note.id)
-    expect(input.meeting.group).toEqual({ id: w.staff.id, name: 'Staff' })
+    expect(input.meeting.groups).toEqual([{ id: w.staff.id, name: 'Staff' }])
     expect(input.openItems.map((item) => item.text)).toEqual(['For the staff'])
   })
 

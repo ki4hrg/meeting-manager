@@ -1,3 +1,4 @@
+import { ArchivedSection } from '@/components/archive/Archive'
 import { FormModal } from '@/components/forms'
 import { CardGrid, LinkCard } from '@/components/ui/Card'
 import { Field, Input } from '@/components/ui/Field'
@@ -13,6 +14,7 @@ import { createPersonAction } from '../actions'
 export default async function PeoplePage() {
   const context = await requireContext()
   const people = await listPeople(db)
+  const archived = await listPeople(db, 'archived')
   const counts = await openCounts(db, context.id)
 
   return (
@@ -62,6 +64,10 @@ export default async function PeoplePage() {
           )
         })}
       </CardGrid>
+      <ArchivedSection
+        icon="person"
+        rows={archived.map((person) => ({ id: person.id, name: person.name, href: `/people/${person.id}`, meta: person.email ?? undefined }))}
+      />
     </>
   )
 }

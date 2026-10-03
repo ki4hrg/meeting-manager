@@ -2,9 +2,10 @@
 
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { NotFoundError, ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
-import { groups, people, projects, series, seriesPeople, seriesProjects } from '../db/schema'
+import { groups, people, projects, series, seriesGroups, seriesPeople, seriesProjects } from '../db/schema'
 import type { BlockSettings, SkeletonSection } from '../db/schema'
 import { parseOutline, type OutlineItem } from '../agenda/outline'
+import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 import { getContext } from '../directory/contexts'
 import { carryRoster, rosterOf } from './roster'
 
@@ -15,21 +16,22 @@ export type SeriesView = {
   id: string
   contextId: string
   name: string
-  group: { id: string; name: string } | null
+  /** Groups on its roster: each carries to every meeting. */
+  groups: { id: string; name: string }[]
   calendarSeriesId: string | null
   skeleton: SkeletonSection[]
   blocks: BlockSettings
   people: { id: string; name: string }[]
   projects: { id: string; name: string }[]
+  archivedAt: Date | null
 }
 
 // ─── reading ─────────────────────────────────────────────────────────────────
 
 async function loadViews(exec: Executor, where: SQL | undefined): Promise<SeriesView[]> {
   const query = exec
-    .select({ series: series, groupName: groups.name })
+    .select({ series: series })
     .from(series)
-    .leftJoin(groups, eq(groups.id, series.groupId))
     .where(where)
     .orderBy(sql`lower(${series.name})`)
 
@@ -49,6 +51,13 @@ async function loadViews(exec: Executor, where: SQL | undefined): Promise<Series
     .innerJoin(people, eq(people.id, seriesPeople.personId))
     .where(inArray(seriesPeople.seriesId, seriesIds))
     .orderBy(asc(people.name))
+
+  const groupRows = await exec
+    .select({ seriesId: seriesGroups.seriesId, groupId: groups.id, groupName: groups.name })
+    .from(seriesGroups)
+    .innerJoin(groups, eq(groups.id, seriesGroups.groupId))
+    .where(inArray(seriesGroups.seriesId, seriesIds))
+    .orderBy(asc(groups.name))
 
   const projectRows = await exec
     .select({
@@ -77,35 +86,40 @@ async function loadViews(exec: Executor, where: SQL | undefined): Promise<Series
     bySeriesProjects.set(row.seriesId, list)
   }
 
-  return rows.map(({ series: s, groupName }) => ({
+  return rows.map(({ series: s }) => ({
     id: s.id,
     contextId: s.contextId,
     name: s.name,
-    group: s.groupId ? { id: s.groupId, name: groupName ?? '' } : null,
+    groups: groupRows.filter((row) => row.seriesId === s.id).map((row) => ({ id: row.groupId, name: row.groupName })),
     calendarSeriesId: s.calendarSeriesId,
     skeleton: s.skeleton,
     blocks: s.blocks,
     people: bySeriesPeople.get(s.id) ?? [],
     projects: bySeriesProjects.get(s.id) ?? [],
+    archivedAt: s.archivedAt,
   }))
 }
 
 export async function getSeries(exec: Executor, id: string): Promise<SeriesView> {
-  const [view] = await loadViews(exec, eq(series.id, id))
+  const [view] = await loadViews(exec, and(eq(series.id, id), notDeleted(series)))
   if (!view) throw new NotFoundError('Series', id)
   return view
 }
 
-export async function listSeries(exec: Executor, contextId: string): Promise<SeriesView[]> {
+export async function listSeries(
+  exec: Executor,
+  contextId: string,
+  shelf: Shelf = 'live',
+): Promise<SeriesView[]> {
   await getContext(exec, contextId)
-  return loadViews(exec, eq(series.contextId, contextId))
+  return loadViews(exec, and(eq(series.contextId, contextId), onShelf(series, shelf)))
 }
 
 export async function findSeriesByCalendar(
   exec: Executor,
   calendarSeriesId: string,
 ): Promise<SeriesView | null> {
-  const [view] = await loadViews(exec, eq(series.calendarSeriesId, calendarSeriesId))
+  const [view] = await loadViews(exec, and(eq(series.calendarSeriesId, calendarSeriesId), notDeleted(series)))
   return view ?? null
 }
 
@@ -137,12 +151,12 @@ async function assertProjectIn(exec: Executor, projectId: string, contextId: str
 
 async function assertNameFree(exec: Executor, contextId: string, name: string, exceptId?: string) {
   const [taken] = await exec
-    .select({ id: series.id })
+    .select({ id: series.id, archivedAt: series.archivedAt, deletedAt: series.deletedAt })
     .from(series)
     .where(and(eq(series.contextId, contextId), sql`lower(${series.name}) = lower(${name})`))
     .limit(1)
   if (taken && taken.id !== exceptId) {
-    throw new ValidationError(`There is already a series called ${name}.`)
+    throw new ValidationError(`There is already a series called ${name}${shelvedNote(taken)}.`)
   }
 }
 
@@ -223,6 +237,8 @@ export async function createSeries(
   input: {
     contextId: string
     name: string
+    /** Its groups; `groupId` is one. */
+    groupIds?: string[]
     groupId?: string
     personIds?: string[]
     projectIds?: string[]
@@ -236,7 +252,8 @@ export async function createSeries(
   await getContext(exec, input.contextId)
   await assertNameFree(exec, input.contextId, name)
 
-  if (input.groupId) await assertGroupIn(exec, input.groupId, input.contextId)
+  const groupIds = [...new Set([...(input.groupIds ?? []), ...(input.groupId ? [input.groupId] : [])])]
+  for (const groupId of groupIds) await assertGroupIn(exec, groupId, input.contextId)
   // A project named twice is one project, not a primary-key violation.
   const projectIds = [...new Set(input.projectIds ?? [])]
   for (const projectId of projectIds) {
@@ -268,7 +285,6 @@ export async function createSeries(
       .values({
         contextId: input.contextId,
         name,
-        groupId: input.groupId,
         skeleton,
         blocks: cleanBlocks(input.blocks ?? { followUps: false, sinceLast: false, lookahead: false }),
         calendarSeriesId: input.calendarSeriesId ? blankToNull(input.calendarSeriesId) : null,
@@ -285,6 +301,9 @@ export async function createSeries(
         projectIds.map((projectId) => ({ seriesId: row!.id, projectId })),
       )
     }
+    if (groupIds.length) {
+      await tx.insert(seriesGroups).values(groupIds.map((groupId) => ({ seriesId: row!.id, groupId })))
+    }
 
     return getSeries(tx, row!.id)
   })
@@ -296,6 +315,8 @@ export async function updateSeries(
   id: string,
   input: {
     name?: string
+    /** Replaces its groups; `groupId` sets one, or none with null. */
+    groupIds?: string[]
     groupId?: string | null
     skeleton?: SkeletonSection[]
     blocks?: BlockSettings
@@ -304,9 +325,15 @@ export async function updateSeries(
 ): Promise<SeriesView> {
   const view = await getSeries(exec, id)
 
-  if (input.groupId !== undefined && input.groupId !== null) {
-    await assertGroupIn(exec, input.groupId, view.contextId)
-  }
+  const groupIds =
+    input.groupIds !== undefined
+      ? [...new Set(input.groupIds)]
+      : input.groupId !== undefined
+        ? input.groupId
+          ? [input.groupId]
+          : []
+        : undefined
+  for (const groupId of groupIds ?? []) await assertGroupIn(exec, groupId, view.contextId)
   if (input.calendarSeriesId !== undefined && input.calendarSeriesId !== null) {
     const [taken] = await exec
       .select({ id: series.id })
@@ -329,7 +356,6 @@ export async function updateSeries(
     await assertNameFree(exec, view.contextId, name, id)
     patch.name = name
   }
-  if (input.groupId !== undefined) patch.groupId = input.groupId
   if (input.skeleton !== undefined) patch.skeleton = cleanSkeleton(input.skeleton)
   if (input.blocks !== undefined) patch.blocks = cleanBlocks(input.blocks)
   if (input.calendarSeriesId !== undefined) {
@@ -343,7 +369,13 @@ export async function updateSeries(
       .update(series)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(series.id, id))
-    if (input.groupId !== undefined) await carryRoster(tx, SERIES_ACTOR, id, rosterOf(view))
+    if (groupIds !== undefined) {
+      await tx.delete(seriesGroups).where(eq(seriesGroups.seriesId, id))
+      if (groupIds.length > 0) {
+        await tx.insert(seriesGroups).values(groupIds.map((groupId) => ({ seriesId: id, groupId })))
+      }
+      await carryRoster(tx, SERIES_ACTOR, id, rosterOf(view))
+    }
     return getSeries(tx, id)
   })
 }
@@ -401,7 +433,29 @@ export async function setSeriesProjects(
   })
 }
 
+/** Gone at once. What a person removes is archived, then deleted (lib/archive). */
 export async function deleteSeries(exec: Executor, id: string): Promise<void> {
   await getSeries(exec, id)
   await exec.delete(series).where(eq(series.id, id))
+}
+
+/**
+ * Add people and groups to a series' roster, keeping who is on it: someone
+ * added to one of its meetings, joining the rest. The roster's change reaches
+ * its meetings not yet over, as any roster change does.
+ */
+export async function addToRoster(
+  exec: Executor,
+  seriesId: string,
+  personIds: string[],
+  groupIds: string[] = [],
+): Promise<SeriesView> {
+  const view = await getSeries(exec, seriesId)
+  const people = view.people.map((person) => person.id)
+  const groups = view.groups.map((group) => group.id)
+  const newPeople = personIds.filter((id) => !people.includes(id))
+  const newGroups = groupIds.filter((id) => !groups.includes(id))
+  if (newPeople.length > 0) await setSeriesPeople(exec, seriesId, [...people, ...newPeople])
+  if (newGroups.length > 0) await updateSeries(exec, seriesId, { groupIds: [...groups, ...newGroups] })
+  return getSeries(exec, seriesId)
 }

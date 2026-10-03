@@ -12,7 +12,7 @@
         { "id": "b3000000-0000-4000-8000-000000000003", "name": "Margaret Chen" },
         { "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" }
       ],
-      "group": { "id": "c3000000-0000-4000-8000-000000000001", "name": "Campaign Committee" },
+      "groups": [{ "id": "c3000000-0000-4000-8000-000000000001", "name": "Campaign Committee" }],
       "projects": [{ "id": "d1000000-0000-4000-8000-000000000002", "name": "Capital campaign" }]
     },
     "self": { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },

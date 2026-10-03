@@ -1,3 +1,6 @@
+import { RollCall } from '@/components/meetings/RollCall'
+import { rollCall, settleIfOver } from '@/lib/meetings/attendance'
+import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { CopyButton } from '@/components/CopyButton'
 import { FormModal } from '@/components/forms'
@@ -8,7 +11,7 @@ import { MeetingFields, WhenFields } from '@/components/meetings/MeetingFields'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { Suggestions } from '@/components/meetings/Suggestions'
 import { QuickAdd } from '@/components/QuickAdd'
-import { Section } from '@/components/ui/Card'
+import { Card, Section } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
@@ -34,10 +37,10 @@ import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context
 import {
   addSectionAction,
   addSessionAction,
-  deleteMeetingAction,
   importOutlineAction,
   moveMeetingAction,
   openMeetingAction,
+  settleAttendanceAction,
   updateMeetingAction,
 } from '../actions'
 
@@ -49,7 +52,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   const { user, self, today } = await viewer()
   const timeZone = user.timeZone
 
-  const meeting = await getMeeting(db, id).catch((err) => {
+  let meeting = await getMeeting(db, id).catch((err) => {
     if (err instanceof NotFoundError) notFound()
     throw err
   })
@@ -70,6 +73,12 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   for (const one of rollup ? meeting.sessions : [meeting]) {
     if (!isOver(one)) await placeAutomatic(db, webActor(user), one.id)
   }
+  /* The first look after it ended settles who was there, if no roll call did. */
+  if (await settleIfOver(db, id)) meeting = await getMeeting(db, id)
+  // While it is under way, who is here is taken here.
+  const underWay =
+    !rollup && !meeting.attendanceAt && meeting.startsAt !== null && meeting.startsAt <= new Date() && !isOver(meeting)
+  const roll = underWay ? await rollCall(db, id) : []
 
   const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, pending] = await Promise.all([
     getAgenda(db, id, { timeZone }),
@@ -168,9 +177,10 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     </FormModal>
   )
 
+  const archived = !!meeting.archivedAt
+
   return (
     <>
-
       <PageHeader
         title={meeting.title}
         crumbs={[
@@ -209,101 +219,111 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                 contexts={contexts.filter((one) => one.id !== context.id)}
               />
             )}
-            <FormModal
-              action={deleteMeetingAction}
-              title="Delete meeting"
-              icon="trash"
-              variant="secondary"
-              submit="Delete"
-              danger
-            >
-              <input type="hidden" name="id" value={meeting.id} />
-            </FormModal>
+            {archived ? null : <ArchiveButton kind="meeting" id={meeting.id} />}
           </div>
         }
       />
+      {archived ? <ArchivedBar kind="meeting" id={meeting.id} /> : null}
+      <Muted archived={archived}>
 
-      <div className="mb-8 flex flex-wrap items-center gap-2">
-        {meeting.startsAt ? (
-          <span className="mr-1 flex items-center gap-1.5 text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
-            <Icon name="meeting" className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-            {formatSpan(meeting.startsAt, meeting.endsAt, timeZone, today)}
-          </span>
-        ) : (
-          <Badge tone="amber">Undated</Badge>
-        )}
-        {meeting.series ? (
-          <Chip href={`/series/${meeting.series.id}`} icon="refresh">
-            {meeting.series.name}
-          </Chip>
-        ) : null}
-        {meeting.group ? (
-          <Chip href={`/groups/${meeting.group.id}`} icon="group">
-            {meeting.group.name}
-          </Chip>
-        ) : null}
-        {/* John is at every meeting: first, and never on its list of people. */}
-        {self ? (
-          <Chip href={`/people/${self.id}`} icon="person">
-            Me
-          </Chip>
-        ) : null}
-        {meeting.people.map((person) => (
-          <Chip key={person.id} href={`/people/${person.id}`} icon="person">
-            {person.name}
-          </Chip>
-        ))}
-        {meeting.projects.map((project) => (
-          <Chip key={project.id} href={`/projects/${project.id}`} icon="project">
-            {project.name}
-          </Chip>
-        ))}
-      </div>
-
-      {rollup ? (
-        <>
-          {/* What was on the meeting itself before it had sessions. */}
-          {agenda.nodes.length > 0 ? (
-            <Section title="Agenda">
-              <AgendaCard agenda={agenda} today={today} people={leaders} />
-            </Section>
+        <div className="mb-8 flex flex-wrap items-center gap-2">
+          {meeting.startsAt ? (
+            <span className="mr-1 flex items-center gap-1.5 text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
+              <Icon name="meeting" className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+              {formatSpan(meeting.startsAt, meeting.endsAt, timeZone, today)}
+            </span>
+          ) : (
+            <Badge tone="amber">Undated</Badge>
+          )}
+          {meeting.series ? (
+            <Chip href={`/series/${meeting.series.id}`} icon="refresh">
+              {meeting.series.name}
+            </Chip>
           ) : null}
-          <Section title="Sessions" count={sessions.length} action={addSession}>
-            <div className="flex flex-col gap-6">
-              {sessions.map((session) => (
-                <SessionAgenda
-                  key={session.id}
-                  session={session}
-                  agenda={session.agenda}
-                  today={today}
-                  timeZone={timeZone}
-                  people={leaders}
-                  sessions={sessions}
-                  tools={agendaTools(session.id)}
-                />
-              ))}
-            </div>
-          </Section>
-        </>
-      ) : (
-        <>
-          <Section title="Agenda" action={agendaTools(meeting.id)}>
-            <AgendaCard agenda={agenda} today={today} people={leaders} sessions={parent?.sessions} />
-          </Section>
-          <Suggestions candidates={candidates} meetingId={meeting.id} />
-        </>
-      )}
+          {/* John is at every meeting: first, and never on its list of people. */}
+          {self ? (
+            <Chip href={`/people/${self.id}`} icon="person">
+              Me
+            </Chip>
+          ) : null}
+          {/* A group stands for its members until who was there is settled; then they are named. */}
+          {meeting.groups.map((group) => (
+            <Chip key={group.id} href={`/groups/${group.id}`} icon="group">
+              {group.name}
+            </Chip>
+          ))}
+          {(meeting.attendanceAt ? meeting.attendees : meeting.people).map((person) => (
+            <Chip key={person.id} href={`/people/${person.id}`} icon="person">
+              {person.name}
+            </Chip>
+          ))}
+          {meeting.projects.map((project) => (
+            <Chip key={project.id} href={`/projects/${project.id}`} icon="project">
+              {project.name}
+            </Chip>
+          ))}
+        </div>
 
-      <Blocks
-        meetingId={meeting.id}
-        settings={meeting.blocks}
-        blocks={blocks}
-        today={today}
-        timeZone={timeZone}
-      />
+        {underWay ? (
+          <Section title="Attendance">
+            <Card>
+              <RollCall
+                action={settleAttendanceAction}
+                meetingId={meeting.id}
+                entries={roll}
+                people={people
+                  .filter((person) => !person.isSelf)
+                  .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
+              />
+            </Card>
+          </Section>
+        ) : null}
 
-      {/* One level only: a session has no sessions of its own. */}
-      {rollup || parent ? null : <Section title="Sessions" count={0} action={addSession}>{null}</Section>}
+        {rollup ? (
+          <>
+            {/* What was on the meeting itself before it had sessions. */}
+            {agenda.nodes.length > 0 ? (
+              <Section title="Agenda">
+                <AgendaCard agenda={agenda} today={today} people={leaders} />
+              </Section>
+            ) : null}
+            <Section title="Sessions" count={sessions.length} action={addSession}>
+              <div className="flex flex-col gap-6">
+                {sessions.map((session) => (
+                  <SessionAgenda
+                    key={session.id}
+                    session={session}
+                    agenda={session.agenda}
+                    today={today}
+                    timeZone={timeZone}
+                    people={leaders}
+                    sessions={sessions}
+                    tools={agendaTools(session.id)}
+                  />
+                ))}
+              </div>
+            </Section>
+          </>
+        ) : (
+          <>
+            <Section title="Agenda" action={agendaTools(meeting.id)}>
+              <AgendaCard agenda={agenda} today={today} people={leaders} sessions={parent?.sessions} />
+            </Section>
+            <Suggestions candidates={candidates} meetingId={meeting.id} />
+          </>
+        )}
+
+        <Blocks
+          meetingId={meeting.id}
+          settings={meeting.blocks}
+          blocks={blocks}
+          today={today}
+          timeZone={timeZone}
+        />
+
+        {/* One level only: a session has no sessions of its own. */}
+        {rollup || parent ? null : <Section title="Sessions" count={0} action={addSession}>{null}</Section>}
+      </Muted>
     </>
   )
 }

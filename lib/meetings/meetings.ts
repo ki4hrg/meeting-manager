@@ -16,16 +16,20 @@ import {
 import {
   groupMembers,
   groups,
+  meetingAbsences,
+  meetingGroups,
   meetings,
   meetingPeople,
   meetingProjects,
   people,
   projects,
   series,
+  seriesGroups,
   seriesPeople,
   seriesProjects,
   type BlockSettings,
 } from '../db/schema'
+import { notDeleted, onShelf, type Shelf } from '../db/shelf'
 import { getContext } from '../directory/contexts'
 import { getProject } from '../projects/projects'
 
@@ -36,14 +40,25 @@ export type MeetingView = {
   startsAt: Date | null
   endsAt: Date | null
   series: { id: string; name: string } | null
-  group: { id: string; name: string } | null
+  /** Its groups. Until attendance is settled, each stands for its members as they are now. */
+  groups: { id: string; name: string }[]
   parentMeetingId: string | null
   calendarId: string | null
   calendarEventId: string | null
   blocks: BlockSettings
+  /** The people on it by name, without John. */
   people: { id: string; name: string }[]
+  /**
+   * Who is at it, without John: its people and, until attendance is settled,
+   * its groups' members, less anyone left off it alone. Once settled, its
+   * people are the record.
+   */
+  attendees: { id: string; name: string }[]
+  /** When who was there was settled; null while its groups are live. */
+  attendanceAt: Date | null
   projects: { id: string; name: string }[]
   sessions: { id: string; title: string; startsAt: Date | null; endsAt: Date | null }[]
+  archivedAt: Date | null
 }
 
 // ─── reading ─────────────────────────────────────────────────────────────────
@@ -60,11 +75,9 @@ async function loadViews(
       meeting: meetings,
       seriesName: series.name,
       seriesBlocks: series.blocks,
-      groupName: groups.name,
     })
     .from(meetings)
     .leftJoin(series, eq(series.id, meetings.seriesId))
-    .leftJoin(groups, eq(groups.id, meetings.groupId))
     .where(where)
     .$dynamic()
 
@@ -87,6 +100,32 @@ async function loadViews(
     .where(inArray(meetingPeople.meetingId, meetingIds))
     .orderBy(asc(people.name))
 
+  const groupRows = await exec
+    .select({ meetingId: meetingGroups.meetingId, groupId: groups.id, groupName: groups.name })
+    .from(meetingGroups)
+    .innerJoin(groups, eq(groups.id, meetingGroups.groupId))
+    .where(inArray(meetingGroups.meetingId, meetingIds))
+    .orderBy(asc(groups.name))
+
+  /* Live groups' members, for the meetings whose attendance is not settled. */
+  const live = rows.filter((row) => row.meeting.attendanceAt === null).map((row) => row.meeting.id)
+  const liveGroupIds = [...new Set(groupRows.filter((row) => live.includes(row.meetingId)).map((row) => row.groupId))]
+  const memberRows =
+    liveGroupIds.length === 0
+      ? []
+      : await exec
+          .select({ groupId: groupMembers.groupId, personId: people.id, name: people.name, isSelf: people.isSelf })
+          .from(groupMembers)
+          .innerJoin(people, eq(people.id, groupMembers.personId))
+          .where(and(inArray(groupMembers.groupId, liveGroupIds), notDeleted(people)))
+  const absenceRows =
+    live.length === 0
+      ? []
+      : await exec
+          .select({ meetingId: meetingAbsences.meetingId, personId: meetingAbsences.personId })
+          .from(meetingAbsences)
+          .where(inArray(meetingAbsences.meetingId, live))
+
   const projectRows = await exec
     .select({
       meetingId: meetingProjects.meetingId,
@@ -107,7 +146,7 @@ async function loadViews(
       parentMeetingId: meetings.parentMeetingId,
     })
     .from(meetings)
-    .where(inArray(meetings.parentMeetingId, meetingIds))
+    .where(and(inArray(meetings.parentMeetingId, meetingIds), onShelf(meetings)))
     .orderBy(asc(meetings.startsAt), asc(meetings.createdAt))
 
   const byMeetingPeople = new Map<string, { id: string; name: string }[]>()
@@ -126,6 +165,26 @@ async function loadViews(
     byMeetingProjects.set(row.meetingId, list)
   }
 
+  const byMeetingGroups = new Map<string, { id: string; name: string }[]>()
+  for (const row of groupRows) {
+    const list = byMeetingGroups.get(row.meetingId) ?? []
+    list.push({ id: row.groupId, name: row.groupName })
+    byMeetingGroups.set(row.meetingId, list)
+  }
+  const attendeesOf = (meetingId: string, settled: boolean) => {
+    const own = byMeetingPeople.get(meetingId) ?? []
+    if (settled) return own
+    const absent = new Set(absenceRows.filter((row) => row.meetingId === meetingId).map((row) => row.personId))
+    const groupIds = new Set((byMeetingGroups.get(meetingId) ?? []).map((group) => group.id))
+    const byId = new Map(own.map((person) => [person.id, person]))
+    for (const member of memberRows) {
+      if (groupIds.has(member.groupId) && !member.isSelf && !absent.has(member.personId) && !byId.has(member.personId)) {
+        byId.set(member.personId, { id: member.personId, name: member.name })
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }
+
   const byParent = new Map<string, MeetingView['sessions']>()
   for (const row of sessionRows) {
     const list = byParent.get(row.parentMeetingId!) ?? []
@@ -133,14 +192,14 @@ async function loadViews(
     byParent.set(row.parentMeetingId!, list)
   }
 
-  return rows.map(({ meeting: m, seriesName, seriesBlocks, groupName }) => ({
+  return rows.map(({ meeting: m, seriesName, seriesBlocks }) => ({
     id: m.id,
     contextId: m.contextId,
     title: m.title,
     startsAt: m.startsAt,
     endsAt: m.endsAt,
     series: m.seriesId ? { id: m.seriesId, name: seriesName ?? '' } : null,
-    group: m.groupId ? { id: m.groupId, name: groupName ?? '' } : null,
+    groups: byMeetingGroups.get(m.id) ?? [],
     parentMeetingId: m.parentMeetingId,
     calendarId: m.calendarId,
     calendarEventId: m.calendarEventId,
@@ -148,8 +207,11 @@ async function loadViews(
     blocks:
       m.blocks ?? seriesBlocks ?? { followUps: false, sinceLast: false, lookahead: false },
     people: byMeetingPeople.get(m.id) ?? [],
+    attendees: attendeesOf(m.id, m.attendanceAt !== null),
+    attendanceAt: m.attendanceAt,
     projects: byMeetingProjects.get(m.id) ?? [],
     sessions: byParent.get(m.id) ?? [],
+    archivedAt: m.archivedAt,
   }))
 }
 
@@ -170,7 +232,7 @@ export function isOver(
 }
 
 export async function getMeeting(exec: Executor, id: string): Promise<MeetingView> {
-  const [view] = await loadViews(exec, eq(meetings.id, id))
+  const [view] = await loadViews(exec, and(eq(meetings.id, id), notDeleted(meetings)))
   if (!view) throw new NotFoundError('Meeting', id)
   return view
 }
@@ -179,7 +241,8 @@ export async function findMeetingByEvent(
   exec: Executor,
   calendarEventId: string,
 ): Promise<MeetingView | null> {
-  const [view] = await loadViews(exec, eq(meetings.calendarEventId, calendarEventId))
+  /* An archived meeting still holds its event: archiving one is how an event is put away. */
+  const [view] = await loadViews(exec, and(eq(meetings.calendarEventId, calendarEventId), notDeleted(meetings)))
   return view ?? null
 }
 
@@ -195,6 +258,8 @@ export type MeetingFilter = {
   between?: { from: Date; to: Date }
   now?: Date
   limit?: number
+  /** Live by default; `archived` for the collapsed Archived section. */
+  shelf?: Shelf
 }
 
 export async function listMeetings(
@@ -203,7 +268,7 @@ export async function listMeetings(
 ): Promise<MeetingView[]> {
   await getContext(exec, filter.contextId)
   const now = filter.now ?? new Date()
-  const conditions: SQL[] = [eq(meetings.contextId, filter.contextId)]
+  const conditions: SQL[] = [eq(meetings.contextId, filter.contextId), onShelf(meetings, filter.shelf)]
 
   if (filter.topLevelOnly) {
     conditions.push(sql`${meetings.parentMeetingId} is null`)
@@ -230,12 +295,20 @@ export async function listMeetings(
     conditions.push(eq(meetings.seriesId, filter.seriesId))
   }
   if (filter.groupId) {
-    conditions.push(eq(meetings.groupId, filter.groupId))
+    conditions.push(
+      sql`exists (select 1 from ${meetingGroups} where ${meetingGroups.meetingId} = ${meetings.id} and ${meetingGroups.groupId} = ${filter.groupId})`,
+    )
   }
 
+  /* At it by name, or through one of its groups while those are live and
+     they were not left off it. */
   if (filter.personId) {
     conditions.push(
-      sql`exists (select 1 from ${meetingPeople} where ${meetingPeople.meetingId} = ${meetings.id} and ${meetingPeople.personId} = ${filter.personId})`,
+      sql`(exists (select 1 from ${meetingPeople} where ${meetingPeople.meetingId} = ${meetings.id} and ${meetingPeople.personId} = ${filter.personId})
+        or (${meetings.attendanceAt} is null
+          and exists (select 1 from ${meetingGroups} join ${groupMembers} on ${groupMembers.groupId} = ${meetingGroups.groupId}
+            where ${meetingGroups.meetingId} = ${meetings.id} and ${groupMembers.personId} = ${filter.personId})
+          and not exists (select 1 from ${meetingAbsences} where ${meetingAbsences.meetingId} = ${meetings.id} and ${meetingAbsences.personId} = ${filter.personId})))`,
     )
   }
 
@@ -277,6 +350,7 @@ export async function meetingsNear(
     exec,
     and(
       eq(meetings.contextId, contextId),
+      onShelf(meetings),
       sql`${meetings.parentMeetingId} is null`,
       sql`(${meetings.startsAt} is null or ${meetings.startsAt} between ${from}::timestamptz and ${to}::timestamptz)`,
     ),
@@ -339,7 +413,7 @@ async function assertMeetingIn(exec: Executor, meetingId: string, contextId: str
 async function defaultTitle(
   exec: Executor,
   seriesId: string | undefined,
-  groupId: string | undefined,
+  groupIds: string[],
   personIds: string[] | undefined,
 ): Promise<string> {
   if (seriesId) {
@@ -362,9 +436,13 @@ async function defaultTitle(
     }
   }
 
-  if (groupId) {
-    const [g] = await exec.select({ name: groups.name }).from(groups).where(eq(groups.id, groupId))
-    if (g) return g.name
+  if (groupIds.length > 0) {
+    const named = await exec
+      .select({ name: groups.name })
+      .from(groups)
+      .where(inArray(groups.id, groupIds))
+      .orderBy(asc(groups.name))
+    if (named.length > 0) return named.map((g) => g.name).join(' & ')
   }
 
   return 'Meeting'
@@ -379,6 +457,8 @@ export async function createMeeting(
     startsAt?: Date | null
     endsAt?: Date | null
     seriesId?: string
+    /** Its groups; `groupId` is one. Without either, a series' own. */
+    groupIds?: string[]
     groupId?: string
     parentMeetingId?: string
     personIds?: string[]
@@ -391,7 +471,11 @@ export async function createMeeting(
   await getContext(exec, input.contextId)
 
   if (input.seriesId) await assertSeriesIn(exec, input.seriesId, input.contextId)
-  if (input.groupId) await assertGroupIn(exec, input.groupId, input.contextId)
+  const askedGroups =
+    input.groupIds !== undefined || input.groupId !== undefined
+      ? [...new Set([...(input.groupIds ?? []), ...(input.groupId ? [input.groupId] : [])])]
+      : undefined
+  for (const groupId of askedGroups ?? []) await assertGroupIn(exec, groupId, input.contextId)
   if (input.parentMeetingId) {
     await assertMeetingIn(exec, input.parentMeetingId, input.contextId)
     const [parent] = await exec
@@ -434,15 +518,21 @@ export async function createMeeting(
     }
   }
 
-  /* Defaults from series and group */
-  let groupId = input.groupId
+  /* Defaults from the series */
+  let groupIds = askedGroups ?? []
   let personIds = initialPersonIds
   let projectIds = input.projectIds ?? []
 
   if (input.seriesId) {
     const s = await exec.select().from(series).where(eq(series.id, input.seriesId)).limit(1)
     if (s[0]) {
-      if (groupId === undefined) groupId = s[0].groupId ?? undefined
+      if (askedGroups === undefined) {
+        const sg = await exec
+          .select({ groupId: seriesGroups.groupId })
+          .from(seriesGroups)
+          .where(eq(seriesGroups.seriesId, input.seriesId))
+        groupIds = sg.map((x) => x.groupId)
+      }
       if (!input.personIds) {
         const sp = await exec
           .select({ personId: seriesPeople.personId })
@@ -460,16 +550,9 @@ export async function createMeeting(
     }
   }
 
-  const title = input.title ? input.title.trim() : await defaultTitle(exec, input.seriesId, groupId, personIds)
-
-  /* If no explicit people and no series, but there is a group, use group members for the roster */
-  if (!input.personIds && !input.seriesId && groupId) {
-    const members = await exec
-      .select({ personId: groupMembers.personId })
-      .from(groupMembers)
-      .where(eq(groupMembers.groupId, groupId))
-    personIds = members.map((m) => m.personId)
-  }
+  /* A group stands for its members while the meeting is to come; they are
+     not copied onto it until its attendance is settled. */
+  const title = input.title ? input.title.trim() : await defaultTitle(exec, input.seriesId, groupIds, personIds)
 
   return inTransaction(exec, async (tx) => {
     const [m] = await tx
@@ -477,7 +560,6 @@ export async function createMeeting(
       .values({
         contextId: input.contextId,
         seriesId: input.seriesId,
-        groupId,
         parentMeetingId: input.parentMeetingId,
         title,
         startsAt: input.startsAt ?? null,
@@ -500,6 +582,10 @@ export async function createMeeting(
       )
     }
 
+    if (groupIds.length > 0) {
+      await tx.insert(meetingGroups).values(groupIds.map((groupId) => ({ meetingId: m!.id, groupId })))
+    }
+
     return getMeeting(tx, m!.id)
   })
 }
@@ -513,19 +599,27 @@ export async function updateMeeting(
     startsAt?: Date | null
     endsAt?: Date | null
     seriesId?: string | null
+    /** Replaces its groups; `groupId` sets one, or none with null. */
+    groupIds?: string[]
     groupId?: string | null
     blocks?: BlockSettings | null
   },
 ): Promise<MeetingView> {
   const m = await getMeeting(exec, id)
+  const groupIds =
+    input.groupIds !== undefined
+      ? [...new Set(input.groupIds)]
+      : input.groupId !== undefined
+        ? input.groupId
+          ? [input.groupId]
+          : []
+        : undefined
 
   if (input.seriesId !== undefined && input.seriesId !== null) {
     await assertSeriesIn(exec, input.seriesId, m.contextId)
   }
 
-  if (input.groupId !== undefined && input.groupId !== null) {
-    await assertGroupIn(exec, input.groupId, m.contextId)
-  }
+  for (const groupId of groupIds ?? []) await assertGroupIn(exec, groupId, m.contextId)
 
   /* Checked against what the meeting will hold once the patch is applied, so
      clearing the start, or moving only one end, cannot leave an end without a
@@ -550,7 +644,6 @@ export async function updateMeeting(
   if (input.startsAt !== undefined) patch.startsAt = input.startsAt
   if (end !== m.endsAt) patch.endsAt = end
   if (input.seriesId !== undefined) patch.seriesId = input.seriesId
-  if (input.groupId !== undefined) patch.groupId = input.groupId
   if (input.blocks !== undefined) patch.blocks = input.blocks
 
   return inTransaction(exec, async (tx) => {
@@ -558,8 +651,16 @@ export async function updateMeeting(
       .update(meetings)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(meetings.id, id))
+    if (groupIds !== undefined) await setGroupsOf(tx, id, groupIds)
     return getMeeting(tx, id)
   })
+}
+
+async function setGroupsOf(exec: Executor, meetingId: string, groupIds: string[]) {
+  await exec.delete(meetingGroups).where(eq(meetingGroups.meetingId, meetingId))
+  if (groupIds.length > 0) {
+    await exec.insert(meetingGroups).values(groupIds.map((groupId) => ({ meetingId, groupId })))
+  }
 }
 
 export async function setMeetingPeople(
@@ -674,6 +775,10 @@ export async function detachFromEvent(
   return getMeeting(exec, id)
 }
 
+/**
+ * Gone at once, for a meeting an accepted proposal made and then took back.
+ * What a person removes is archived, then deleted (lib/archive).
+ */
 export async function deleteMeeting(
   exec: Executor,
   _actor: ActorContext,
@@ -699,6 +804,7 @@ export async function previousOccurrence(
       .where(
         and(
           eq(meetings.seriesId, meeting.series.id),
+          onShelf(meetings),
           sql`${meetings.startsAt} < ${now.toISOString()}::timestamp with time zone`,
           sql`${meetings.startsAt} is not null`,
         ),
@@ -716,6 +822,7 @@ export async function previousOccurrence(
     .where(
       and(
         eq(meetings.seriesId, meeting.series.id),
+        onShelf(meetings),
         sql`${meetings.startsAt} < ${meeting.startsAt?.toISOString()}::timestamp with time zone`,
       ),
     )
@@ -736,7 +843,11 @@ export async function nextOccurrence(
     .select({ id: meetings.id })
     .from(meetings)
     .where(
-      and(eq(meetings.seriesId, seriesId), sql`${meetings.startsAt} >= ${then.toISOString()}::timestamp with time zone`),
+      and(
+        eq(meetings.seriesId, seriesId),
+        onShelf(meetings),
+        sql`${meetings.startsAt} >= ${then.toISOString()}::timestamp with time zone`,
+      ),
     )
     .orderBy(asc(meetings.startsAt))
     .limit(1)

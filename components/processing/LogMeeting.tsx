@@ -2,7 +2,7 @@ import { logMeetingAction } from '@/app/(app)/meetings/processing-actions'
 import { FormModal } from '@/components/forms'
 import { WhenFields } from '@/components/meetings/MeetingFields'
 import { CheckList } from '@/components/ui/CheckList'
-import { Field, Input, Select, Textarea } from '@/components/ui/Field'
+import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PartyPicker } from './PartyPicker'
 
@@ -36,7 +36,10 @@ export function LogMeeting({
       <PartyPicker
         label="People"
         name="people"
-        options={people.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+        options={[
+          ...people.map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
+          ...groups.map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
+        ]}
       />
       <Field label="Notes" required>
         <Textarea name="notes" rows={10} required placeholder={'D: \nQ: \nA: \nT: '} />
@@ -52,18 +55,6 @@ export function LogMeeting({
             <Input name="title" />
           </Field>
           <WhenFields timeZone={timeZone} />
-          {groups.length > 0 ? (
-            <Field label="Group">
-              <Select name="groupId" defaultValue="">
-                <option value="">—</option>
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : null}
           <CheckList label="Projects" name="projectIds" options={projects} />
         </div>
       </details>

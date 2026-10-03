@@ -1,8 +1,9 @@
 /* People are global; one row is John himself. */
 
-import { asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { NotFoundError, ValidationError, inTransaction, type Executor } from '../core/types'
-import { people, personEmails } from '../db/schema'
+import { groupEmails, groups, people, personEmails } from '../db/schema'
+import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 
 export type Person = {
   id: string
@@ -12,6 +13,7 @@ export type Person = {
   email: string | null
   /** Every address, the primary first. Invitees are matched against all of them. */
   emails: string[]
+  archivedAt: Date | null
 }
 
 async function withEmails(
@@ -38,6 +40,7 @@ async function withEmails(
       id: row.id,
       name: row.name,
       isSelf: row.isSelf,
+      archivedAt: row.archivedAt,
       email: primary?.email ?? null,
       emails: primary
         ? [primary.email, ...own.filter((email) => email !== primary).map((email) => email.email)]
@@ -46,13 +49,21 @@ async function withEmails(
   })
 }
 
-export async function listPeople(exec: Executor): Promise<Person[]> {
-  const rows = await exec.select().from(people).orderBy(sql`lower(${people.name})`)
+export async function listPeople(exec: Executor, shelf: Shelf = 'live'): Promise<Person[]> {
+  const rows = await exec
+    .select()
+    .from(people)
+    .where(onShelf(people, shelf))
+    .orderBy(sql`lower(${people.name})`)
   return withEmails(exec, rows)
 }
 
 export async function getPerson(exec: Executor, id: string): Promise<Person> {
-  const [row] = await exec.select().from(people).where(eq(people.id, id)).limit(1)
+  const [row] = await exec
+    .select()
+    .from(people)
+    .where(and(eq(people.id, id), notDeleted(people)))
+    .limit(1)
   if (!row) throw new NotFoundError('Person', id)
   return (await withEmails(exec, [row]))[0]!
 }
@@ -64,10 +75,29 @@ function cleanEmail(value: string | null | undefined): string | null {
   return email
 }
 
+/* An address on a group's list is refused for a person, naming the group. */
+async function assertNotOnGroup(exec: Executor, email: string): Promise<void> {
+  const [group] = await exec
+    .select({ name: groups.name })
+    .from(groupEmails)
+    .innerJoin(groups, eq(groups.id, groupEmails.groupId))
+    .where(sql`lower(${groupEmails.email}) = ${email}`)
+    .limit(1)
+  if (group) throw new ValidationError(`${email} already belongs to ${group.name}.`)
+}
+
 /** Who has an address already, if anyone. */
-async function holderOf(exec: Executor, email: string): Promise<{ personId: string; name: string } | null> {
+async function holderOf(
+  exec: Executor,
+  email: string,
+): Promise<{ personId: string; name: string; archivedAt: Date | null; deletedAt: Date | null } | null> {
   const [taken] = await exec
-    .select({ personId: personEmails.personId, name: people.name })
+    .select({
+      personId: personEmails.personId,
+      name: people.name,
+      archivedAt: people.archivedAt,
+      deletedAt: people.deletedAt,
+    })
     .from(personEmails)
     .innerJoin(people, eq(people.id, personEmails.personId))
     .where(sql`lower(${personEmails.email}) = ${email}`)
@@ -75,8 +105,11 @@ async function holderOf(exec: Executor, email: string): Promise<{ personId: stri
   return taken ?? null
 }
 
-function belongsTo(email: string, holder: { name: string }): ValidationError {
-  return new ValidationError(`${email} already belongs to ${holder.name}.`)
+function belongsTo(
+  email: string,
+  holder: { name: string; archivedAt: Date | null; deletedAt: Date | null },
+): ValidationError {
+  return new ValidationError(`${email} already belongs to ${holder.name}${shelvedNote(holder)}.`)
 }
 
 /* The address the person form edits: it becomes the primary, replacing the old one. */
@@ -84,6 +117,7 @@ async function setPrimaryEmail(exec: Executor, personId: string, email: string |
   if (email) {
     const taken = await holderOf(exec, email)
     if (taken && taken.personId !== personId) throw belongsTo(email, taken)
+    if (!taken) await assertNotOnGroup(exec, email)
     if (taken) {
       await exec
         .update(personEmails)
@@ -136,6 +170,16 @@ export async function updatePerson(
   })
 }
 
+/** Every address on someone not deleted: what invitees are matched against. */
+export async function liveEmails(exec: Executor): Promise<Array<typeof personEmails.$inferSelect>> {
+  const rows = await exec
+    .select({ email: personEmails })
+    .from(personEmails)
+    .innerJoin(people, eq(people.id, personEmails.personId))
+    .where(notDeleted(people))
+  return rows.map((row) => row.email)
+}
+
 export async function findSelf(exec: Executor): Promise<Person | null> {
   const [row] = await exec.select().from(people).where(eq(people.isSelf, true)).limit(1)
   return row ? (await withEmails(exec, [row]))[0]! : null
@@ -185,6 +229,7 @@ export async function addPersonEmail(exec: Executor, personId: string, value: st
     if (taken.personId !== personId) throw belongsTo(email, taken)
     return
   }
+  await assertNotOnGroup(exec, email)
   const [has] = await exec
     .select({ id: personEmails.id })
     .from(personEmails)

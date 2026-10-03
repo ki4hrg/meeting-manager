@@ -137,7 +137,7 @@ export function renderMeeting(input: ExtractionInput): string {
     `title: ${meeting.title}`,
     `when: ${meeting.startsAt ?? 'undated'}`,
     `people (besides John): ${names(meeting.people)}`,
-    `group: ${meeting.group?.name ?? 'none'}`,
+    `groups: ${names(meeting.groups)}`,
     `projects: ${names(meeting.projects)}`,
   ].join('\n')
 

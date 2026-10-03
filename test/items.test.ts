@@ -12,10 +12,12 @@ import {
   getThread,
   listItems,
   openCounts,
+  parkItem,
   recordDecision,
   reopenItem,
   setItemParties,
   supersedeDecision,
+  unparkItem,
   updateItem,
 } from '../lib/items/items'
 import { db, resetBetweenTests } from './helpers/db'
@@ -138,17 +140,22 @@ describe('lifecycle', () => {
     expect((await dropItem(db, actor, action.id)).status).toBe('dropped')
   })
 
-  it('deletes an item that stands alone, and refuses one in a thread', async () => {
+  it('deletes a closed item that stands alone, and refuses an open one or one in a thread', async () => {
     const { parish } = await makeWorld()
     const mistake = await createItem(db, actor, { contextId: parish.id, text: 'test' })
+    await expect(deleteItem(db, actor, mistake.id)).rejects.toThrow('done or drop it first')
+    await dropItem(db, actor, mistake.id)
     await deleteItem(db, actor, mistake.id)
     await expect(getItem(db, mistake.id)).rejects.toThrow()
+    expect(await listItems(db, { contextId: parish.id })).toEqual([])
 
     const parent = await createItem(db, actor, { contextId: parish.id, text: 'the first' })
     const child = await createItem(db, actor, { contextId: parish.id, text: 'the next', parentItemId: parent.id })
-    await expect(deleteItem(db, actor, parent.id)).rejects.toThrow('Drop it instead')
-    await expect(deleteItem(db, actor, child.id)).rejects.toThrow('Drop it instead')
-    expect((await getItem(db, parent.id)).status).toBe('open')
+    await dropItem(db, actor, parent.id)
+    await dropItem(db, actor, child.id)
+    await expect(deleteItem(db, actor, parent.id)).rejects.toThrow('part of the record')
+    await expect(deleteItem(db, actor, child.id)).rejects.toThrow('part of the record')
+    expect((await getItem(db, parent.id)).status).toBe('dropped')
   })
 
   it('keeps a decision out of the open states', async () => {
@@ -170,6 +177,45 @@ describe('lifecycle', () => {
     await expect(
       supersedeDecision(db, actor, decision.id, { text: 'again' }),
     ).rejects.toThrow('already been superseded')
+  })
+})
+
+describe('later', () => {
+  it('parks an open item with or without a day, and brings it back', async () => {
+    const { parish } = await makeWorld()
+    const item = await createItem(db, actor, { contextId: parish.id, text: 'Reimagine the journal' })
+
+    const parked = await parkItem(db, actor, item.id)
+    expect(parked.parkedAt).toBeInstanceOf(Date)
+    expect(parked.laterOn).toBeNull()
+
+    const dated = await parkItem(db, actor, item.id, { until: '2027-01-04' })
+    expect(dated.laterOn).toBe('2027-01-04')
+    expect(dated.parkedAt).toEqual(parked.parkedAt)
+
+    const back = await unparkItem(db, actor, item.id)
+    expect(back).toMatchObject({ parkedAt: null, laterOn: null })
+
+    const types = (await getThread(db, item.id)).events.map((event) => event.type)
+    expect(types).toEqual(['created', 'parked', 'parked', 'unparked'])
+  })
+
+  it('is cleared when the item closes, and refused on a closed item', async () => {
+    const { parish } = await makeWorld()
+    const item = await createItem(db, actor, { contextId: parish.id, text: 'Christmas lunch', kind: 'action' })
+    await parkItem(db, actor, item.id, { until: '2026-12-01' })
+    await completeItem(db, actor, item.id)
+    expect(await getItem(db, item.id)).toMatchObject({ parkedAt: null, laterOn: null })
+
+    await expect(parkItem(db, actor, item.id)).rejects.toBeInstanceOf(ValidationError)
+    const reopened = await reopenItem(db, actor, item.id)
+    expect(reopened.parkedAt).toBeNull()
+  })
+
+  it('refuses a bad day', async () => {
+    const { parish } = await makeWorld()
+    const item = await createItem(db, actor, { contextId: parish.id, text: 'x' })
+    await expect(parkItem(db, actor, item.id, { until: 'soon' })).rejects.toBeInstanceOf(ValidationError)
   })
 })
 

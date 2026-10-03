@@ -22,7 +22,8 @@
  */
 
 import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
-import { isOver } from '../meetings/meetings'
+import { onShelf } from '../db/shelf'
+import { getMeeting, isOver } from '../meetings/meetings'
 import {
   NotFoundError,
   ValidationError,
@@ -30,15 +31,7 @@ import {
   type ActorContext,
   type Executor,
 } from '../core/types'
-import {
-  agendaLines,
-  groups,
-  meetingDismissals,
-  meetingPeople,
-  meetingProjects,
-  meetings,
-  people,
-} from '../db/schema'
+import { agendaLines, meetingDismissals, meetingProjects, meetings } from '../db/schema'
 import { getItem, isOpen, listItems, type ItemView } from '../items/items'
 import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 
@@ -76,7 +69,7 @@ async function isNextOccurrence(
   const [next] = await exec
     .select({ id: meetings.id })
     .from(meetings)
-    .where(and(eq(meetings.seriesId, meeting.seriesId), gte(meetings.startsAt, now)))
+    .where(and(eq(meetings.seriesId, meeting.seriesId), onShelf(meetings), gte(meetings.startsAt, now)))
     .orderBy(asc(meetings.startsAt))
     .limit(1)
   return next?.id === meeting.id
@@ -87,7 +80,7 @@ async function sessionsOf(exec: Executor, meetingId: string) {
   return exec
     .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt })
     .from(meetings)
-    .where(eq(meetings.parentMeetingId, meetingId))
+    .where(and(eq(meetings.parentMeetingId, meetingId), onShelf(meetings)))
     .orderBy(sql`${meetings.startsAt} asc nulls last`, asc(meetings.createdAt))
 }
 
@@ -108,7 +101,7 @@ export async function nextForProject(
   projectId: string,
   now: Date,
 ): Promise<string | null> {
-  const tree = await listProjects(exec, contextId)
+  const tree = await listProjects(exec, contextId, 'all')
   const family = [projectId, ...descendantIds(tree, [projectId])]
   const carrying = await exec
     .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt, createdAt: meetings.createdAt })
@@ -117,6 +110,7 @@ export async function nextForProject(
       and(
         eq(meetings.contextId, contextId),
         isNull(meetings.parentMeetingId),
+        onShelf(meetings),
         inArray(
           meetings.id,
           exec
@@ -159,7 +153,7 @@ export async function getCandidates(
 ): Promise<Candidates> {
   const meeting = await loadMeeting(exec, meetingId)
 
-  const [placed, dismissals, attendees, projectRows, groupRow] = await Promise.all([
+  const [placed, dismissals, view, projectRows] = await Promise.all([
     exec
       .select({ itemId: agendaLines.itemId })
       .from(agendaLines)
@@ -168,41 +162,35 @@ export async function getCandidates(
       .select({ itemId: meetingDismissals.itemId })
       .from(meetingDismissals)
       .where(eq(meetingDismissals.meetingId, meetingId)),
-    exec
-      .select({ id: people.id, isSelf: people.isSelf })
-      .from(meetingPeople)
-      .innerJoin(people, eq(people.id, meetingPeople.personId))
-      .where(eq(meetingPeople.meetingId, meetingId)),
+    // Who is at it: its people and, while they are live, its groups' members.
+    getMeeting(exec, meetingId),
     exec
       .select({ projectId: meetingProjects.projectId })
       .from(meetingProjects)
       .where(eq(meetingProjects.meetingId, meetingId)),
-    meeting.groupId
-      ? exec.select({ name: groups.name }).from(groups).where(eq(groups.id, meeting.groupId))
-      : Promise.resolve([]),
   ])
 
   const placedIds = new Set(placed.map((row) => row.itemId))
   const dismissedIds = new Set(dismissals.map((row) => row.itemId))
-  // Defensive: John should never be a row, and must never count as a match.
-  const attendeeIds = new Set(attendees.filter((row) => !row.isSelf).map((row) => row.id))
+  // John is never among them, and must never count as a match.
+  const attendeeIds = new Set(view.attendees.map((row) => row.id))
+  const meetingGroupIds = new Set(view.groups.map((group) => group.id))
   const projectIds = new Set(projectRows.map((row) => row.projectId))
   /* Projects within the meeting's are suggested too; projects they sit within
      are reachable under "more". Neither is ever placed. */
-  const tree = projectIds.size > 0 ? await listProjects(exec, meeting.contextId) : []
+  const tree = projectIds.size > 0 ? await listProjects(exec, meeting.contextId, 'all') : []
   const below = descendantIds(tree, projectIds)
   const above = ancestorIds(tree, projectIds)
   const projectName = new Map(tree.map((project) => [project.id, project.name]))
   /* A meeting with a group is the group's, however few have joined it so far:
      never a 1:1, and what is for one member alone waits under "more". */
-  const solo = attendeeIds.size === 1 && meeting.groupId === null ? [...attendeeIds][0]! : null
+  const solo = attendeeIds.size === 1 && meetingGroupIds.size === 0 ? [...attendeeIds][0]! : null
   /* A one-off calendar event with one invitee may be about anything (a site
      visit, a hold): what is for that person waits as a suggestion there. */
   const chosenSolo =
     meeting.seriesId !== null || meeting.startsAt === null || meeting.calendarEventId === null
       ? solo
       : null
-  const groupName = groupRow[0]?.name ?? ''
   const next = await isNextOccurrence(exec, meeting, now)
   /* What is aimed at the whole of a multi-day meeting comes here when this is
      its next session; the meeting itself, having sessions, takes none of it. */
@@ -248,9 +236,8 @@ export async function getCandidates(
     const viaProject = item.project !== null && projectIds.has(item.project.id)
     const viaChild = item.project !== null && !viaProject && below.has(item.project.id)
     const viaParent = item.project !== null && !viaProject && !viaChild && above.has(item.project.id)
-    const viaGroup =
-      meeting.groupId !== null &&
-      item.parties.some((party) => party.type === 'group' && party.id === meeting.groupId)
+    // Through any of its groups: the first of them the item names.
+    const viaGroup = item.parties.find((party) => party.type === 'group' && meetingGroupIds.has(party.id))
 
     if (dismissedIds.has(item.id)) {
       if (aimedHere || raiseWithSolo || viaProject || viaChild || viaGroup || attendee || viaParent) {
@@ -265,7 +252,7 @@ export async function getCandidates(
     } else if (viaProject || viaChild) {
       push(suggested, { type: 'project', id: item.project!.id, name: item.project!.name }, item)
     } else if (viaGroup) {
-      push(suggested, { type: 'group', id: meeting.groupId!, name: groupName }, item)
+      push(suggested, { type: 'group', id: viaGroup.id, name: viaGroup.name }, item)
     } else if (attendee) {
       /* Matched by the person alone. In a 1:1 that is what they owe, worth
          chasing; in anything larger it could be private, so it waits under
@@ -309,6 +296,9 @@ export async function placeAutomatic(
   now: Date = new Date(),
 ): Promise<number> {
   return inTransaction(exec, async (tx) => {
+    // Put away: nothing more is placed on it.
+    const meeting = await loadMeeting(tx, meetingId)
+    if (meeting.archivedAt || meeting.deletedAt) return 0
     if ((await sessionsOf(tx, meetingId)).length > 0) return 0
     const { toPlace } = await getCandidates(tx, meetingId, now)
     await appendItemLines(

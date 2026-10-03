@@ -32,7 +32,7 @@ function input(over: Partial<ExtractionInput> = {}): ExtractionInput {
       title: 'Staff meeting',
       startsAt: '2026-10-01 10:00',
       people: [SARAH, TOM],
-      group: STAFF,
+      groups: [STAFF],
       projects: [RETREAT],
     },
     self: JOHN,

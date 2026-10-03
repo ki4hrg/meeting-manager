@@ -28,7 +28,9 @@ import {
 import { getAgenda } from '../agenda/lines'
 import {
   agendaLines,
+  contexts,
   groups,
+  meetings,
   notes,
   people,
   processingRuns,
@@ -38,7 +40,9 @@ import {
   type ProposalPayload,
   type RunOutput,
 } from '../db/schema'
+import { notDeleted, onShelf } from '../db/shelf'
 import { findSelf } from '../directory/people'
+import { settleIfOver } from '../meetings/attendance'
 import { isOpen, listItems, type ItemView } from '../items/items'
 import { getMeeting, type MeetingView } from '../meetings/meetings'
 import { getNote, listNotes, meetingOf } from '../notes/notes'
@@ -69,12 +73,24 @@ export async function queueRun(exec: Executor, noteId: string): Promise<Run | nu
   const note = await getNote(exec, noteId)
   // An unfiled note has no context to be read against; it is run once filed.
   if (note.meetingId === null) return null
+  if (!(await inLiveContext(exec, note.meetingId))) return null
   const [row] = await exec
     .insert(processingRuns)
     .values({ noteId, contentHash: note.contentHash })
     .onConflictDoNothing({ target: [processingRuns.noteId, processingRuns.contentHash] })
     .returning()
   return row ?? null
+}
+
+/* Nothing is run in an archived context: its notes wait there until it is restored. */
+async function inLiveContext(exec: Executor, meetingId: string): Promise<boolean> {
+  const [row] = await exec
+    .select({ id: meetings.id })
+    .from(meetings)
+    .innerJoin(contexts, eq(contexts.id, meetings.contextId))
+    .where(and(eq(meetings.id, meetingId), notDeleted(meetings), onShelf(contexts)))
+    .limit(1)
+  return !!row
 }
 
 /**
@@ -131,12 +147,13 @@ async function userTimeZone(exec: Executor): Promise<string | null> {
   return row?.timeZone ?? null
 }
 
-/* Open items the meeting could be about: on its agenda, or involving one of
-   its people, its group or one of its projects. John is not among a meeting's
+/* Open items the meeting could be about: on its agenda, or involving someone
+   at it, one of its groups or one of its projects. John is not among a meeting's
    people, so nothing is pulled in through him alone. Bound to the meeting's
    context by the query itself. */
 async function openItemsFor(exec: Executor, meeting: MeetingView, placed: Set<string>): Promise<ItemView[]> {
-  const personIds = new Set(meeting.people.map((person) => person.id))
+  const personIds = new Set(meeting.attendees.map((person) => person.id))
+  const groupIds = new Set(meeting.groups.map((group) => group.id))
   const projectIds = new Set(meeting.projects.map((project) => project.id))
   const open = await listItems(exec, { contextId: meeting.contextId, open: true })
   return open.filter(
@@ -144,7 +161,7 @@ async function openItemsFor(exec: Executor, meeting: MeetingView, placed: Set<st
       placed.has(item.id) ||
       (item.project !== null && projectIds.has(item.project.id)) ||
       item.parties.some((party) =>
-        party.type === 'person' ? personIds.has(party.id) : party.id === meeting.group?.id,
+        party.type === 'person' ? personIds.has(party.id) : groupIds.has(party.id),
       ),
   )
 }
@@ -204,16 +221,16 @@ export async function buildExtractionInput(exec: Executor, noteId: string): Prom
   const itemText = new Map(openItems.map((item) => [item.id, item.text]))
 
   const [allPeople, contextGroups, contextProjects] = await Promise.all([
-    exec.select({ id: people.id, name: people.name }).from(people).orderBy(asc(people.name)),
+    exec.select({ id: people.id, name: people.name }).from(people).where(onShelf(people)).orderBy(asc(people.name)),
     exec
       .select({ id: groups.id, name: groups.name })
       .from(groups)
-      .where(eq(groups.contextId, meeting.contextId))
+      .where(and(eq(groups.contextId, meeting.contextId), onShelf(groups)))
       .orderBy(asc(groups.name)),
     exec
       .select({ id: projects.id, name: projects.name })
       .from(projects)
-      .where(eq(projects.contextId, meeting.contextId))
+      .where(and(eq(projects.contextId, meeting.contextId), onShelf(projects)))
       .orderBy(asc(projects.name)),
   ])
 
@@ -225,8 +242,8 @@ export async function buildExtractionInput(exec: Executor, noteId: string): Prom
       id: meeting.id,
       title: meeting.title,
       startsAt: meeting.startsAt ? toLocalInput(meeting.startsAt, timeZone).replace('T', ' ') : null,
-      people: meeting.people,
-      group: meeting.group,
+      people: meeting.attendees,
+      groups: meeting.groups,
       projects: meeting.projects,
     },
     self: self ? { id: self.id, name: self.name } : { id: '', name: 'Me' },
@@ -387,6 +404,8 @@ export async function processRun(
       return await finish(exec, runId, { status: 'done', error: 'The note changed before this ran.' })
     }
 
+    // Who was there is settled before the notes are read against it.
+    await settleIfOver(exec, meetingOf(note))
     const meeting = await getMeeting(exec, meetingOf(note))
     const where = { meetingId: meeting.id, noteId: note.id, runId }
 
@@ -464,7 +483,10 @@ export async function processQueued(
   const queued = await exec
     .select({ id: processingRuns.id })
     .from(processingRuns)
-    .where(eq(processingRuns.status, 'queued'))
+    .innerJoin(notes, eq(notes.id, processingRuns.noteId))
+    .innerJoin(meetings, eq(meetings.id, notes.meetingId))
+    .innerJoin(contexts, eq(contexts.id, meetings.contextId))
+    .where(and(eq(processingRuns.status, 'queued'), notDeleted(meetings), onShelf(contexts)))
     .orderBy(asc(processingRuns.createdAt), asc(processingRuns.id))
 
   let processed = 0

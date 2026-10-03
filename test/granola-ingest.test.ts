@@ -483,6 +483,47 @@ describe('the Inbox', () => {
 })
 
 describe('folders', () => {
+  it('holds a note from a folder bound to an archived context, without climbing past it', async () => {
+    const { diocese, granola, ingest, account } = await setUp()
+    const { archive, unarchive } = await import('../lib/archive/archive')
+    const child = folder('fol_child000000000', 'Staff', PARISH)
+    granola.script.folders.push(child)
+    await bindFolder(db, { connectionId: account.id, folderId: child.id, name: 'Staff', contextId: diocese.id })
+    await archive(db, 'context', diocese.id)
+
+    const direct = noteId()
+    granola.script.notes[direct] = note({ id: direct, folder_membership: [dioceseFolder] })
+    expect(await ingest(direct)).toMatchObject({ kind: 'held', reason: 'unbound' })
+
+    // The parish folder above is bound, but the dormant one below stops the climb.
+    const nested = noteId()
+    granola.script.notes[nested] = note({ id: nested, created_at: '2026-10-02T15:00:00Z', folder_membership: [child] })
+    expect(await ingest(nested)).toMatchObject({ kind: 'held', reason: 'unbound' })
+    expect(await everyMeeting()).toEqual([])
+
+    await unarchive(db, 'context', diocese.id)
+    const after = noteId()
+    granola.script.notes[after] = note({ id: after, created_at: '2026-10-03T15:00:00Z', folder_membership: [child] })
+    expect((await getMeeting(db, filed(await ingest(after)).meetingId)).contextId).toBe(diocese.id)
+  })
+
+  it('runs nothing in an archived context, until it is restored', async () => {
+    const { parish, granola, ingest } = await setUp()
+    const { archive, unarchive } = await import('../lib/archive/archive')
+    const id = noteId()
+    granola.script.notes[id] = note({ id, folder_membership: [parishFolder] })
+    granola.script.transcripts[id] = []
+    expect(filed(await ingest(id)).queued).toBe(true)
+
+    // Archiving the parish needs another live context: the diocese is one.
+    await archive(db, 'context', parish.id)
+    expect(await processQueued(db, null)).toEqual({ processed: 0, failed: 0 })
+    expect((await everyRun()).map((run) => run.status)).toEqual(['queued'])
+
+    await unarchive(db, 'context', parish.id)
+    expect((await processQueued(db, null)).processed).toBe(1)
+  })
+
   it('takes the nearest bound folder above an unbound one', async () => {
     const { parish, diocese, granola, ingest, account } = await setUp()
     const child = folder('fol_child000000000', 'Staff', PARISH)

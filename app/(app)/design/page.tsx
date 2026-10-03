@@ -3,16 +3,18 @@ import { CopyButton } from '@/components/CopyButton'
 import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
+import { RollCall } from '@/components/meetings/RollCall'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { UnfiledCard } from '@/components/meetings/UnfiledCard'
 import { WhenInputs } from '@/components/meetings/WhenInputs'
+import { DeleteButton } from '@/components/archive/DeleteButton'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
 import { RunState } from '@/components/processing/RunState'
 import { Button } from '@/components/ui/Button'
-import { Card, CardGrid, CardHeader, LinkCard, Section, Tile } from '@/components/ui/Card'
+import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile } from '@/components/ui/Card'
 import { CheckList } from '@/components/ui/CheckList'
 import { Chip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -214,6 +216,44 @@ export default function DesignPage() {
         </CardGrid>
       </Section>
 
+      <Section title="Attendance">
+        <Card>
+          <RollCall
+            action={sampleAction}
+            meetingId="sample"
+            entries={[
+              { id: 'a', name: 'Sarah Jones', present: true },
+              { id: 'b', name: 'Tom Baker', present: false },
+            ]}
+            people={[{ value: 'c', name: 'Bishop Wright', icon: 'person' }]}
+          />
+        </Card>
+      </Section>
+
+      <Section title="Archive">
+        <Card className="mb-3 flex flex-wrap items-center gap-3 !bg-gray-100 dark:!bg-gray-800/60">
+          <Icon name="archive" className="h-5 w-5 text-gray-500 dark:text-gray-400" label="Archived" />
+          <div className="min-w-0 flex-1" />
+          <Button variant="secondary" size="sm">
+            <Icon name="undo" className="h-4 w-4" />
+            Restore
+          </Button>
+          <DeleteButton action={sampleAction} fields={{}} blockers={[]} takes={['Their name on 2 closed items']} />
+          <DeleteButton action={sampleAction} fields={{}} blockers={['On 1 open item', 'On the Staff weekly roster']} takes={[]} />
+        </Card>
+      </Section>
+
+      <CollapsedSection title="Later" icon="later" count={2}>
+        <CardGrid>
+          <Card>
+            <CardHeader title="Reimagine the journal" meta="Jan 4" />
+          </Card>
+          <Card>
+            <CardHeader title="Staff Christmas lunch" />
+          </Card>
+        </CardGrid>
+      </CollapsedSection>
+
       <Section title="Kinds and status">
         <Card>
           <div className="flex flex-col gap-6">
@@ -257,7 +297,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>

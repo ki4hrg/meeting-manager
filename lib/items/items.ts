@@ -33,6 +33,7 @@ import {
   projects,
   series,
 } from '../db/schema'
+import { notDeleted } from '../db/shelf'
 import { getProject } from '../projects/projects'
 import { getContext } from '../directory/contexts'
 
@@ -73,6 +74,9 @@ export type ItemView = {
   targetMeetingId: string | null
   targetSeriesId: string | null
   targetProjectId: string | null
+  /** Parked for later, and the day it comes back (none: until brought back). */
+  parkedAt: Date | null
+  laterOn: string | null
   createdAt: Date
   updatedAt: Date
   parties: ItemParty[]
@@ -92,6 +96,8 @@ export type ItemEventType =
   | 'superseded'
   | 'targeted'
   | 'discussed'
+  | 'parked'
+  | 'unparked'
 
 export type ItemEvent = {
   id: string
@@ -180,6 +186,8 @@ async function loadViews(exec: Executor, where: SQL | undefined, limit?: number)
     targetMeetingId: item.targetMeetingId,
     targetSeriesId: item.targetSeriesId,
     targetProjectId: item.targetProjectId,
+    parkedAt: item.parkedAt,
+    laterOn: item.laterOn,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     parties: byItem.get(item.id) ?? [],
@@ -187,7 +195,7 @@ async function loadViews(exec: Executor, where: SQL | undefined, limit?: number)
 }
 
 export async function getItem(exec: Executor, id: string): Promise<ItemView> {
-  const [view] = await loadViews(exec, eq(items.id, id))
+  const [view] = await loadViews(exec, and(eq(items.id, id), notDeleted(items)))
   if (!view) throw new NotFoundError('Item', id)
   return view
 }
@@ -222,7 +230,7 @@ function partyExists(party: PartyRef & { role?: PartyRole }): SQL {
 }
 
 export async function listItems(exec: Executor, filter: ItemFilter): Promise<ItemView[]> {
-  const conditions: SQL[] = [eq(items.contextId, filter.contextId)]
+  const conditions: SQL[] = [eq(items.contextId, filter.contextId), notDeleted(items)]
 
   if (filter.ids) {
     if (filter.ids.length === 0) return []
@@ -268,6 +276,7 @@ export async function inboxCount(exec: Executor, contextId: string): Promise<num
     .where(
       and(
         eq(items.contextId, contextId),
+        notDeleted(items),
         inArray(items.status, OPEN_STATUSES),
         sql`${items.projectId} is null`,
         sql`not exists (select 1 from ${itemParties} where ${itemParties.itemId} = ${items.id})`,
@@ -278,7 +287,7 @@ export async function inboxCount(exec: Executor, contextId: string): Promise<num
 
 /** How much is open in a context, for the tiles and list pages. */
 export async function openCounts(exec: Executor, contextId: string): Promise<OpenCounts> {
-  const open = and(eq(items.contextId, contextId), inArray(items.status, OPEN_STATUSES))
+  const open = and(eq(items.contextId, contextId), notDeleted(items), inArray(items.status, OPEN_STATUSES))
 
   const projectRows = await exec
     .select({ id: items.projectId, n: sql<number>`count(*)::int` })
@@ -641,6 +650,49 @@ export async function setItemTarget(
   })
 }
 
+/* Closing an item ends its parking: reopened, it is back on the lists. */
+const NOT_PARKED = { parkedAt: null, laterOn: null }
+
+/**
+ * Park an open item for later: it leaves "I owe" and "Waiting on" until
+ * `until` (the day it comes back on its own), or until brought back when
+ * there is none. A deadline coming close brings it back regardless
+ * (`lib/items/horizon.ts`). Parking again moves the day.
+ */
+export async function parkItem(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  input: { until?: string | null } = {},
+): Promise<ItemView> {
+  const until = parseDay(input.until)
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (!isOpen(item)) throw new ValidationError('Only an open item can wait for later.')
+    if (item.parkedAt && item.laterOn === until) return item
+    await tx
+      .update(items)
+      .set({ parkedAt: item.parkedAt ?? new Date(), laterOn: until, updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'parked', until ? { until } : {})
+    return getItem(tx, id)
+  })
+}
+
+/** Back from later, onto the lists now. */
+export async function unparkItem(exec: Executor, actor: ActorContext, id: string): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (!item.parkedAt) return item
+    await tx
+      .update(items)
+      .set({ ...NOT_PARKED, updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'unparked')
+    return getItem(tx, id)
+  })
+}
+
 /** Raised in a meeting but not finished: the item stays open and the history says so. */
 export async function markDiscussed(
   exec: Executor,
@@ -790,6 +842,7 @@ export async function completeItem(
         status: 'done',
         closedAt: new Date(),
         updatedAt: new Date(),
+        ...NOT_PARKED,
         ...(resolution ? { resolution } : {}),
       })
       .where(eq(items.id, id))
@@ -818,7 +871,7 @@ export async function answerItem(
 
     await tx
       .update(items)
-      .set({ status: 'done', resolution: answer, closedAt: new Date(), updatedAt: new Date() })
+      .set({ status: 'done', resolution: answer, closedAt: new Date(), updatedAt: new Date(), ...NOT_PARKED })
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'answered', { answer })
 
@@ -837,7 +890,7 @@ export async function dropItem(exec: Executor, actor: ActorContext, id: string):
 
     await tx
       .update(items)
-      .set({ status: 'dropped', closedAt: new Date(), updatedAt: new Date() })
+      .set({ status: 'dropped', closedAt: new Date(), updatedAt: new Date(), ...NOT_PARKED })
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'dropped')
     return getItem(tx, id)
@@ -845,23 +898,47 @@ export async function dropItem(exec: Executor, actor: ActorContext, id: string):
 }
 
 /**
- * Gone for good, for what was captured by mistake ("test"). Only an item that
- * stands alone: one that came out of a meeting, or is part of a thread, is
- * part of the record, and is dropped instead.
+ * Deleted, for what was captured by mistake ("test"): kept 30 days for Restore
+ * on Settings, then gone (lib/archive). Done or dropped is an item's archive,
+ * so an open item is closed first. Only an item that stands alone: one that
+ * came out of a meeting, is part of a thread or sits on an agenda is part of
+ * the record, and stays closed instead.
  */
 export async function deleteItem(exec: Executor, _actor: ActorContext, id: string): Promise<void> {
   await inTransaction(exec, async (tx) => {
     const item = await getItem(tx, id)
+    if (isOpen(item)) throw new ValidationError('Mark it done or drop it first.')
     const [linked] = await tx
       .select({ id: items.id })
       .from(items)
       .where(or(eq(items.parentItemId, id), eq(items.supersededByItemId, id)))
       .limit(1)
-    if (item.originMeetingId || item.parentItemId || item.supersededByItemId || linked) {
-      throw new ValidationError('This item is part of the record. Drop it instead.')
+    const [placed] = await tx
+      .select({ id: agendaLines.id })
+      .from(agendaLines)
+      .where(eq(agendaLines.itemId, id))
+      .limit(1)
+    if (item.originMeetingId || item.parentItemId || item.supersededByItemId || linked || placed) {
+      throw new ValidationError('This item is part of the record, so it stays closed.')
     }
-    await tx.delete(items).where(eq(items.id, id))
+    await tx.update(items).set({ deletedAt: new Date() }).where(eq(items.id, id))
   })
+}
+
+/** Whether Delete is on offer for an item: closed and standing alone. */
+export async function canDeleteItem(exec: Executor, item: ItemView): Promise<boolean> {
+  if (isOpen(item) || item.originMeetingId || item.parentItemId || item.supersededByItemId) return false
+  const [linked] = await exec
+    .select({ id: items.id })
+    .from(items)
+    .where(or(eq(items.parentItemId, item.id), eq(items.supersededByItemId, item.id)))
+    .limit(1)
+  const [placed] = await exec
+    .select({ id: agendaLines.id })
+    .from(agendaLines)
+    .where(eq(agendaLines.itemId, item.id))
+    .limit(1)
+  return !linked && !placed
 }
 
 export async function reopenItem(

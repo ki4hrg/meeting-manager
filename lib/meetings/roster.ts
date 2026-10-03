@@ -1,7 +1,7 @@
 /*
  * A series' roster on its meetings.
  *
- * The roster, group and projects are copied onto a meeting when it is
+ * The roster, groups and projects are copied onto a meeting when it is
  * prepped. A later change to them reaches the series' meetings that are not
  * over: at once for a meeting still as the old roster left it, and on request
  * (`syncRoster`) for one edited by hand, which only gains what it lacks. A
@@ -11,19 +11,19 @@
  * as it would have been at prep.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { placeAutomatic } from '../agenda/candidates'
 import type { ActorContext, Executor } from '../core/types'
-import { meetingAbsences, meetingPeople, meetingProjects, meetings } from '../db/schema'
+import { meetingAbsences, meetingGroups, meetingPeople, meetingProjects } from '../db/schema'
 import { getMeeting, isOver, listMeetings, type MeetingView } from './meetings'
 import { getSeries, type SeriesView } from './series'
 
-export type RosterState = { personIds: string[]; groupId: string | null; projectIds: string[] }
+export type RosterState = { personIds: string[]; groupIds: string[]; projectIds: string[] }
 
 export function rosterOf(view: SeriesView): RosterState {
   return {
     personIds: view.people.map((person) => person.id),
-    groupId: view.group?.id ?? null,
+    groupIds: view.groups.map((group) => group.id),
     projectIds: view.projects.map((project) => project.id),
   }
 }
@@ -70,6 +70,19 @@ async function setProjects(exec: Executor, meetingId: string, projectIds: string
   await addProjects(exec, meetingId, projectIds)
 }
 
+async function addGroups(exec: Executor, meetingId: string, groupIds: string[]) {
+  if (groupIds.length === 0) return
+  await exec
+    .insert(meetingGroups)
+    .values(groupIds.map((groupId) => ({ meetingId, groupId })))
+    .onConflictDoNothing()
+}
+
+async function setGroups(exec: Executor, meetingId: string, groupIds: string[]) {
+  await exec.delete(meetingGroups).where(eq(meetingGroups.meetingId, meetingId))
+  await addGroups(exec, meetingId, groupIds)
+}
+
 /**
  * After a series' roster, group or projects changed from `before`: bring along
  * each meeting not yet over whose own list still matches what `before` gave it.
@@ -95,9 +108,9 @@ export async function carryRoster(
       await setPeople(exec, meeting.id, present(after.personIds))
       touched = true
     }
-    const groupId = meeting.group?.id ?? null
-    if (groupId !== after.groupId && groupId === before.groupId) {
-      await exec.update(meetings).set({ groupId: after.groupId, updatedAt: new Date() }).where(eq(meetings.id, meeting.id))
+    const groups = meeting.groups.map((group) => group.id)
+    if (!same(groups, after.groupIds) && same(groups, before.groupIds)) {
+      await setGroups(exec, meeting.id, after.groupIds)
       touched = true
     }
     const projects = meeting.projects.map((project) => project.id)
@@ -118,10 +131,11 @@ export async function carryRoster(
 function lacks(meeting: MeetingView, roster: RosterState, absent: Set<string>): boolean {
   const people = new Set(meeting.people.map((person) => person.id))
   const projects = new Set(meeting.projects.map((project) => project.id))
+  const groups = new Set(meeting.groups.map((group) => group.id))
   return (
     roster.personIds.some((id) => !absent.has(id) && !people.has(id)) ||
     roster.projectIds.some((id) => !projects.has(id)) ||
-    (roster.groupId !== null && meeting.group === null)
+    roster.groupIds.some((id) => !groups.has(id))
   )
 }
 
@@ -161,12 +175,7 @@ export async function joinRoster(
       .onConflictDoNothing()
   }
   await addProjects(exec, meetingId, roster.projectIds)
-  if (roster.groupId && !meeting.group) {
-    await exec
-      .update(meetings)
-      .set({ groupId: roster.groupId, updatedAt: new Date() })
-      .where(and(eq(meetings.id, meetingId), isNull(meetings.groupId)))
-  }
+  await addGroups(exec, meetingId, roster.groupIds)
   if (!isOver(meeting, now)) await placeAutomatic(exec, actor, meetingId, now)
   return true
 }
@@ -188,16 +197,24 @@ export async function syncRoster(
 /**
  * After a meeting's people were set by hand: whoever on its series' roster is
  * not among them is remembered as left off this meeting, and whoever is, is
- * not. A meeting with no series remembers nothing.
+ * not. Who was marked out of one of its groups (the roll call) is left as it
+ * is. A meeting with no series remembers nothing more.
  */
 export async function recordAbsences(exec: Executor, meetingId: string): Promise<void> {
   const meeting = await getMeeting(exec, meetingId)
-  await exec.delete(meetingAbsences).where(eq(meetingAbsences.meetingId, meetingId))
   if (!meeting.series) return
+  const roster = rosterOf(await getSeries(exec, meeting.series.id)).personIds
+  if (roster.length === 0) return
   const present = new Set(meeting.people.map((person) => person.id))
-  const missing = rosterOf(await getSeries(exec, meeting.series.id)).personIds.filter((id) => !present.has(id))
+  await exec
+    .delete(meetingAbsences)
+    .where(and(eq(meetingAbsences.meetingId, meetingId), inArray(meetingAbsences.personId, roster)))
+  const missing = roster.filter((id) => !present.has(id))
   if (missing.length > 0) {
-    await exec.insert(meetingAbsences).values(missing.map((personId) => ({ meetingId, personId })))
+    await exec
+      .insert(meetingAbsences)
+      .values(missing.map((personId) => ({ meetingId, personId })))
+      .onConflictDoNothing()
   }
 }
 

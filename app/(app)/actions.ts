@@ -7,7 +7,7 @@ import { placeItem } from '@/lib/agenda/candidates'
 import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
-import { addMember, createGroup, removeMember, renameGroup } from '@/lib/directory/groups'
+import { addGroupEmail, addMember, createGroup, removeGroupEmail, removeMember, renameGroup } from '@/lib/directory/groups'
 import {
   addPersonEmail,
   createPerson,
@@ -27,11 +27,13 @@ import {
   dropItem,
   getItem,
   isOpen,
+  parkItem,
   recordDecision,
   removeItemParty,
   reopenItem,
   setItemTarget,
   supersedeDecision,
+  unparkItem,
   updateItem,
   type ItemKind,
   type ItemTarget,
@@ -128,6 +130,18 @@ export async function itemStatusAction(formData: FormData): Promise<ActionResult
     else if (op === 'drop') await dropItem(db, actor, id)
     else if (op === 'reopen') await reopenItem(db, actor, id)
     else throw new ValidationError('Unknown change.')
+  })
+}
+
+export async function parkItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await parkItem(db, actor, field(formData, 'id'), { until: field(formData, 'until') })
+  })
+}
+
+export async function unparkItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await unparkItem(db, actor, field(formData, 'id'))
   })
 }
 
@@ -239,6 +253,18 @@ export async function addPersonEmailAction(formData: FormData): Promise<ActionRe
 export async function removePersonEmailAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
     await removePersonEmail(db, field(formData, 'personId'), field(formData, 'email'))
+  })
+}
+
+export async function addGroupEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await addGroupEmail(db, field(formData, 'groupId'), field(formData, 'email'))
+  })
+}
+
+export async function removeGroupEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await removeGroupEmail(db, field(formData, 'groupId'), field(formData, 'email'))
   })
 }
 

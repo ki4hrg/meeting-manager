@@ -9,6 +9,8 @@
  */
 
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or } from 'drizzle-orm'
+import { addDays } from '../core/dates'
+import { notDeleted, onShelf } from '../db/shelf'
 import { NotFoundError, type Executor } from '../core/types'
 import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 import {
@@ -82,7 +84,9 @@ export async function itemsOf(exec: Executor, meeting: Meeting): Promise<ItemVie
   const sessions = await exec
     .select({ id: meetings.id })
     .from(meetings)
-    .where(and(eq(meetings.parentMeetingId, meeting.id), eq(meetings.contextId, meeting.contextId)))
+    .where(
+      and(eq(meetings.parentMeetingId, meeting.id), eq(meetings.contextId, meeting.contextId), onShelf(meetings)),
+    )
   const covered = [meeting.id, ...sessions.map((row) => row.id)]
 
   const placed = await exec
@@ -149,6 +153,7 @@ async function sinceLastFor(
       and(
         eq(meetings.seriesId, meeting.seriesId),
         eq(meetings.contextId, meeting.contextId),
+        onShelf(meetings),
         ne(meetings.id, meeting.id),
         lt(meetings.startsAt, meeting.startsAt ?? now),
       ),
@@ -183,13 +188,6 @@ async function sinceLastFor(
   }
 }
 
-/* Calendar days, so plain date arithmetic: no time zone enters into it. */
-function addDays(day: string, days: number): string {
-  const date = new Date(`${day}T00:00:00Z`)
-  date.setUTCDate(date.getUTCDate() + days)
-  return date.toISOString().slice(0, 10)
-}
-
 async function lookaheadFor(
   exec: Executor,
   meeting: Meeting,
@@ -205,7 +203,7 @@ async function lookaheadFor(
   /* The lookahead reads up and down the project tree: what the projects the
      meeting's sit within, and the ones within them, have coming. Not sideways:
      a sibling's dates are its own. Each row names its project. */
-  const tree = own.length > 0 ? await listProjects(exec, meeting.contextId) : []
+  const tree = own.length > 0 ? await listProjects(exec, meeting.contextId, 'all') : []
   const projectIds = [...new Set([...own, ...ancestorIds(tree, own), ...descendantIds(tree, own)])]
   const until = addDays(today, LOOKAHEAD_DAYS)
 
@@ -227,6 +225,7 @@ async function lookaheadFor(
               eq(projects.contextId, meeting.contextId),
               gte(milestones.dueOn, today),
               lte(milestones.dueOn, until),
+              notDeleted(milestones),
             ),
           )
           .orderBy(asc(milestones.dueOn))
@@ -263,6 +262,7 @@ async function lookaheadFor(
         .where(
           and(
             eq(meetings.contextId, meeting.contextId),
+            onShelf(meetings),
             ne(meetings.id, meeting.id),
             // A multi-day meeting's own sessions are not what comes next.
             or(isNull(meetings.parentMeetingId), ne(meetings.parentMeetingId, meeting.id)),

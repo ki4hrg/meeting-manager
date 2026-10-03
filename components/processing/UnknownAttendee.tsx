@@ -31,11 +31,14 @@ export function UnknownAttendee({
   email,
   name,
   people,
+  groups = [],
 }: {
   meetingId: string
   email: string
   name: string | null
   people: Option[]
+  /** A list address may be a group's. */
+  groups?: Option[]
 }) {
   const [opened, setOpened] = useState(0)
   const [open, setOpen] = useState(false)
@@ -67,9 +70,9 @@ export function UnknownAttendee({
           <Field label="Name">
             <Input name="name" defaultValue={name ?? guess(email)} />
           </Field>
-          <Field label="Person">
+          <Field label={groups.length > 0 ? 'Person or group' : 'Person'}>
             <Select name="party" defaultValue="">
-              <PartyOptions people={people} groups={[]} />
+              <PartyOptions people={people} groups={groups} />
             </Select>
           </Field>
           <div className="flex flex-wrap justify-end gap-2">

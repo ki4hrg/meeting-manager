@@ -1,7 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { agendaLines, meetingDismissals, meetings, series, users } from '../lib/db/schema'
+import { agendaLines, meetingDismissals, meetingGroups, meetings, series, users } from '../lib/db/schema'
 import { createItem, listItems } from '../lib/items/items'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
@@ -43,7 +43,9 @@ type Meeting = {
   ends_at: string | null
   ends_at_local: string | null
   series: Named | null
-  group: Named | null
+  groups: Named[]
+  attendees: Named[]
+  attendance_settled: boolean
   people: Named[]
   projects: Named[]
 }
@@ -61,7 +63,7 @@ type Series = {
   id: string
   context_id: string
   name: string
-  group: Named | null
+  groups: Named[]
   people: Named[]
   projects: Named[]
   skeleton: { title: string; lines: { text: string; minutes: number | null }[] }[]
@@ -225,9 +227,11 @@ describe('prep_meeting', () => {
     // The context came from the group: there is no Staff in the Diocese.
     expect(view.meeting).toMatchObject({
       context_id: world.parish.id,
-      group: { id: world.staff.id, name: 'Staff' },
+      groups: [{ id: world.staff.id, name: 'Staff' }],
     })
-    expect(view.meeting.people.map((person) => person.name)).toEqual(['Sarah Jones', 'Tom Baker'])
+    // The group stands for its members.
+    expect(view.meeting.people).toEqual([])
+    expect(view.meeting.attendees.map((person) => person.name)).toEqual(['Sarah Jones', 'Tom Baker'])
   })
 })
 
@@ -281,8 +285,10 @@ describe('list_meetings', () => {
       ends_at: null,
       ends_at_local: null,
       series: null,
-      group: null,
+      groups: [],
       people: [{ id: world.sarah.id, name: 'Sarah Jones' }],
+      attendees: [{ id: world.sarah.id, name: 'Sarah Jones' }],
+      attendance_settled: false,
       projects: [{ id: world.retreat.id, name: 'Retreat' }],
       parent_meeting_id: null,
     })
@@ -733,7 +739,7 @@ describe('update_meeting', () => {
         { id: world.campaign.id, name: 'Capital campaign' },
         { id: world.retreat.id, name: 'Retreat' },
       ],
-      group: { id: world.staff.id, name: 'Staff' },
+      groups: [{ id: world.staff.id, name: 'Staff' }],
       series: { id: weekly.id, name: 'Weekly' },
       blocks: { follow_ups: false, since_last: false, lookahead: true },
     })
@@ -759,12 +765,13 @@ describe('update_meeting', () => {
       starts_at: null,
       starts_at_local: null,
       ends_at: null,
-      group: null,
+      groups: [],
       series: null,
       title: 'Planning day',
     })
     const [row] = await db.select().from(meetings).where(eq(meetings.id, meeting.id))
-    expect(row).toMatchObject({ startsAt: null, endsAt: null, groupId: null, seriesId: null })
+    expect(row).toMatchObject({ startsAt: null, endsAt: null, seriesId: null })
+    expect(await db.select().from(meetingGroups).where(eq(meetingGroups.meetingId, meeting.id))).toEqual([])
 
     expect(await refusal('update_meeting', { id: meeting.id, people: ['staff'] })).toContain(
       'No person matches staff',
@@ -798,7 +805,7 @@ describe('moving between contexts', () => {
       context_id: world.diocese.id,
       people: [{ id: world.bishop.id, name: 'Bishop Wright' }],
       projects: [{ id: world.synod.id, name: 'Synod' }],
-      group: null,
+      groups: [],
     })
     expect(shape(moved)).toEqual(['Typed'])
     expect(lineOf(moved, 'Typed').private_note).toBe('mine')
@@ -860,7 +867,7 @@ describe('moving between contexts', () => {
     expect(result.series).toMatchObject({
       id: weekly.id,
       context_id: world.diocese.id,
-      group: null,
+      groups: [],
       people: [{ id: world.sarah.id, name: 'Sarah Jones' }],
       projects: [{ id: world.synod.id, name: 'Synod' }],
       skeleton: [{ title: 'Standing', lines: [{ text: 'Diary', minutes: 5 }] }],
@@ -989,7 +996,7 @@ describe('series', () => {
       id: created.id,
       context_id: world.parish.id,
       name: 'Staff meeting',
-      group: { id: world.staff.id, name: 'Staff' },
+      groups: [{ id: world.staff.id, name: 'Staff' }],
       people: [
         { id: world.sarah.id, name: 'Sarah Jones' },
         { id: world.tom.id, name: 'Tom Baker' },
@@ -1025,7 +1032,7 @@ describe('series', () => {
       id: created.id,
       context_id: world.parish.id,
       name: 'Staff weekly',
-      group: null,
+      groups: [],
       people: [{ id: world.sarah.id, name: 'Sarah Jones' }],
       projects: [],
       skeleton: [

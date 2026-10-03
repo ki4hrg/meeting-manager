@@ -1,12 +1,23 @@
 /* Contexts, people, groups and projects: enough to capture against by name. */
 
 import { z } from 'zod'
-import { ValidationError } from '@/lib/core/types'
+import { archive, unarchive } from '../../archive/archive'
+import { ValidationError, type Executor } from '@/lib/core/types'
 import { isUuid, matchName } from '../../core/match'
 import { createContext, listContexts } from '../../directory/contexts'
-import { addMember, createGroup, listGroups, listMembers } from '../../directory/groups'
+import {
+  addGroupEmail,
+  addMember,
+  createGroup,
+  getGroup,
+  listGroupEmails,
+  listGroups,
+  listMembers,
+  renameGroup,
+  setGroupEmails,
+} from '../../directory/groups'
 import { createPerson, listPeople, setPersonEmails, updatePerson } from '../../directory/people'
-import { inferContext, resolvePerson, resolveProject } from '../../directory/resolve'
+import { inferContext, resolveGroup, resolvePerson, resolveProject } from '../../directory/resolve'
 import { openCounts } from '../../items/items'
 import {
   addMilestone,
@@ -128,6 +139,7 @@ export const listGroupsTool = defineTool({
           id: g.id,
           name: g.name,
           members: (await listMembers(exec, g.id)).map((m) => ({ id: m.id, name: m.name })),
+          emails: await listGroupEmails(exec, g.id),
         })),
       ),
     }
@@ -137,12 +149,15 @@ export const listGroupsTool = defineTool({
 export const createGroupTool = defineTool({
   name: 'create_group',
   title: 'Create a group',
-  description: 'Add a group to a context, optionally with members (people by name or id).',
+  description:
+    'Add a group to a context, optionally with members (people by name or id) and the ' +
+    'addresses of its distribution list: an invitee at one brings the group to the meeting.',
   scope: 'meetings:write',
   input: z.object({
     name: z.string().min(1),
     context: contextArg,
     members: z.array(z.string()).optional(),
+    emails: z.array(z.string().min(3)).optional().describe("The group's list addresses."),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -162,14 +177,43 @@ export const createGroupTool = defineTool({
         }
         await addMember(tx, group.id, matches[0]!.id)
       }
+      for (const email of input.emails ?? []) await addGroupEmail(tx, group.id, email)
 
-      return {
-        group: {
-          id: group.id,
-          name: group.name,
-          members: (await listMembers(tx, group.id)).map((m) => ({ id: m.id, name: m.name })),
-        },
-      }
+      return { group: await groupOut(tx, group.id) }
+    }),
+})
+
+async function groupOut(exec: Executor, id: string) {
+  const group = await getGroup(exec, id)
+  return {
+    id: group.id,
+    name: group.name,
+    members: (await listMembers(exec, id)).map((m) => ({ id: m.id, name: m.name })),
+    emails: await listGroupEmails(exec, id),
+  }
+}
+
+export const updateGroupTool = defineTool({
+  name: 'update_group',
+  title: 'Update a group',
+  description:
+    'Rename a group, or set its list addresses (emails replaces them all). Members are ' +
+    'changed on screen.',
+  scope: 'meetings:write',
+  input: z.object({
+    group: z.string().min(1).describe('Group name or id.'),
+    context: contextArg,
+    name: z.string().min(1).optional(),
+    emails: z.array(z.string().min(3)).optional(),
+    idempotency_key: idempotencyKey,
+  }),
+  handler: async (input, context) =>
+    write(context, 'update_group', input, async (tx) => {
+      const target = await inferContext(tx, { context: input.context, parties: [input.group] })
+      const { id } = await resolveGroup(tx, target.id, input.group)
+      if (input.name) await renameGroup(tx, id, input.name)
+      if (input.emails) await setGroupEmails(tx, id, input.emails)
+      return { group: await groupOut(tx, id) }
     }),
 })
 
@@ -291,6 +335,28 @@ export const updateProjectTool = defineTool({
     }),
 })
 
+export const setArchivedTool = defineTool({
+  name: 'set_archived',
+  title: 'Archive or restore',
+  description:
+    'Archive a context, person, group, project, series or meeting, or bring one back. Archived, ' +
+    'it leaves every list and name lookup, but what points at it still reads it. Deleting is ' +
+    'done on screen only. An item is put away by closing it instead.',
+  scope: 'meetings:write',
+  input: z.object({
+    kind: z.enum(['context', 'person', 'group', 'project', 'series', 'meeting']),
+    id: z.uuid(),
+    archived: z.boolean(),
+    idempotency_key: idempotencyKey,
+  }),
+  handler: async (input, context) =>
+    write(context, 'set_archived', input, async (tx) => {
+      if (input.archived) await archive(tx, input.kind, input.id)
+      else await unarchive(tx, input.kind, input.id)
+      return { kind: input.kind, id: input.id, archived: input.archived }
+    }),
+})
+
 export const directoryTools = [
   listContextsTool,
   createContextTool,
@@ -299,7 +365,9 @@ export const directoryTools = [
   updatePersonTool,
   listGroupsTool,
   createGroupTool,
+  updateGroupTool,
   listProjectsTool,
   createProjectTool,
   updateProjectTool,
+  setArchivedTool,
 ]

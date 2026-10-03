@@ -12,7 +12,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { and, asc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import {
   NotFoundError,
   ValidationError,
@@ -242,4 +242,16 @@ export async function moveNote(
       .returning()
     return moved!
   })
+}
+
+/**
+ * Have the next reconcile pass ask Granola about every waiting note again,
+ * though none has changed: after a folder is bound or a context restored, one
+ * of them may now have a home. Dismissed notes stay where they are.
+ */
+export async function recheckHeldNotes(exec: Executor): Promise<void> {
+  await exec
+    .update(notes)
+    .set({ externalUpdatedAt: null })
+    .where(and(isNull(notes.meetingId), isNull(notes.dismissedAt)))
 }

@@ -13,6 +13,7 @@ import { eventsHere, listEventsIn, type CalendarEvent } from '../calendar/feed'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
 import { meetings, series } from '../db/schema'
+import { groupsByEmail } from '../directory/groups'
 import { findSelf } from '../directory/people'
 import {
   attachToEvent,
@@ -74,8 +75,8 @@ export async function prepWithPerson(
 }
 
 /**
- * The same for a group: an undated stub with the group's members as its
- * roster. Nothing places itself by group alone; what is waiting for the group
+ * The same for a group: an undated stub with the group on it, standing for
+ * its members. Nothing places itself by group alone; what is waiting for the group
  * is suggested on the stub. Asking twice returns the same stub.
  */
 export async function prepWithGroup(
@@ -152,6 +153,13 @@ export async function meetingFromNote(
   })
 }
 
+/* The addresses on an invite nobody in the directory has: a group's list, perhaps. */
+function unmatchedEmails(event: CalendarEvent): string[] {
+  return event.attendees
+    .filter((attendee) => !attendee.personId && !attendee.declined)
+    .map((attendee) => attendee.email)
+}
+
 function matchedPeople(event: CalendarEvent): string[] {
   const ids = event.attendees
     .filter((attendee) => attendee.personId && !attendee.declined)
@@ -177,11 +185,15 @@ export async function prepFromEvent(
      is: the series may have been moved out of the calendar's context. */
   const series = event.seriesId ? await findSeriesByCalendar(exec, event.seriesId) : null
   const people = matchedPeople(event)
+  const home = series?.contextId ?? contextId
+  // A list address on the invite brings its group, alongside the series' own.
+  const lists = await groupsByEmail(exec, home, unmatchedEmails(event))
   return prepMeeting(
     exec,
     actor,
     {
-      contextId: series?.contextId ?? contextId,
+      contextId: home,
+      ...(lists.length > 0 ? { groupIds: [...new Set([...(series?.groups.map((g) => g.id) ?? []), ...lists])] } : {}),
       title: event.title,
       startsAt: event.startsAt,
       endsAt: event.endsAt,
@@ -251,6 +263,7 @@ export async function seriesFromEvent(
         contextId,
         name: event.title,
         personIds: matchedPeople(event),
+        groupIds: await groupsByEmail(tx, contextId, unmatchedEmails(event)),
         calendarSeriesId,
       }))
 

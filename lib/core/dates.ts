@@ -25,6 +25,13 @@ export function parseDay(value: string | null | undefined): string | null {
   return trimmed
 }
 
+/** A day so many days on (or back). Calendar days: no time zone enters into it. */
+export function addDays(day: string, days: number): string {
+  const date = new Date(`${day}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
 /** Today in the given zone; null means the instance's own. */
 export function todayIn(timeZone: string | null | undefined, now: Date = new Date()): string {
   // en-CA formats as YYYY-MM-DD.

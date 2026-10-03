@@ -18,7 +18,6 @@ import { db } from '@/lib/db'
 import type { BlockSettings } from '@/lib/db/schema'
 import { markDiscussed } from '@/lib/items/items'
 import {
-  deleteMeeting,
   getMeeting,
   setMeetingPeople,
   setMeetingProjects,
@@ -35,7 +34,9 @@ import {
   prepWithPerson,
   seriesFromEvent,
 } from '@/lib/meetings/prep'
-import { act, field, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { settleAttendance } from '@/lib/meetings/attendance'
+import { addToRoster } from '@/lib/meetings/series'
+import { act, field, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { clearAbsences, joinRoster, recordAbsences } from '@/lib/meetings/roster'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
@@ -91,14 +92,15 @@ export async function createMeetingAction(formData: FormData): Promise<ActionRes
   return thenOpen(
     async (actor, user) => {
       const people = await pickedPeople(db, formData, 'personIds')
+      const groups = pickedGroups(formData, 'personIds')
       const projects = ids(formData, 'projectIds')
       const meeting = await prepMeeting(db, actor, {
         contextId: await contextId(),
         title: field(formData, 'title') || null,
         ...timesFrom(formData, user.timeZone),
         seriesId: field(formData, 'seriesId') || undefined,
-        groupId: field(formData, 'groupId') || undefined,
-        /* Nobody picked leaves the roster to the series or the group. */
+        /* Nobody picked leaves the roster and groups to the series. */
+        ...(groups.length > 0 ? { groupIds: groups } : {}),
         ...(people.length > 0 ? { personIds: people } : {}),
         ...(projects.length > 0 ? { projectIds: projects } : {}),
       })
@@ -121,7 +123,7 @@ export async function addSessionAction(formData: FormData): Promise<ActionResult
         parentMeetingId: parent.id,
         title,
         ...timesFrom(formData, user.timeZone),
-        groupId: parent.group?.id,
+        groupIds: parent.groups.map((group) => group.id),
         personIds: parent.people.map((person) => person.id),
         projectIds: parent.projects.map((project) => project.id),
       })
@@ -141,10 +143,15 @@ export async function updateMeetingAction(formData: FormData): Promise<ActionRes
         title: field(formData, 'title'),
         ...timesFrom(formData, user.timeZone),
         seriesId,
-        groupId: field(formData, 'groupId') || null,
+        groupIds: pickedGroups(formData, 'personIds'),
       })
-      await setMeetingPeople(tx, actor, id, await pickedPeople(tx, formData, 'personIds'))
+      const people = await pickedPeople(tx, formData, 'personIds')
+      await setMeetingPeople(tx, actor, id, people)
       await setMeetingProjects(tx, actor, id, ids(formData, 'projectIds'))
+      // Who was added here joins the series' roster too, when asked.
+      if (seriesId && seriesId === (before.series?.id ?? null) && formData.has('toSeries')) {
+        await addToRoster(tx, seriesId, people, pickedGroups(formData, 'personIds'))
+      }
       /* Within its series, whoever on the roster was taken off is left off
          this meeting alone. Newly in a series, it takes the roster. */
       if (seriesId && seriesId === (before.series?.id ?? null)) {
@@ -155,17 +162,6 @@ export async function updateMeetingAction(formData: FormData): Promise<ActionRes
       }
     })
   })
-}
-
-export async function deleteMeetingAction(formData: FormData): Promise<ActionResult> {
-  let back = '/meetings'
-  const result = await act(async (actor) => {
-    const meeting = await getMeeting(db, field(formData, 'id'))
-    if (meeting.parentMeetingId) back = `/meetings/${meeting.parentMeetingId}`
-    await deleteMeeting(db, actor, meeting.id)
-  })
-  if (!result.error) redirect(back)
-  return result
 }
 
 /* Select the context a meeting lives in, then open it there. */
@@ -372,5 +368,16 @@ export async function dismissCandidateAction(formData: FormData): Promise<Action
 export async function restoreCandidateAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     await restoreCandidate(db, actor, field(formData, 'meetingId'), field(formData, 'itemId'))
+  })
+}
+
+/* The roll call: who is here, and whoever else came. */
+export async function settleAttendanceAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await inTransaction(db, async (tx) => {
+      const present = formData.getAll('present').map(String).filter(Boolean)
+      const added = await pickedPeople(tx, formData, 'personIds')
+      await settleAttendance(tx, field(formData, 'meetingId'), [...present, ...added])
+    })
   })
 }

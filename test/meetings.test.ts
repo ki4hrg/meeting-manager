@@ -43,7 +43,7 @@ describe('series', () => {
     })
     expect(s.people).toEqual([])
     expect(s.projects).toEqual([])
-    expect(s.group).toBeNull()
+    expect(s.groups).toEqual([])
   })
 
   it('creates with people and projects', async () => {
@@ -502,7 +502,7 @@ describe('meetings', () => {
     })
 
     expect(await listMeetings(db, { contextId: parish.id, seriesId: s.id })).toHaveLength(1)
-    /* m2 has group members (sarah, tom) as people, so sarah appears in both */
+    /* m2's group stands for its members (sarah, tom), so sarah is at both */
     expect(await listMeetings(db, { contextId: parish.id, personId: sarah.id })).toHaveLength(2)
     expect(await listMeetings(db, { contextId: parish.id, projectId: retreat.id })).toHaveLength(1)
     expect(await listMeetings(db, { contextId: parish.id, groupId: staff.id })).toHaveLength(1)

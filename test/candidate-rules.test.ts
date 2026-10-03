@@ -116,7 +116,9 @@ describe('a larger meeting', () => {
       projectIds: [w.retreat.id],
       startsAt: new Date('2026-10-06T15:00:00Z'),
     })
-    expect(ids(meeting.people)).toEqual(ids([w.sarah, w.tom]))
+    // The group stands for its members: at it, but not on it by name.
+    expect(meeting.people).toEqual([])
+    expect(ids(meeting.attendees)).toEqual(ids([w.sarah, w.tom]))
 
     const candidates = await getCandidates(db, meeting.id, NOW)
     expect(offered(candidates)).toEqual([staffItem.id])
@@ -954,5 +956,161 @@ describe('the next meeting for a project', () => {
     await expect(
       createItem(db, actor, { contextId: w.diocese.id, text: 'x', target: { projectId: w.retreat.id } }),
     ).rejects.toThrow(/another context/)
+  })
+})
+
+describe('an archived meeting', () => {
+  it('places nothing, and is passed over as a series’ next occurrence and a project’s next meeting', async () => {
+    const w = await makeWorld()
+    const { archive } = await import('../lib/archive/archive')
+    const series = await createSeries(db, { contextId: w.parish.id, name: 'Staff weekly' })
+    const at = (iso: string) =>
+      createMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: new Date(iso), projectIds: [w.retreat.id] })
+    const skipped = await at('2026-10-06T15:00:00Z')
+    const next = await at('2026-10-13T15:00:00Z')
+    const forSeries = await createItem(db, actor, { contextId: w.parish.id, text: 'for staff', target: { seriesId: series.id } })
+    const forProject = await createItem(db, actor, { contextId: w.parish.id, text: 'for the retreat', target: { projectId: w.retreat.id } })
+    const forMeeting = await createItem(db, actor, { contextId: w.parish.id, text: 'for that one', target: { meetingId: skipped.id } })
+
+    await archive(db, 'meeting', skipped.id)
+    expect(await placeAutomatic(db, actor, skipped.id, NOW)).toBe(0)
+    expect(await db.select().from(agendaLines).where(eq(agendaLines.meetingId, skipped.id))).toEqual([])
+    expect(ids((await getCandidates(db, next.id, NOW)).toPlace)).toEqual(ids([forSeries, forProject]))
+    // What was aimed at it alone waits; it is not passed on.
+    expect(ids((await getCandidates(db, next.id, NOW)).toPlace)).not.toContain(forMeeting.id)
+  })
+})
+
+describe('several groups', () => {
+  it('suggests through any of a meeting’s groups, by group, and keeps a member’s own items under more', async () => {
+    const w = await makeWorld()
+    const { createGroup } = await import('../lib/directory/groups')
+    const wardens = await createGroup(db, { contextId: w.parish.id, name: 'Wardens' })
+    await addMember(db, wardens.id, w.bishop.id)
+    const forStaff = await createItem(db, actor, { contextId: w.parish.id, text: 'rota', parties: [{ groupId: w.staff.id, role: 'with' }] })
+    const forWardens = await createItem(db, actor, { contextId: w.parish.id, text: 'roof', parties: [{ groupId: wardens.id, role: 'with' }] })
+    const forTom = await createItem(db, actor, { contextId: w.parish.id, text: 'Tom’s own', parties: [{ personId: w.tom.id, role: 'with' }] })
+    const priv = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'performance concern',
+      dueOn: '2026-10-10',
+      parties: [
+        { personId: w.sarah.id, role: 'owner' },
+        { personId: w.john.id, role: 'with' },
+      ],
+    })
+    // Two groups and someone from outside both.
+    const outsider = await createPerson(db, { name: 'Visiting Speaker' })
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Joint meeting',
+      groupIds: [w.staff.id, wardens.id],
+      personIds: [outsider.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    expect(ids(meeting.attendees)).toEqual(ids([w.sarah, w.tom, w.bishop, outsider]))
+
+    const candidates = await getCandidates(db, meeting.id, NOW)
+    expect(ids(candidates.toPlace)).toEqual([])
+    expect(candidates.suggested.map((group) => group.by.name)).toEqual(['Staff', 'Wardens'])
+    expect(grouped(candidates.suggested)).toEqual(ids([forStaff, forWardens]))
+    expect(grouped(candidates.more)).toEqual(ids([forTom, priv]))
+
+    // Nothing private reaches its blocks or recap.
+    await placeAutomatic(db, actor, meeting.id, NOW)
+    expect(await blockItemIds(meeting.id)).toEqual([])
+    const recap = await getRecap(db, meeting.id, { today: TODAY, timeZone: null, now: NOW, selfId: w.john.id })
+    expect(renderRecap(recap)).not.toContain('performance concern')
+  })
+
+  it('stand for their members until attendance is settled, then the record stays as it was', async () => {
+    const w = await makeWorld()
+    const { settleAttendance } = await import('../lib/meetings/attendance')
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    const late = await createPerson(db, { name: 'New Curate' })
+    const forHer = await createItem(db, actor, { contextId: w.parish.id, text: 'welcome', parties: [{ personId: late.id, role: 'with' }] })
+
+    // Joining the group before it is settled puts her at it, and her items under more.
+    await addMember(db, w.staff.id, late.id)
+    expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([w.sarah, w.tom, late]))
+    expect(grouped((await getCandidates(db, meeting.id, NOW)).more)).toEqual([forHer.id])
+
+    // Settled with Tom out: he is not at it, and someone joining later is not either.
+    await settleAttendance(db, meeting.id, [w.sarah.id, late.id], NOW)
+    const extra = await createPerson(db, { name: 'Later Still' })
+    await addMember(db, w.staff.id, extra.id)
+    const after = await getMeeting(db, meeting.id)
+    expect(ids(after.attendees)).toEqual(ids([w.sarah, late]))
+    expect(after.groups.map((group) => group.id)).toEqual([w.staff.id])
+  })
+
+  it('a group on a series’ roster carries to its meetings not yet over', async () => {
+    const w = await makeWorld()
+    const { updateSeries } = await import('../lib/meetings/series')
+    const weekly = await createSeries(db, { contextId: w.parish.id, name: 'Weekly' })
+    const past = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date('2026-09-28T15:00:00Z') })
+    const next = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date('2026-10-06T15:00:00Z') })
+    const forStaff = await createItem(db, actor, { contextId: w.parish.id, text: 'rota', parties: [{ groupId: w.staff.id, role: 'with' }] })
+
+    await updateSeries(db, weekly.id, { groupIds: [w.staff.id] })
+    expect((await getMeeting(db, next.id)).groups.map((group) => group.id)).toEqual([w.staff.id])
+    expect((await getMeeting(db, past.id)).groups).toEqual([])
+    expect(grouped((await getCandidates(db, next.id, NOW)).suggested)).toEqual([forStaff.id])
+    // A meeting made after takes the series' groups too.
+    const later = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date('2026-10-13T15:00:00Z') })
+    expect(later.groups.map((group) => group.id)).toEqual([w.staff.id])
+  })
+})
+
+describe('a group’s list address', () => {
+  it('on an invite brings the group, in its own context only, and is refused for a person', async () => {
+    const w = await makeWorld()
+    const { addGroupEmail } = await import('../lib/directory/groups')
+    const { addPersonEmail } = await import('../lib/directory/people')
+    const { unknownAttendees } = await import('../lib/notes/attendees')
+    const { saveNote } = await import('../lib/notes/notes')
+    await addGroupEmail(db, w.staff.id, 'Staff-List@example.test')
+    await expect(addPersonEmail(db, w.tom.id, 'staff-list@example.test')).rejects.toThrow('belongs to Staff')
+    await expect(addGroupEmail(db, w.council.id, 'sarah@example.test')).rejects.toThrow('belongs to Sarah Jones')
+
+    const forStaff = await createItem(db, actor, { contextId: w.parish.id, text: 'rota', parties: [{ groupId: w.staff.id, role: 'with' }] })
+    const invite = (contextEvent: string): CalendarEvent => ({
+      calendarId: 'cal-1',
+      eventId: contextEvent,
+      seriesId: null,
+      title: 'Planning',
+      startsAt: new Date('2026-10-07T15:00:00Z'),
+      endsAt: new Date('2026-10-07T16:00:00Z'),
+      allDay: false,
+      attendees: [
+        { personId: w.bishop.id, email: 'bishop@example.test', name: null, declined: false },
+        { email: 'staff-list@example.test', name: 'Staff list', declined: false },
+      ],
+      location: null,
+      htmlLink: null,
+    })
+
+    const planning = await prepFromEvent(db, actor, { contextId: w.parish.id, event: invite('evt-parish') }, NOW)
+    expect(planning.groups.map((group) => group.id)).toEqual([w.staff.id])
+    expect(ids(planning.attendees)).toEqual(ids([w.bishop, w.sarah, w.tom]))
+    expect(grouped((await getCandidates(db, planning.id, NOW)).suggested)).toEqual([forStaff.id])
+
+    // The staff is the parish's: in the diocese the address brings nobody.
+    const elsewhere = await prepFromEvent(db, actor, { contextId: w.diocese.id, event: invite('evt-diocese') }, NOW)
+    expect(elsewhere.groups).toEqual([])
+
+    // A note naming the list does not ask who it is.
+    await saveNote(db, actor, {
+      meetingId: planning.id,
+      source: 'pasted',
+      body: 'notes',
+      attendees: [{ email: 'staff-list@example.test', name: 'Staff list' }],
+    })
+    expect(await unknownAttendees(db, planning.id)).toEqual([])
   })
 })

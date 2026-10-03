@@ -44,10 +44,11 @@ describe('logMeeting', () => {
       title: 'Sarah Jones',
       startsAt,
       endsAt: new Date('2026-09-30T14:30:00Z'),
-      group: null,
+      groups: [],
       series: null,
       calendarEventId: null,
       people: [{ id: w.sarah.id, name: 'Sarah Jones' }],
+      attendees: [{ id: w.sarah.id, name: 'Sarah Jones' }],
       projects: [{ id: w.retreat.id, name: 'Retreat' }],
     })
     expect(await getMeeting(db, logged.meeting.id)).toEqual(logged.meeting)
@@ -99,13 +100,13 @@ describe('logMeeting', () => {
 
     // A group and nobody picked: its members were there.
     const staff = await logMeeting(db, actor, { ...base, personIds: [], groupId: w.staff.id }, now)
-    expect(staff.meeting).toMatchObject({ title: 'Staff', group: { id: w.staff.id, name: 'Staff' } })
+    expect(staff.meeting).toMatchObject({ title: 'Staff', groups: [{ id: w.staff.id, name: 'Staff' }] })
     expect(staff.meeting.people.map((p) => p.id).sort()).toEqual([w.sarah.id, w.tom.id].sort())
 
     // A group and one person picked: only that person.
     const one = await logMeeting(db, actor, { ...base, personIds: [w.sarah.id], groupId: w.staff.id }, now)
     expect(one.meeting.people.map((p) => p.id)).toEqual([w.sarah.id])
-    expect(one.meeting.group?.id).toBe(w.staff.id)
+    expect(one.meeting.groups.map((g) => g.id)).toEqual([w.staff.id])
   })
 
   it('never lists John among the people, and takes a person named twice once', async () => {

@@ -54,6 +54,7 @@ import { clearAbsences, joinRoster, recordAbsences } from '../../meetings/roster
 import { moveMeeting, moveSeries } from '../../meetings/move'
 import { prepMeeting, prepNextInSeries, prepWithPerson } from '../../meetings/prep'
 import {
+  addToRoster,
   createSeries,
   getSeries,
   listSeries,
@@ -191,8 +192,11 @@ function meetingOut(meeting: MeetingView, clock: Clock) {
     ends_at: meeting.endsAt?.toISOString() ?? null,
     ends_at_local: localOf(meeting.endsAt, clock),
     series: meeting.series,
-    group: meeting.group,
+    groups: meeting.groups,
     people: meeting.people,
+    // Its people and, until attendance is settled, its groups' members.
+    attendees: meeting.attendees,
+    attendance_settled: meeting.attendanceAt !== null,
     projects: meeting.projects,
     parent_meeting_id: meeting.parentMeetingId,
   }
@@ -323,7 +327,7 @@ function seriesOut(series: SeriesView) {
     id: series.id,
     context_id: series.contextId,
     name: series.name,
-    group: series.group,
+    groups: series.groups,
     people: series.people,
     projects: series.projects,
     skeleton: series.skeleton.map((section) => ({
@@ -364,6 +368,30 @@ async function peopleFrom(exec: Executor, refs: string[]): Promise<string[]> {
   for (const ref of refs) ids.push((await resolvePerson(exec, ref)).id)
   return [...new Set(ids)]
 }
+
+async function groupsFrom(exec: Executor, contextId: string, refs: string[]): Promise<string[]> {
+  const ids: string[] = []
+  for (const ref of refs) ids.push((await resolveGroup(exec, contextId, ref)).id)
+  return [...new Set(ids)]
+}
+
+/* `groups` replaces the list; `group` is one, or none with null. Undefined: unchanged. */
+async function groupIdsFrom(
+  exec: Executor,
+  contextId: string,
+  input: { group?: string | null; groups?: string[] },
+): Promise<string[] | undefined> {
+  if (input.groups !== undefined) {
+    return groupsFrom(exec, contextId, [...input.groups, ...(input.group ? [input.group] : [])])
+  }
+  if (input.group === undefined) return undefined
+  return input.group === null ? [] : groupsFrom(exec, contextId, [input.group])
+}
+
+const groupsArg = z
+  .array(z.string().min(1))
+  .optional()
+  .describe('Groups, by name or id. Each stands for its members until the meeting is over.')
 
 async function projectsFrom(exec: Executor, contextId: string, refs: string[]): Promise<string[]> {
   const ids: string[] = []
@@ -501,7 +529,8 @@ export const prepMeetingTool = defineTool({
     ends_at: z.string().min(1).optional().describe(momentArg),
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
-    group: z.string().min(1).optional().describe('Group name or id.'),
+    group: z.string().min(1).optional().describe('Group name or id: one of groups.'),
+    groups: groupsArg,
     session_of: z.uuid().optional().describe('The meeting this is a session of.'),
     idempotency_key: idempotencyKey,
   }),
@@ -510,7 +539,7 @@ export const prepMeetingTool = defineTool({
       const { actor } = context
       const clock = await clockFor(tx, context)
       if (input.session_of) {
-        if (input.person || input.series || input.context || input.group || input.people || input.projects) {
+        if (input.person || input.series || input.context || input.group || input.groups || input.people || input.projects) {
           throw new ValidationError('A session takes a title and times; the rest comes from its meeting.')
         }
         if (!input.title) throw new ValidationError('A session needs a title.')
@@ -524,7 +553,7 @@ export const prepMeetingTool = defineTool({
             title: input.title,
             startsAt: input.starts_at ? momentFrom(input.starts_at, clock) : null,
             endsAt: input.ends_at ? momentFrom(input.ends_at, clock) : null,
-            groupId: parent.group?.id,
+            groupIds: parent.groups.map((group) => group.id),
             personIds: parent.people.map((person) => person.id),
             projectIds: parent.projects.map((project) => project.id),
           },
@@ -538,7 +567,8 @@ export const prepMeetingTool = defineTool({
         input.ends_at !== undefined ||
         input.people !== undefined ||
         input.projects !== undefined ||
-        input.group !== undefined
+        input.group !== undefined ||
+        input.groups !== undefined
 
       if (input.person && (explicit || input.series)) {
         throw new ValidationError(
@@ -553,7 +583,7 @@ export const prepMeetingTool = defineTool({
         context: input.context,
         project: input.projects?.[0],
         series: input.series,
-        parties: input.group ? [input.group] : [],
+        parties: [...(input.group ? [input.group] : []), ...(input.groups ?? [])],
       })
 
       if (input.person) {
@@ -573,7 +603,7 @@ export const prepMeetingTool = defineTool({
         return meetingView(tx, next.id, clock)
       }
 
-      const group = input.group ? await resolveGroup(tx, target.id, input.group) : null
+      const groupIds = await groupIdsFrom(tx, target.id, input)
       const meeting = await prepMeeting(
         tx,
         actor,
@@ -583,8 +613,8 @@ export const prepMeetingTool = defineTool({
           startsAt: input.starts_at ? momentFrom(input.starts_at, clock) : null,
           endsAt: input.ends_at ? momentFrom(input.ends_at, clock) : null,
           seriesId: series?.id,
-          groupId: group?.id,
-          // Left out, the roster and projects come from the series or the group.
+          ...(groupIds ? { groupIds } : {}),
+          // Left out, the roster, groups and projects come from the series.
           ...(input.people ? { personIds: await peopleFrom(tx, input.people) } : {}),
           ...(input.projects
             ? { projectIds: await projectsFrom(tx, target.id, input.projects) }
@@ -600,8 +630,8 @@ export const updateMeetingTool = defineTool({
   name: 'update_meeting',
   title: 'Update a meeting',
   description:
-    'Change a meeting: its title, times, people, projects, group, series or generated blocks. ' +
-    'people and projects each replace the whole list. starts_at null takes the date off and ' +
+    'Change a meeting: its title, times, people, projects, groups, series or generated blocks. ' +
+    'people, projects and groups each replace the whole list. starts_at null takes the date off and ' +
     `makes it a stub again. ${BLOCKS_RULE} blocks null goes back to the series' settings. ` +
     'Pass null to clear ends_at, group or series. context moves it to another context, out ' +
     `of its series, before anything else is applied. ${MOVE_RULE} Returns what get_meeting ` +
@@ -615,9 +645,14 @@ export const updateMeetingTool = defineTool({
     ends_at: z.string().min(1).nullable().optional().describe(momentArg),
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
-    group: z.string().min(1).nullable().optional().describe('Group name or id.'),
+    group: z.string().min(1).nullable().optional().describe('Group name or id: the only group, or none with null.'),
+    groups: groupsArg,
     series: z.string().min(1).nullable().optional().describe('Series name or id.'),
     blocks: blocksArg.nullable().optional(),
+    add_to_series: z
+      .boolean()
+      .optional()
+      .describe("With people or groups: whoever they add joins the series' roster too."),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -645,10 +680,7 @@ export const updateMeetingTool = defineTool({
         throw new ValidationError('End time must not be before start time. Give both to move it.')
       }
 
-      const group =
-        input.group === undefined || input.group === null
-          ? input.group
-          : (await resolveGroup(tx, contextId, input.group)).id
+      const groupIds = await groupIdsFrom(tx, contextId, input)
       const series =
         input.series === undefined || input.series === null
           ? input.series
@@ -662,12 +694,16 @@ export const updateMeetingTool = defineTool({
         title: input.title,
         startsAt,
         endsAt,
-        groupId: group,
+        groupIds,
         seriesId: series,
         blocks,
       })
-      if (input.people) {
-        await setMeetingPeople(tx, actor, input.id, await peopleFrom(tx, input.people))
+      const people = input.people ? await peopleFrom(tx, input.people) : null
+      if (people) await setMeetingPeople(tx, actor, input.id, people)
+      const inSeries = (await getMeeting(tx, input.id)).series
+      if (input.add_to_series) {
+        if (!inSeries) throw new ValidationError('add_to_series needs a meeting in a series.')
+        await addToRoster(tx, inSeries.id, people ?? [], groupIds ?? [])
       }
       if (input.projects) {
         await setMeetingProjects(
@@ -1113,7 +1149,7 @@ export const createSeriesTool = defineTool({
   name: 'create_series',
   title: 'Create a series',
   description:
-    'Add a recurring meeting to a context: its people, default projects, group, standing ' +
+    'Add a recurring meeting to a context: its people, default projects, groups, standing ' +
     `agenda and generated blocks. ${SKELETON_RULE} ${BLOCKS_RULE} All off unless switched on. ` +
     'Check list_series first to avoid a duplicate.',
   scope: 'meetings:write',
@@ -1122,7 +1158,8 @@ export const createSeriesTool = defineTool({
     context: contextArg,
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
-    group: z.string().min(1).optional().describe('Group name or id.'),
+    group: z.string().min(1).optional().describe('Group name or id: one of groups.'),
+    groups: groupsArg,
     skeleton: skeletonArg.optional(),
     skeleton_outline: z.string().min(1).optional(),
     blocks: blocksArg.optional(),
@@ -1133,14 +1170,13 @@ export const createSeriesTool = defineTool({
       const target = await inferContext(tx, {
         context: input.context,
         project: input.projects?.[0],
-        parties: input.group ? [input.group] : [],
+        parties: [...(input.group ? [input.group] : []), ...(input.groups ?? [])],
       })
-      const group = input.group ? await resolveGroup(tx, target.id, input.group) : null
 
       const series = await createSeries(tx, {
         contextId: target.id,
         name: input.name,
-        groupId: group?.id,
+        groupIds: (await groupIdsFrom(tx, target.id, input)) ?? [],
         personIds: await peopleFrom(tx, input.people ?? []),
         projectIds: await projectsFrom(tx, target.id, input.projects ?? []),
         skeleton: skeletonFrom(input),
@@ -1154,8 +1190,8 @@ export const updateSeriesTool = defineTool({
   name: 'update_series',
   title: 'Update a series',
   description:
-    'Change a series: its name, people, default projects, group, standing agenda or ' +
-    'generated blocks. people, projects and the skeleton each replace the whole of what was ' +
+    'Change a series: its name, people, default projects, groups, standing agenda or ' +
+    'generated blocks. people, projects, groups and the skeleton each replace the whole of what was ' +
     `there; blocks changes only the ones given. ${SKELETON_RULE} Meetings already prepped keep ` +
     'the agenda they have. Pass null to clear group. move_to moves the series to another ' +
     'context with its meetings, before anything else is applied, and returns which moved and ' +
@@ -1168,7 +1204,8 @@ export const updateSeriesTool = defineTool({
     name: z.string().min(1).optional(),
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
-    group: z.string().min(1).nullable().optional().describe('Group name or id.'),
+    group: z.string().min(1).nullable().optional().describe('Group name or id: the only group, or none with null.'),
+    groups: groupsArg,
     skeleton: skeletonArg.optional(),
     skeleton_outline: z.string().min(1).optional(),
     blocks: blocksArg.optional(),
@@ -1187,14 +1224,9 @@ export const updateSeriesTool = defineTool({
       const target = destination ?? found
       const before = await getSeries(tx, id)
 
-      const group =
-        input.group === undefined || input.group === null
-          ? input.group
-          : (await resolveGroup(tx, target.id, input.group)).id
-
       await updateSeries(tx, id, {
         name: input.name,
-        groupId: group,
+        groupIds: await groupIdsFrom(tx, target.id, input),
         skeleton: skeletonFrom(input),
         blocks: input.blocks ? { ...before.blocks, ...blocksFrom(input.blocks) } : undefined,
       })

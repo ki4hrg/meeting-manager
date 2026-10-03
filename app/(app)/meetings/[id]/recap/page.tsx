@@ -18,6 +18,7 @@ import {
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
+import { settleIfOver } from '@/lib/meetings/attendance'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { pendingByMeeting } from '@/lib/processing/proposals'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
@@ -79,6 +80,8 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
     if (err instanceof NotFoundError) notFound()
     throw err
   })
+  // A recap goes to who was there, so that is settled first.
+  await settleIfOver(db, id)
   const parent = meeting.parentMeetingId ? await getMeeting(db, meeting.parentMeetingId) : null
   if (meeting.contextId !== context.id) {
     const home = (await allContexts()).find((one) => one.id === meeting.contextId)

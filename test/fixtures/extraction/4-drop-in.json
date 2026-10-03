@@ -7,7 +7,7 @@
       "title": "Tom Baker",
       "startsAt": "2026-10-01 11:40",
       "people": [{ "id": "b1000000-0000-4000-8000-000000000002", "name": "Tom Baker" }],
-      "group": null,
+      "groups": [],
       "projects": []
     },
     "self": { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },

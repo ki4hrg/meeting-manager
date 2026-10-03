@@ -22,6 +22,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { NotFoundError, ValidationError, type Executor } from '../../core/types'
 import { bindings, connections } from '../../db/schema'
 import { getContext } from '../../directory/contexts'
+import { recheckHeldNotes } from '../../notes/notes'
 import { getProject } from '../../projects/projects'
 import { absoluteUrl } from '../../oauth/config'
 import {
@@ -288,6 +289,8 @@ export async function bindFolder(
       set: { contextId: input.contextId, name, projectId },
     })
     .returning()
+  // A note held for the Inbox from this folder is filed on the next pass.
+  await recheckHeldNotes(exec)
   return row!
 }
 

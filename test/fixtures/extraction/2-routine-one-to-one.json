@@ -7,7 +7,7 @@
       "title": "Sarah / John",
       "startsAt": "2026-10-01 14:00",
       "people": [{ "id": "b1000000-0000-4000-8000-000000000001", "name": "Sarah Jones" }],
-      "group": null,
+      "groups": [],
       "projects": []
     },
     "self": { "id": "b1000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },

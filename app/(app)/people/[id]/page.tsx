@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
@@ -54,7 +55,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
       actions={
         <div className="flex items-center gap-2">
           {/* One click: a stub with everything saved up for them already on its agenda. */}
-          {person.isSelf ? null : (
+          {person.isSelf || person.archivedAt ? null : (
             <ActionButton action={prepWithPersonAction} fields={{ personId: person.id }}>
               Prep
             </ActionButton>
@@ -65,6 +66,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
               <Input name="name" defaultValue={person.name} required />
             </Field>
           </FormModal>
+          {person.isSelf || person.archivedAt ? null : <ArchiveButton kind="person" id={person.id} />}
         </div>
       }
     />
@@ -130,6 +132,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   }
 
   const meetings = await listMeetings(db, { contextId: context.id, personId: id, topLevelOnly: true })
+  const archived = !!person.archivedAt
   const theyOwe = open.filter((item) => has(item, id, 'owner'))
   const iOwe = open.filter((item) => has(item, id, 'with') && has(item, self.id, 'owner'))
   const raise = open.filter((item) => has(item, id, 'with') && !has(item, self.id, 'owner'))
@@ -137,53 +140,56 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   return (
     <>
       {header}
-      {emails}
+      {archived ? <ArchivedBar kind="person" id={person.id} /> : null}
+      <Muted archived={archived}>
+        {emails}
 
-      <Section
-        title="Raise"
-        count={raise.length}
-        action={<QuickAdd presets={{ parties: [{ personId: id, role: 'with' }] }} />}
-      >
-        <ItemGrid items={raise} today={today} empty="topic" />
-      </Section>
-
-      <Section
-        title="They owe"
-        count={theyOwe.length}
-        action={
-          <QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />
-        }
-      >
-        <ItemGrid items={theyOwe} today={today} empty="action" />
-      </Section>
-
-      <Section
-        title="I owe"
-        count={iOwe.length}
-        action={
-          <QuickAdd
-            presets={{
-              kind: 'action',
-              parties: [
-                { personId: self.id, role: 'owner' },
-                { personId: id, role: 'with' },
-              ],
-            }}
-          />
-        }
-      >
-        <ItemGrid items={iOwe} today={today} empty="action" />
-      </Section>
-
-      <Section title="Meetings">
-        <MeetingGrid meetings={meetings} timeZone={user.timeZone} />
-      </Section>
-
-      {closed.length > 0 ? (
-        <Section title="Closed">
-          <ItemGrid items={closed} today={today} empty="check" />
+        <Section
+          title="Raise"
+          count={raise.length}
+          action={<QuickAdd presets={{ parties: [{ personId: id, role: 'with' }] }} />}
+        >
+          <ItemGrid items={raise} today={today} empty="topic" />
         </Section>
-      ) : null}
+
+        <Section
+          title="They owe"
+          count={theyOwe.length}
+          action={
+            <QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />
+          }
+        >
+          <ItemGrid items={theyOwe} today={today} empty="action" />
+        </Section>
+
+        <Section
+          title="I owe"
+          count={iOwe.length}
+          action={
+            <QuickAdd
+              presets={{
+                kind: 'action',
+                parties: [
+                  { personId: self.id, role: 'owner' },
+                  { personId: id, role: 'with' },
+                ],
+              }}
+            />
+          }
+        >
+          <ItemGrid items={iOwe} today={today} empty="action" />
+        </Section>
+
+        <Section title="Meetings">
+          <MeetingGrid meetings={meetings} timeZone={user.timeZone} />
+        </Section>
+
+        {closed.length > 0 ? (
+          <Section title="Closed">
+            <ItemGrid items={closed} today={today} empty="check" />
+          </Section>
+        ) : null}
+      </Muted>
     </>
   )
 }

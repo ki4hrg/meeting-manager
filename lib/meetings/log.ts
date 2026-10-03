@@ -7,12 +7,14 @@
  * at all. Nothing is processed here; the caller kicks the job.
  */
 
-import { inArray } from 'drizzle-orm'
+import { and, inArray } from 'drizzle-orm'
 import { isUuid } from '../core/match'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
 import { people } from '../db/schema'
+import { notDeleted } from '../db/shelf'
 import { saveNote } from '../notes/notes'
 import { queueRun } from '../processing/run'
+import { settleAttendance } from './attendance'
 import { createMeeting, type MeetingView } from './meetings'
 
 export type LogMeetingInput = {
@@ -25,6 +27,8 @@ export type LogMeetingInput = {
   endsAt?: Date | null
   minutes?: number | null
   personIds: string[]
+  /** Its groups; `groupId` is one. */
+  groupIds?: string[]
   groupId?: string | null
   projectIds?: string[]
   notes: string
@@ -63,23 +67,33 @@ export async function logMeeting(
        logged meeting is about who was there, so someone unknown is refused
        rather than left out. */
     const known = personIds.every(isUuid)
-      ? await tx.select({ id: people.id }).from(people).where(inArray(people.id, personIds))
+      ? await tx
+          .select({ id: people.id })
+          .from(people)
+          .where(and(inArray(people.id, personIds), notDeleted(people)))
       : []
     if (known.length !== personIds.length) {
       throw new ValidationError('One of those people is not in the directory.')
     }
 
-    const meeting = await createMeeting(tx, actor, {
+    const groupIds = [...new Set([...(input.groupIds ?? []), ...(input.groupId ? [input.groupId] : [])])]
+    const made = await createMeeting(tx, actor, {
       contextId: input.contextId,
       title: input.title?.trim() || null,
       startsAt,
       endsAt,
-      groupId: input.groupId ?? undefined,
-      /* With a group and nobody picked, the group's members are who was there:
-         createMeeting takes the roster when no people are given. */
-      personIds: personIds.length > 0 || !input.groupId ? personIds : undefined,
+      groupIds,
+      personIds,
       projectIds: input.projectIds ?? [],
     })
+    /* Logged after the fact, so who was there is settled now: those picked,
+       or, with a group and nobody picked, the group's members. */
+    const meeting = await settleAttendance(
+      tx,
+      made.id,
+      personIds.length > 0 ? personIds : made.attendees.map((person) => person.id),
+      now,
+    )
 
     const { note } = await saveNote(tx, actor, {
       meetingId: meeting.id,

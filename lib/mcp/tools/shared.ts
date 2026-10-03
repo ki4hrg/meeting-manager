@@ -96,6 +96,7 @@ export function itemOut(item: ItemView) {
     target_series_id: item.targetSeriesId,
     target_project_id: item.targetProjectId,
     origin_meeting_id: item.originMeetingId,
+    ...(item.parkedAt ? { later: true, later_on: item.laterOn } : {}),
     created_at: item.createdAt.toISOString(),
     closed_at: item.closedAt?.toISOString() ?? null,
   }
