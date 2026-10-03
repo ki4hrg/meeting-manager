@@ -759,7 +759,7 @@ async function lockProposal(exec: Executor, id: string): Promise<Proposal> {
  * The fingerprint is not recomputed: the row keeps standing for what the note
  * said, so an edited proposal still stops the original being proposed again. A
  * verbatim proposal stays verbatim (its wording is not the model's to change;
- * it is still John's). An edit settles a low-confidence guess.
+ * it is still John's). An edit settles a guessed owner.
  */
 export async function editProposal(
   exec: Executor,
@@ -1131,7 +1131,7 @@ export async function undoProposal(
 }
 
 /**
- * Accept every pending proposal that needs no thought: not low-confidence, no
+ * Accept every pending proposal that needs no thought: no guessed owner, no
  * party still to be named. Each is its own transaction, so one refusal (an
  * item that was closed in the meantime, say) leaves the rest accepted. `left`
  * is how many are still pending afterwards; `refused` says why for those that

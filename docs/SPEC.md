@@ -128,7 +128,7 @@ One pipeline; every stage is optional, with no rail.
   - `processing_runs` is keyed by note id and content hash. Each proposal has a fingerprint and rejections are remembered, so a re-delivered or edited note proposes only new material.
   - A meeting can hold several Granola notes. A note for a multi-day event asks which session at review.
   - A reconcile job catches missed webhook deliveries.
-- **Review:** one screen; accept, edit or reject each proposal, or approve all. Proposals whose owner was inferred with low confidence are highlighted and excluded from approve-all. Accepted proposals can be undone. Nothing reaches real items or Todoist before approval.
+- **Review:** one screen; accept, edit or reject each proposal, or approve all. Proposals whose owner was guessed are marked on the owner and excluded from approve-all. Accepted proposals can be undone. Nothing reaches real items or Todoist before approval.
 - **Export:** recap computed on demand: summary, decisions, owed items grouped by person and group, lookahead. Copy as rich text or Markdown; `mailto:` fills recipients and subject while the body goes to the clipboard. Also a per-person "your items" snippet.
 
 ## Hubs
