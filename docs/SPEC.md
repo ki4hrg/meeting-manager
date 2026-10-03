@@ -208,7 +208,7 @@ Deploy per the global notes: image built in Actions and pushed to GHCR, compose 
      - whether adding a group also adds its members as people (a copy, editable per meeting) or the group stands for them live;
      - whether a group on a series' roster carries to each meeting.
 
-     Each answer needs cases in `test/candidate-rules.test.ts`. The suggestion rules change with more than one group, and so does the leak rule (a group's private items in a meeting that has that group plus outsiders).
+     Each answer needs cases in `test/candidate-rules.test.ts`. The suggestion rules change with more than one group, and the leak rules need checking for a meeting that mixes a group with people outside it.
    - **Markdown in long text.** Description and long-text fields generally (item detail, resolution, project description, agenda line description and private note, documents, notes) should accept Markdown and render it, with one renderer shared by the screens and by the brief, agenda and recap exports.
 10. **Installable as a PWA** *(John, 2026-10-01)*. A web app manifest (name, icons, theme colours for light and dark, standalone display) and a service worker, so the app installs to a phone's home screen and a desktop dock and opens without browser chrome. To settle: what, if anything, works offline (the minimum is an offline page; capture queued offline is a larger piece), and whether quick-add gets a home-screen shortcut or share target.
 11. **Later:** Google Doc publish and comment harvesting, Gmail drafts, per-meeting block toggles, group list addresses, a clock-only companion view.
