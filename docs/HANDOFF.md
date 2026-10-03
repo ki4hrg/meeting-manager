@@ -1,6 +1,51 @@
-# Handoff: phase 3 deployed and verified
+# Handoff: build order items 7–11
 
-Updated 2026-10-02. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+Updated 2026-10-03. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+
+## Build order 7–11 (2026-10-03)
+
+On branch `claude/serene-euler-fbpsv1`, one commit per item, not yet deployed. Migrations `0006` (drop `milestones.done_at`), `0007` (`meeting_absences`), `0008` (`projects.parent_id`), `0009` (`items.target_project_id`, `items_one_target` over three columns) run at boot. `pnpm test` (578 tests, 38 files), `pnpm typecheck` and `pnpm lint` are clean. Each screen was walked in a production build with Playwright, in light, dark and at phone width.
+
+**Built**
+
+- **Inbox count** on the nav link, in the phone drawer, and on the menu button while the drawer is closed.
+- **Milestones are dates.** No done toggle; upcoming, then undated, then past (muted). `nextMilestones` takes today.
+- **Agenda tools on each session** of a rollup (Import, Section, quick-add aimed at the session).
+- **Link a held note.** The Inbox card shows where File would put it; Link picks a meeting near the note's time in the selected context (a session, if it has sessions). `file_note` takes `meeting`.
+- **Several emails per person**: chips with primary star, Add, remove. `create_person` takes `emails`; new `update_person`. A taken address is refused with its holder's name.
+- **Search-and-add** (`PartyPicker` with `allowNew`): group members, series roster, new series, the meeting form. ⌘Enter, or Esc once something is picked, submits. `pickedPeople` in `lib/web/action.ts` reads it and makes new people.
+- **Roster carry** (`lib/meetings/roster.ts`): a series' roster, group or projects reach its meetings not over that still match the old roster; others get "Update N upcoming" on the series page. Absences are remembered per meeting. A meeting newly in a series takes its roster (edit form, MCP, `attachStub`).
+- **Timebox and pin**: a section's own minutes are its length; unset lines share what is left (shown italic); overrun shown as "55 / 45 min" in red and counted in the overflow. A row's modal shows Minutes and a pin that reveals Starts at.
+- **Markdown** (`lib/core/markdown.ts`, `components/ui/Markdown.tsx`) in item detail and resolution, project description, line description and private note, documents. HTML copies render it; text copies keep it. Line descriptions now also go out in the recap.
+- **PWA**: manifest, icons (`public/icons`, `app/icon.svg`, `app/apple-icon.png`), `public/sw.js` caching only `offline.html`.
+- **Meetings beyond 14 days**: `/meetings` (Upcoming: `?from=`, More adds two weeks up to 180) and `/meetings/past` (two weeks back at a time, Earlier, a date; never-prepped events can be prepped). Review shows above both. Home's Next up is a scrolling row of up to twelve with a More card and a date jump. Meeting cards there and on Upcoming show the agenda's row count, green when prepped, amber when empty.
+- **Series and calendar**: the organizer counts as an invitee; a hand-made meeting overlapping an event (same title or someone in common) is offered on the event card to link; the series page shows its event (title, weekday and time, cadence), Edit links one of the context's unlinked recurring events or unlinks with a ticked box, unmatched invitees can be added (new person or "This is…"), From calendar adds the known ones. Me is the first chip on rosters and meeting people.
+- **Projects within projects**: see item 11 in the spec; cases in `test/candidate-rules.test.ts`. Sub-projects' items are suggested by sub-project; a parent's items sit under the collapsed "more"; siblings never. The lookahead reads up and down. Pickers are indented (`listProjectChoices`), `#AC2027/Worship` and MCP paths resolve.
+- **Next meeting for a project** (`nextForProject` in `candidates.ts`): placed on the next meeting not over carrying the project or a sub-project, waiting on the hub until there is one; discussed clears it. `target_project` over MCP.
+
+**Decisions made without John**
+
+- A meeting with an empty agenda counts as not prepped (amber). One time-ordered row on home rather than "To prep" and "Prepped" lists.
+- The "Update N upcoming" sync only adds what a hand-edited meeting lacks; it never removes.
+- Link on an unfiled note uses the selected context's meetings; to link into another context, switch first.
+- A timebox's unset lines share by whole minutes, the odd minutes to the first lines. A pin inside a timebox may fall outside it.
+- The section header shows "used / box"; "used" is the lines' own minutes only.
+- New people from a picker are made when the form is saved, even if the rest of the form is then refused.
+- Esc in a picker first clears what is typed; with picks and an empty box it submits.
+- An item aimed at a project's next meeting is cleared only by marking it discussed (or closing it), not by the meeting passing.
+- The project hub's Sub-projects section shows only its header and New when there are none, rather than an empty-state box on every leaf.
+
+**Not done, needs John**
+
+- **Archive, then delete** (item 9): four questions in the spec are open (meetings archived or deleted; items keep done/dropped; what archiving a context does to bindings; real or soft delete).
+- **Groups among a meeting's attendees** (item 9): one group or several, copy or live, and series carry-over are open, and each answer changes the candidate rules.
+- **Adding attendees on the meeting page**: the edit form now takes new people by typing; whether a change on one occurrence is offered to the series roster is open.
+- **The reach on project, series and group hubs** (item 7) and the New meeting form offering the calendar events on its date (item 8).
+- **A quick-add token for "next meeting for a project"**, and offering to pause a parent's sub-projects.
+- **Todoist and sub-projects** must be settled before phase 4 binds projects.
+- Phase 4 (Todoist) and phase 5 (cutover) are untouched.
+
+## Earlier: phase 3 deployed and verified (2026-10-02)
 
 ## Usability gaps before phase 4 (2026-10-02)
 
