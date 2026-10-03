@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { ActionButton, FormModal } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
@@ -49,6 +50,8 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
     topLevelOnly: true,
   })
 
+  const archived = !!group.archivedAt
+
   return (
     <>
       <PageHeader
@@ -56,95 +59,101 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
         crumbs={[{ href: '/groups', label: 'Groups' }]}
         actions={
           <div className="flex items-center gap-2">
-            <ActionButton action={prepWithGroupAction} fields={{ groupId: group.id }}>
-              Prep
-            </ActionButton>
+            {archived ? null : (
+              <ActionButton action={prepWithGroupAction} fields={{ groupId: group.id }}>
+                Prep
+              </ActionButton>
+            )}
             <FormModal action={renameGroupAction} title="Rename" label="Rename" variant="secondary">
               <input type="hidden" name="id" value={group.id} />
               <Field label="Name" required>
                 <Input name="name" defaultValue={group.name} required />
               </Field>
             </FormModal>
+            {archived ? null : <ArchiveButton kind="group" id={group.id} />}
           </div>
         }
       />
+      {archived ? <ArchivedBar kind="group" id={group.id} /> : null}
+      <Muted archived={archived}>
 
-      <Section
-        title="Waiting"
-        count={waiting.length}
-        action={<QuickAdd presets={{ parties: [{ groupId: id, role: 'with' }] }} />}
-      >
-        <ItemGrid items={waiting} today={today} empty="topic" />
-      </Section>
+        <Section
+          title="Waiting"
+          count={waiting.length}
+          action={<QuickAdd presets={{ parties: [{ groupId: id, role: 'with' }] }} />}
+        >
+          <ItemGrid items={waiting} today={today} empty="topic" />
+        </Section>
 
-      <Section
-        title="Owes"
-        count={owes.length}
-        action={
-          <QuickAdd presets={{ kind: 'action', parties: [{ groupId: id, role: 'owner' }] }} />
-        }
-      >
-        <ItemGrid items={owes} today={today} empty="action" />
-      </Section>
+        <Section
+          title="Owes"
+          count={owes.length}
+          action={
+            <QuickAdd presets={{ kind: 'action', parties: [{ groupId: id, role: 'owner' }] }} />
+          }
+        >
+          <ItemGrid items={owes} today={today} empty="action" />
+        </Section>
 
-      <Section
-        title="Decisions"
-        count={decisions.length}
-        action={
-          <QuickAdd presets={{ kind: 'decision', parties: [{ groupId: id, role: 'with' }] }} />
-        }
-      >
-        <ItemGrid items={decisions} today={today} empty="decision" />
-      </Section>
+        <Section
+          title="Decisions"
+          count={decisions.length}
+          action={
+            <QuickAdd presets={{ kind: 'decision', parties: [{ groupId: id, role: 'with' }] }} />
+          }
+        >
+          <ItemGrid items={decisions} today={today} empty="decision" />
+        </Section>
 
-      <Section title="Meetings">
-        <MeetingGrid meetings={meetings} timeZone={user.timeZone} />
-      </Section>
+        <Section title="Meetings">
+          <MeetingGrid meetings={meetings} timeZone={user.timeZone} />
+        </Section>
 
-      <Section
-        title="Members"
-        count={members.length}
-        action={
-          <FormModal action={addMemberAction} title="Add members" label="Add" size="sm" submit="Add">
-            <input type="hidden" name="groupId" value={group.id} />
-            <PartyPicker
-              label="People"
-              name="people"
-              options={others.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
-              allowNew
-            />
-          </FormModal>
-        }
-      >
-        {members.length === 0 ? (
-          <EmptyState icon="person" />
-        ) : (
-          <Card>
-            <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-              {members.map((member) => (
-                <li key={member.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-                  <Icon name="person" className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                  <Link
-                    href={`/people/${member.id}`}
-                    className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 hover:underline dark:text-gray-100"
-                  >
-                    {member.name}
-                  </Link>
-                  <ActionButton
-                    action={removeMemberAction}
-                    fields={{ groupId: group.id, personId: member.id }}
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Remove ${member.name}`}
-                  >
-                    <Icon name="close" className="h-4 w-4" />
-                  </ActionButton>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-      </Section>
+        <Section
+          title="Members"
+          count={members.length}
+          action={
+            <FormModal action={addMemberAction} title="Add members" label="Add" size="sm" submit="Add">
+              <input type="hidden" name="groupId" value={group.id} />
+              <PartyPicker
+                label="People"
+                name="people"
+                options={others.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+                allowNew
+              />
+            </FormModal>
+          }
+        >
+          {members.length === 0 ? (
+            <EmptyState icon="person" />
+          ) : (
+            <Card>
+              <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+                {members.map((member) => (
+                  <li key={member.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                    <Icon name="person" className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    <Link
+                      href={`/people/${member.id}`}
+                      className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 hover:underline dark:text-gray-100"
+                    >
+                      {member.name}
+                    </Link>
+                    <ActionButton
+                      action={removeMemberAction}
+                      fields={{ groupId: group.id, personId: member.id }}
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Remove ${member.name}`}
+                    >
+                      <Icon name="close" className="h-4 w-4" />
+                    </ActionButton>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </Section>
+      </Muted>
     </>
   )
 }

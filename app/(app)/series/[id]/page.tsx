@@ -1,3 +1,4 @@
+import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { ActionButton, FormModal } from '@/components/forms'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
@@ -29,7 +30,6 @@ import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import {
   addSeriesPeopleAction,
   addSeriesProjectsAction,
-  deleteSeriesAction,
   moveSeriesAction,
   openSeriesAction,
   prepNextInSeriesAction,
@@ -111,6 +111,8 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
       : [{ id: node.id, text: node.text, section: false }],
   )
 
+  const archived = !!series.archivedAt
+
   return (
     <>
       <PageHeader
@@ -180,247 +182,241 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
               id={series.id}
               contexts={contexts.filter((one) => one.id !== context.id)}
             />
-            <FormModal
-              action={deleteSeriesAction}
-              title={`Delete ${series.name}?`}
-              icon="trash"
-              variant="ghost"
-              submit="Delete"
-              danger
-            >
-              <input type="hidden" name="id" value={series.id} />
-            </FormModal>
+            {archived ? null : <ArchiveButton kind="series" id={series.id} />}
           </div>
         }
       />
+      {archived ? <ArchivedBar kind="series" id={series.id} /> : null}
+      <Muted archived={archived}>
 
-      <Section
-        title="Next"
-        action={
-          next ? null : (
-            <ActionButton action={prepNextInSeriesAction} fields={{ id: series.id }} size="sm">
-              Prep next
-            </ActionButton>
-          )
-        }
-      >
-        {next ? (
-          <LinkCard href={`/meetings/${next.id}`}>
-            <CardHeader
-              title={next.title}
-              aside={
-                next.startsAt ? (
-                  <Badge tone="teal">{formatMoment(next.startsAt, user.timeZone)}</Badge>
-                ) : null
-              }
-            />
-            {rows.length > 0 ? (
-              <ul className="flex flex-col gap-1 text-sm">
-                {rows.slice(0, PREVIEW).map((row) => (
-                  <li
-                    key={row.id}
-                    className={
-                      row.section
-                        ? 'truncate font-semibold text-gray-900 dark:text-gray-100'
-                        : 'truncate pl-3 text-gray-600 dark:text-gray-300'
-                    }
-                  >
-                    {row.text}
-                  </li>
-                ))}
-                {rows.length > PREVIEW ? (
-                  <li className="pl-3 text-xs tabular-nums text-gray-500 dark:text-gray-400">
-                    +{rows.length - PREVIEW}
-                  </li>
-                ) : null}
-              </ul>
-            ) : null}
-          </LinkCard>
-        ) : (
-          <EmptyState icon="meeting" />
-        )}
-      </Section>
-
-      <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
         <Section
-          title="Roster"
-          count={series.people.length}
+          title="Next"
           action={
-            <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" size="sm" submit="Add">
-              <input type="hidden" name="id" value={series.id} />
-              <PartyPicker
-                label="People"
-                name="personIds"
-                options={otherPeople.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
-                allowNew
+            next ? null : (
+              <ActionButton action={prepNextInSeriesAction} fields={{ id: series.id }} size="sm">
+                Prep next
+              </ActionButton>
+            )
+          }
+        >
+          {next ? (
+            <LinkCard href={`/meetings/${next.id}`}>
+              <CardHeader
+                title={next.title}
+                aside={
+                  next.startsAt ? (
+                    <Badge tone="teal">{formatMoment(next.startsAt, user.timeZone)}</Badge>
+                  ) : null
+                }
               />
-            </FormModal>
-          }
-        >
-          {series.people.length === 0 && strangers.length === 0 ? (
-            <EmptyState icon="person" />
-          ) : (
-            <Card>
-              <div className="flex flex-wrap gap-2">
-                {/* John is at every meeting: shown first, never removed. */}
-                {self ? (
-                  <Chip icon="person" href={`/people/${self.id}`}>
-                    Me
-                  </Chip>
-                ) : null}
-                {series.people.map((person) => (
-                  <RemovableChip
-                    key={person.id}
-                    icon="person"
-                    href={`/people/${person.id}`}
-                    remove={{
-                      action: removeSeriesPersonAction,
-                      fields: { id: series.id, personId: person.id },
-                      label: `Remove ${person.name}`,
-                    }}
-                  >
-                    {person.name}
-                  </RemovableChip>
-                ))}
-              </div>
-            </Card>
-          )}
-          {strangers.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {strangers.map((stranger) => (
-                <FormModal
-                  key={stranger.email}
-                  action={rosterInviteeAction}
-                  title={stranger.email}
-                  label={stranger.name ?? stranger.email}
-                  icon="plus"
-                  variant="secondary"
-                  size="sm"
-                  submit="Add"
-                >
-                  <input type="hidden" name="id" value={series.id} />
-                  <input type="hidden" name="email" value={stranger.email} />
-                  <Field label="This is">
-                    <Select name="personId" defaultValue="">
-                      <option value="">—</option>
-                      {allPeople
-                        .filter((person) => !person.isSelf)
-                        .map((person) => (
-                          <option key={person.id} value={person.id}>
-                            {person.name}
-                          </option>
-                        ))}
-                    </Select>
-                  </Field>
-                  <Field label="Name">
-                    <Input name="name" defaultValue={stranger.name ?? ''} />
-                  </Field>
-                </FormModal>
-              ))}
-            </div>
-          ) : null}
-          {invitedKnown ? (
-            <div className="mt-3 flex justify-end">
-              <ActionButton action={rosterFromCalendarAction} fields={{ id: series.id }} variant="secondary" size="sm">
-                <Icon name="meeting" className="h-4 w-4" />
-                From calendar
-              </ActionButton>
-            </div>
-          ) : null}
-          {/* Meetings edited by hand do not follow the roster on their own. */}
-          {behind.length > 0 ? (
-            <div className="mt-3 flex justify-end">
-              <ActionButton action={syncRosterAction} fields={{ id: series.id }} variant="secondary" size="sm">
-                <Icon name="refresh" className="h-4 w-4" />
-                {`Update ${behind.length} upcoming`}
-              </ActionButton>
-            </div>
-          ) : null}
-        </Section>
-
-        <Section
-          title="Projects"
-          count={series.projects.length}
-          action={
-            otherProjects.length > 0 ? (
-              <FormModal action={addSeriesProjectsAction} title="Add projects" label="Add" size="sm" submit="Add">
-                <input type="hidden" name="id" value={series.id} />
-                <CheckList label="Projects" name="projectIds" options={otherProjects} />
-              </FormModal>
-            ) : null
-          }
-        >
-          {series.projects.length === 0 ? (
-            <EmptyState icon="project" />
-          ) : (
-            <Card>
-              <div className="flex flex-wrap gap-2">
-                {series.projects.map((project) => (
-                  <RemovableChip
-                    key={project.id}
-                    icon="project"
-                    href={`/projects/${project.id}`}
-                    remove={{
-                      action: removeSeriesProjectAction,
-                      fields: { id: series.id, projectId: project.id },
-                      label: `Remove ${project.name}`,
-                    }}
-                  >
-                    {project.name}
-                  </RemovableChip>
-                ))}
-              </div>
-            </Card>
-          )}
-        </Section>
-      </div>
-
-      <SkeletonEditor seriesId={series.id} skeleton={series.skeleton} />
-
-      <Section title="Blocks">
-        <Card>
-          <div className="flex items-center gap-2">
-            {BLOCKS.map(({ block, icon, label }) => {
-              const on = series.blocks[block]
-              return (
-                <ActionButton
-                  key={block}
-                  action={setSeriesBlockAction}
-                  fields={{ id: series.id, block, on: String(!on) }}
-                  variant={on ? 'primary' : 'secondary'}
-                  size="sm"
-                  aria-label={label}
-                  aria-pressed={on}
-                  title={label}
-                >
-                  <Icon name={icon} className="h-4 w-4" />
-                </ActionButton>
-              )
-            })}
-          </div>
-        </Card>
-      </Section>
-
-      <Section title="History" count={history.length}>
-        {history.length === 0 ? (
-          <EmptyState icon="clock" />
-        ) : (
-          <CardGrid>
-            {history.map((meeting) => (
-              <LinkCard key={meeting.id} href={`/meetings/${meeting.id}`}>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {meeting.title}
-                  </span>
-                  {meeting.startsAt ? (
-                    <Badge>{formatMoment(meeting.startsAt, user.timeZone)}</Badge>
+              {rows.length > 0 ? (
+                <ul className="flex flex-col gap-1 text-sm">
+                  {rows.slice(0, PREVIEW).map((row) => (
+                    <li
+                      key={row.id}
+                      className={
+                        row.section
+                          ? 'truncate font-semibold text-gray-900 dark:text-gray-100'
+                          : 'truncate pl-3 text-gray-600 dark:text-gray-300'
+                      }
+                    >
+                      {row.text}
+                    </li>
+                  ))}
+                  {rows.length > PREVIEW ? (
+                    <li className="pl-3 text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                      +{rows.length - PREVIEW}
+                    </li>
                   ) : null}
+                </ul>
+              ) : null}
+            </LinkCard>
+          ) : (
+            <EmptyState icon="meeting" />
+          )}
+        </Section>
+
+        <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
+          <Section
+            title="Roster"
+            count={series.people.length}
+            action={
+              <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" size="sm" submit="Add">
+                <input type="hidden" name="id" value={series.id} />
+                <PartyPicker
+                  label="People"
+                  name="personIds"
+                  options={otherPeople.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+                  allowNew
+                />
+              </FormModal>
+            }
+          >
+            {series.people.length === 0 && strangers.length === 0 ? (
+              <EmptyState icon="person" />
+            ) : (
+              <Card>
+                <div className="flex flex-wrap gap-2">
+                  {/* John is at every meeting: shown first, never removed. */}
+                  {self ? (
+                    <Chip icon="person" href={`/people/${self.id}`}>
+                      Me
+                    </Chip>
+                  ) : null}
+                  {series.people.map((person) => (
+                    <RemovableChip
+                      key={person.id}
+                      icon="person"
+                      href={`/people/${person.id}`}
+                      remove={{
+                        action: removeSeriesPersonAction,
+                        fields: { id: series.id, personId: person.id },
+                        label: `Remove ${person.name}`,
+                      }}
+                    >
+                      {person.name}
+                    </RemovableChip>
+                  ))}
                 </div>
-              </LinkCard>
-            ))}
-          </CardGrid>
-        )}
-      </Section>
+              </Card>
+            )}
+            {strangers.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {strangers.map((stranger) => (
+                  <FormModal
+                    key={stranger.email}
+                    action={rosterInviteeAction}
+                    title={stranger.email}
+                    label={stranger.name ?? stranger.email}
+                    icon="plus"
+                    variant="secondary"
+                    size="sm"
+                    submit="Add"
+                  >
+                    <input type="hidden" name="id" value={series.id} />
+                    <input type="hidden" name="email" value={stranger.email} />
+                    <Field label="This is">
+                      <Select name="personId" defaultValue="">
+                        <option value="">—</option>
+                        {allPeople
+                          .filter((person) => !person.isSelf)
+                          .map((person) => (
+                            <option key={person.id} value={person.id}>
+                              {person.name}
+                            </option>
+                          ))}
+                      </Select>
+                    </Field>
+                    <Field label="Name">
+                      <Input name="name" defaultValue={stranger.name ?? ''} />
+                    </Field>
+                  </FormModal>
+                ))}
+              </div>
+            ) : null}
+            {invitedKnown ? (
+              <div className="mt-3 flex justify-end">
+                <ActionButton action={rosterFromCalendarAction} fields={{ id: series.id }} variant="secondary" size="sm">
+                  <Icon name="meeting" className="h-4 w-4" />
+                  From calendar
+                </ActionButton>
+              </div>
+            ) : null}
+            {/* Meetings edited by hand do not follow the roster on their own. */}
+            {behind.length > 0 ? (
+              <div className="mt-3 flex justify-end">
+                <ActionButton action={syncRosterAction} fields={{ id: series.id }} variant="secondary" size="sm">
+                  <Icon name="refresh" className="h-4 w-4" />
+                  {`Update ${behind.length} upcoming`}
+                </ActionButton>
+              </div>
+            ) : null}
+          </Section>
+
+          <Section
+            title="Projects"
+            count={series.projects.length}
+            action={
+              otherProjects.length > 0 ? (
+                <FormModal action={addSeriesProjectsAction} title="Add projects" label="Add" size="sm" submit="Add">
+                  <input type="hidden" name="id" value={series.id} />
+                  <CheckList label="Projects" name="projectIds" options={otherProjects} />
+                </FormModal>
+              ) : null
+            }
+          >
+            {series.projects.length === 0 ? (
+              <EmptyState icon="project" />
+            ) : (
+              <Card>
+                <div className="flex flex-wrap gap-2">
+                  {series.projects.map((project) => (
+                    <RemovableChip
+                      key={project.id}
+                      icon="project"
+                      href={`/projects/${project.id}`}
+                      remove={{
+                        action: removeSeriesProjectAction,
+                        fields: { id: series.id, projectId: project.id },
+                        label: `Remove ${project.name}`,
+                      }}
+                    >
+                      {project.name}
+                    </RemovableChip>
+                  ))}
+                </div>
+              </Card>
+            )}
+          </Section>
+        </div>
+
+        <SkeletonEditor seriesId={series.id} skeleton={series.skeleton} />
+
+        <Section title="Blocks">
+          <Card>
+            <div className="flex items-center gap-2">
+              {BLOCKS.map(({ block, icon, label }) => {
+                const on = series.blocks[block]
+                return (
+                  <ActionButton
+                    key={block}
+                    action={setSeriesBlockAction}
+                    fields={{ id: series.id, block, on: String(!on) }}
+                    variant={on ? 'primary' : 'secondary'}
+                    size="sm"
+                    aria-label={label}
+                    aria-pressed={on}
+                    title={label}
+                  >
+                    <Icon name={icon} className="h-4 w-4" />
+                  </ActionButton>
+                )
+              })}
+            </div>
+          </Card>
+        </Section>
+
+        <Section title="History" count={history.length}>
+          {history.length === 0 ? (
+            <EmptyState icon="clock" />
+          ) : (
+            <CardGrid>
+              {history.map((meeting) => (
+                <LinkCard key={meeting.id} href={`/meetings/${meeting.id}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {meeting.title}
+                    </span>
+                    {meeting.startsAt ? (
+                      <Badge>{formatMoment(meeting.startsAt, user.timeZone)}</Badge>
+                    ) : null}
+                  </div>
+                </LinkCard>
+              ))}
+            </CardGrid>
+          )}
+        </Section>
+      </Muted>
     </>
   )
 }

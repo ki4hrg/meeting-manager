@@ -12,7 +12,6 @@ import { calendarLinkOf, linkSeriesCalendar, prepNextInSeries } from '@/lib/meet
 import { syncRoster } from '@/lib/meetings/roster'
 import {
   createSeries,
-  deleteSeries,
   getSeries,
   setSeriesPeople,
   setSeriesProjects,
@@ -51,15 +50,6 @@ export async function updateSeriesAction(formData: FormData): Promise<ActionResu
     const calendar = field(formData, 'calendarSeriesId')
     if (calendar) await linkSeriesCalendar(db, actor, id, calendar)
   })
-}
-
-export async function deleteSeriesAction(formData: FormData): Promise<ActionResult> {
-  const result = await act(async () => {
-    await deleteSeries(db, field(formData, 'id'))
-  })
-  // The page it was called from is gone.
-  if (!result.error) redirect('/series')
-  return result
 }
 
 /* Select the context a series lives in, then open it there. */

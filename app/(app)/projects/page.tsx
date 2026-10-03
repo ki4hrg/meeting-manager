@@ -1,3 +1,4 @@
+import { ArchivedSection } from '@/components/archive/Archive'
 import { FormModal } from '@/components/forms'
 import { CardGrid, CardHeader, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -17,6 +18,7 @@ export default async function ProjectsPage() {
   const { today } = await viewer()
   // In tree order: a project's sub-projects follow it, each naming what it sits within.
   const all = await listProjects(db, context.id)
+  const archived = await listProjects(db, context.id, 'archived')
   const projects = treeOrder(all)
   const nameOf = new Map(all.map((project) => [project.id, project.name]))
   const counts = await openCounts(db, context.id)
@@ -91,6 +93,10 @@ export default async function ProjectsPage() {
           })}
         </CardGrid>
       )}
+      <ArchivedSection
+        icon="project"
+        rows={archived.map((project) => ({ id: project.id, name: project.name, href: `/projects/${project.id}` }))}
+      />
     </>
   )
 }

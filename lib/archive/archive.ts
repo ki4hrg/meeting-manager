@@ -36,6 +36,7 @@ import {
   seriesPeople,
 } from '../db/schema'
 import { notDeleted, onShelf } from '../db/shelf'
+import { recheckHeldNotes } from '../notes/notes'
 import { OPEN_STATUSES } from '../items/items'
 
 /** What can be archived, then deleted. */
@@ -123,6 +124,8 @@ export async function unarchive(exec: Executor, kind: ArchiveKind, id: string): 
   await shelvedRow(exec, kind, id)
   const table = TABLES[kind]
   await exec.update(table).set({ archivedAt: null }).where(eq(table.id, id))
+  // Its Granola folders wake: what they held for the Inbox is filed on the next pass.
+  if (kind === 'context') await recheckHeldNotes(exec)
 }
 
 // ─── what a delete would take, and what stops it ─────────────────────────────

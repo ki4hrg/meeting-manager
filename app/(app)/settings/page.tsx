@@ -17,8 +17,9 @@ import {
 } from '@/lib/connect/connections'
 import { db } from '@/lib/db'
 import type { Context } from '@/lib/directory/contexts'
-import { allContexts } from '@/lib/web/context'
+import { allContexts, viewer } from '@/lib/web/context'
 import { disconnectAction, setCalendarContextAction } from './actions'
+import { Deleted } from './Deleted'
 import { Granola } from './Granola'
 import { Notice } from './Notice'
 
@@ -176,6 +177,7 @@ export default async function SettingsPage({
   searchParams: Promise<{ error?: string | string[]; connected?: string | string[] }>
 }) {
   const { error, connected } = await searchParams
+  const { user } = await viewer()
   const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)
 
   return (
@@ -187,6 +189,7 @@ export default async function SettingsPage({
       />
       <GoogleCalendar />
       <Granola />
+      <Deleted timeZone={user.timeZone} />
     </>
   )
 }

@@ -6,6 +6,7 @@ import { MeetingCard } from '@/components/meetings/MeetingCard'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { UnfiledCard } from '@/components/meetings/UnfiledCard'
 import { WhenInputs } from '@/components/meetings/WhenInputs'
+import { DeleteButton } from '@/components/archive/DeleteButton'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
@@ -212,6 +213,19 @@ export default function DesignPage() {
           </LinkCard>
           <EmptyState icon="project" action={{ label: 'New project', href: '/design' }} />
         </CardGrid>
+      </Section>
+
+      <Section title="Archive">
+        <Card className="mb-3 flex flex-wrap items-center gap-3 !bg-gray-100 dark:!bg-gray-800/60">
+          <Icon name="archive" className="h-5 w-5 text-gray-500 dark:text-gray-400" label="Archived" />
+          <div className="min-w-0 flex-1" />
+          <Button variant="secondary" size="sm">
+            <Icon name="undo" className="h-4 w-4" />
+            Restore
+          </Button>
+          <DeleteButton action={sampleAction} fields={{}} blockers={[]} takes={['Their name on 2 closed items']} />
+          <DeleteButton action={sampleAction} fields={{}} blockers={['On 1 open item', 'On the Staff weekly roster']} takes={[]} />
+        </Card>
       </Section>
 
       <CollapsedSection title="Later" icon="later" count={2}>

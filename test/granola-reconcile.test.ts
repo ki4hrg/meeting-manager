@@ -28,6 +28,24 @@ async function setUp() {
 }
 
 describe('reconcile', () => {
+  it('files a held note once its folder is bound or its context restored, though Granola has nothing new', async () => {
+    const { diocese, granola, account } = await setUp()
+    const { archive, unarchive } = await import('../lib/archive/archive')
+    const stray = noteId()
+    granola.script.notes[stray] = note({ id: stray, folder_membership: [folder(OTHER, 'Personal')] })
+    await reconcileGranola(db, now)
+    expect(await db.select().from(meetings)).toEqual([])
+
+    await bindFolder(db, { connectionId: account.id, folderId: OTHER, name: 'Personal', contextId: diocese.id })
+    await archive(db, 'context', diocese.id)
+    expect((await reconcileGranola(db, now)).filed).toBe(0)
+    expect(await db.select().from(meetings)).toEqual([])
+
+    await unarchive(db, 'context', diocese.id)
+    expect(await reconcileGranola(db, now)).toMatchObject({ filed: 1, queued: 1 })
+    expect((await db.select().from(meetings)).map((row) => row.contextId)).toEqual([diocese.id])
+  })
+
   it('files a note no delivery ever announced, and queues its run', async () => {
     const { parish, granola } = await setUp()
     const id = noteId()

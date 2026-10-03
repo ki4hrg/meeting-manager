@@ -1,3 +1,4 @@
+import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { CopyButton } from '@/components/CopyButton'
 import { FormModal } from '@/components/forms'
@@ -34,7 +35,6 @@ import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context
 import {
   addSectionAction,
   addSessionAction,
-  deleteMeetingAction,
   importOutlineAction,
   moveMeetingAction,
   openMeetingAction,
@@ -168,9 +168,10 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     </FormModal>
   )
 
+  const archived = !!meeting.archivedAt
+
   return (
     <>
-
       <PageHeader
         title={meeting.title}
         crumbs={[
@@ -209,101 +210,95 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                 contexts={contexts.filter((one) => one.id !== context.id)}
               />
             )}
-            <FormModal
-              action={deleteMeetingAction}
-              title="Delete meeting"
-              icon="trash"
-              variant="secondary"
-              submit="Delete"
-              danger
-            >
-              <input type="hidden" name="id" value={meeting.id} />
-            </FormModal>
+            {archived ? null : <ArchiveButton kind="meeting" id={meeting.id} />}
           </div>
         }
       />
+      {archived ? <ArchivedBar kind="meeting" id={meeting.id} /> : null}
+      <Muted archived={archived}>
 
-      <div className="mb-8 flex flex-wrap items-center gap-2">
-        {meeting.startsAt ? (
-          <span className="mr-1 flex items-center gap-1.5 text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
-            <Icon name="meeting" className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-            {formatSpan(meeting.startsAt, meeting.endsAt, timeZone, today)}
-          </span>
-        ) : (
-          <Badge tone="amber">Undated</Badge>
-        )}
-        {meeting.series ? (
-          <Chip href={`/series/${meeting.series.id}`} icon="refresh">
-            {meeting.series.name}
-          </Chip>
-        ) : null}
-        {meeting.group ? (
-          <Chip href={`/groups/${meeting.group.id}`} icon="group">
-            {meeting.group.name}
-          </Chip>
-        ) : null}
-        {/* John is at every meeting: first, and never on its list of people. */}
-        {self ? (
-          <Chip href={`/people/${self.id}`} icon="person">
-            Me
-          </Chip>
-        ) : null}
-        {meeting.people.map((person) => (
-          <Chip key={person.id} href={`/people/${person.id}`} icon="person">
-            {person.name}
-          </Chip>
-        ))}
-        {meeting.projects.map((project) => (
-          <Chip key={project.id} href={`/projects/${project.id}`} icon="project">
-            {project.name}
-          </Chip>
-        ))}
-      </div>
-
-      {rollup ? (
-        <>
-          {/* What was on the meeting itself before it had sessions. */}
-          {agenda.nodes.length > 0 ? (
-            <Section title="Agenda">
-              <AgendaCard agenda={agenda} today={today} people={leaders} />
-            </Section>
+        <div className="mb-8 flex flex-wrap items-center gap-2">
+          {meeting.startsAt ? (
+            <span className="mr-1 flex items-center gap-1.5 text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
+              <Icon name="meeting" className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+              {formatSpan(meeting.startsAt, meeting.endsAt, timeZone, today)}
+            </span>
+          ) : (
+            <Badge tone="amber">Undated</Badge>
+          )}
+          {meeting.series ? (
+            <Chip href={`/series/${meeting.series.id}`} icon="refresh">
+              {meeting.series.name}
+            </Chip>
           ) : null}
-          <Section title="Sessions" count={sessions.length} action={addSession}>
-            <div className="flex flex-col gap-6">
-              {sessions.map((session) => (
-                <SessionAgenda
-                  key={session.id}
-                  session={session}
-                  agenda={session.agenda}
-                  today={today}
-                  timeZone={timeZone}
-                  people={leaders}
-                  sessions={sessions}
-                  tools={agendaTools(session.id)}
-                />
-              ))}
-            </div>
-          </Section>
-        </>
-      ) : (
-        <>
-          <Section title="Agenda" action={agendaTools(meeting.id)}>
-            <AgendaCard agenda={agenda} today={today} people={leaders} sessions={parent?.sessions} />
-          </Section>
-          <Suggestions candidates={candidates} meetingId={meeting.id} />
-        </>
-      )}
+          {meeting.group ? (
+            <Chip href={`/groups/${meeting.group.id}`} icon="group">
+              {meeting.group.name}
+            </Chip>
+          ) : null}
+          {/* John is at every meeting: first, and never on its list of people. */}
+          {self ? (
+            <Chip href={`/people/${self.id}`} icon="person">
+              Me
+            </Chip>
+          ) : null}
+          {meeting.people.map((person) => (
+            <Chip key={person.id} href={`/people/${person.id}`} icon="person">
+              {person.name}
+            </Chip>
+          ))}
+          {meeting.projects.map((project) => (
+            <Chip key={project.id} href={`/projects/${project.id}`} icon="project">
+              {project.name}
+            </Chip>
+          ))}
+        </div>
 
-      <Blocks
-        meetingId={meeting.id}
-        settings={meeting.blocks}
-        blocks={blocks}
-        today={today}
-        timeZone={timeZone}
-      />
+        {rollup ? (
+          <>
+            {/* What was on the meeting itself before it had sessions. */}
+            {agenda.nodes.length > 0 ? (
+              <Section title="Agenda">
+                <AgendaCard agenda={agenda} today={today} people={leaders} />
+              </Section>
+            ) : null}
+            <Section title="Sessions" count={sessions.length} action={addSession}>
+              <div className="flex flex-col gap-6">
+                {sessions.map((session) => (
+                  <SessionAgenda
+                    key={session.id}
+                    session={session}
+                    agenda={session.agenda}
+                    today={today}
+                    timeZone={timeZone}
+                    people={leaders}
+                    sessions={sessions}
+                    tools={agendaTools(session.id)}
+                  />
+                ))}
+              </div>
+            </Section>
+          </>
+        ) : (
+          <>
+            <Section title="Agenda" action={agendaTools(meeting.id)}>
+              <AgendaCard agenda={agenda} today={today} people={leaders} sessions={parent?.sessions} />
+            </Section>
+            <Suggestions candidates={candidates} meetingId={meeting.id} />
+          </>
+        )}
 
-      {/* One level only: a session has no sessions of its own. */}
-      {rollup || parent ? null : <Section title="Sessions" count={0} action={addSession}>{null}</Section>}
+        <Blocks
+          meetingId={meeting.id}
+          settings={meeting.blocks}
+          blocks={blocks}
+          today={today}
+          timeZone={timeZone}
+        />
+
+        {/* One level only: a session has no sessions of its own. */}
+        {rollup || parent ? null : <Section title="Sessions" count={0} action={addSession}>{null}</Section>}
+      </Muted>
     </>
   )
 }

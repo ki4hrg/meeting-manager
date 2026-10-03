@@ -1,3 +1,4 @@
+import { ArchivedSection } from '@/components/archive/Archive'
 import Link from 'next/link'
 import { DateJump } from '@/components/meetings/DateJump'
 import { DayList } from '@/components/meetings/DayList'
@@ -8,10 +9,11 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Tabs } from '@/components/ui/Tabs'
-import { fromLocalInput, todayIn } from '@/lib/core/dates'
+import { formatMoment, fromLocalInput, todayIn } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
+import { listMeetings } from '@/lib/meetings/meetings'
 import { listPast } from '@/lib/meetings/prep'
 import { pendingByMeeting } from '@/lib/processing/proposals'
 import { listProjectChoices } from '@/lib/projects/projects'
@@ -41,6 +43,7 @@ export default async function PastMeetingsPage({ searchParams }: { searchParams:
     listProjectChoices(db, context.id),
   ])
   const earlier = todayIn(timeZone, from)
+  const archived = await listMeetings(db, { contextId: context.id, shelf: 'archived', topLevelOnly: true })
 
   return (
     <>
@@ -99,6 +102,15 @@ export default async function PastMeetingsPage({ searchParams }: { searchParams:
           </Link>
         </div>
       </Section>
+      <ArchivedSection
+        icon="meeting"
+        rows={archived.map((meeting) => ({
+          id: meeting.id,
+          name: meeting.title,
+          href: `/meetings/${meeting.id}`,
+          meta: meeting.startsAt ? formatMoment(meeting.startsAt, timeZone) : undefined,
+        }))}
+      />
     </>
   )
 }

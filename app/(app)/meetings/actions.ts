@@ -18,7 +18,6 @@ import { db } from '@/lib/db'
 import type { BlockSettings } from '@/lib/db/schema'
 import { markDiscussed } from '@/lib/items/items'
 import {
-  deleteMeeting,
   getMeeting,
   setMeetingPeople,
   setMeetingProjects,
@@ -155,17 +154,6 @@ export async function updateMeetingAction(formData: FormData): Promise<ActionRes
       }
     })
   })
-}
-
-export async function deleteMeetingAction(formData: FormData): Promise<ActionResult> {
-  let back = '/meetings'
-  const result = await act(async (actor) => {
-    const meeting = await getMeeting(db, field(formData, 'id'))
-    if (meeting.parentMeetingId) back = `/meetings/${meeting.parentMeetingId}`
-    await deleteMeeting(db, actor, meeting.id)
-  })
-  if (!result.error) redirect(back)
-  return result
 }
 
 /* Select the context a meeting lives in, then open it there. */

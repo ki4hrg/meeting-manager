@@ -27,7 +27,7 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
-import { getThread, isOpen, type ItemEvent, type ItemParty } from '@/lib/items/items'
+import { canDeleteItem, getThread, isOpen, type ItemEvent, type ItemParty } from '@/lib/items/items'
 import { getProject, listProjectChoices } from '@/lib/projects/projects'
 import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
@@ -150,6 +150,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
 
   const open = isOpen(item)
   const decision = item.kind === 'decision'
+  const deletable = await canDeleteItem(db, item)
 
   /* "Raise at": an open item can be aimed at one meeting, or at a series,
      whose next occurrence then takes it. What is on offer is what is still to
@@ -488,8 +489,8 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 </ActionButton>
               ) : null}
 
-              {/* Only what stands alone: what came out of a meeting or a thread is dropped. */}
-              {!item.originMeetingId && thread.entries.length === 1 ? (
+              {/* Closed and standing alone: what came out of a meeting, a thread or an agenda stays closed. */}
+              {deletable ? (
                 <FormModal
                   action={deleteItemAction}
                   title="Delete item"

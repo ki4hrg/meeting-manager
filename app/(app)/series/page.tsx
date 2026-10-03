@@ -1,3 +1,4 @@
+import { ArchivedSection } from '@/components/archive/Archive'
 import { FormModal } from '@/components/forms'
 import { CardGrid, CardHeader, LinkCard } from '@/components/ui/Card'
 import { PartyPicker } from '@/components/processing/PartyPicker'
@@ -21,6 +22,7 @@ export default async function SeriesListPage() {
   const context = await requireContext()
   const { user } = await viewer()
   const series = await listSeries(db, context.id)
+  const archived = await listSeries(db, context.id, 'archived')
   const people = (await listPeople(db)).filter((person) => !person.isSelf)
   const groups = await listGroups(db, context.id)
   const projects = await listProjectChoices(db, context.id)
@@ -106,6 +108,10 @@ export default async function SeriesListPage() {
           })}
         </CardGrid>
       )}
+      <ArchivedSection
+        icon="refresh"
+        rows={archived.map((one) => ({ id: one.id, name: one.name, href: `/series/${one.id}` }))}
+      />
     </>
   )
 }
