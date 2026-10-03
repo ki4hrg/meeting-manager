@@ -70,6 +70,8 @@ export function FormModal({
   variant = 'primary',
   size = 'md',
   compact = false,
+  tone,
+  disabled = false,
   danger = false,
   wide = false,
   children,
@@ -86,6 +88,9 @@ export function FormModal({
   size?: ButtonProps['size']
   /** The trigger is a small icon button, as on a row. Needs `icon`. */
   compact?: boolean
+  /** The compact trigger's tone, as an `IconButton`'s. */
+  tone?: IconButtonProps['tone']
+  disabled?: boolean
   /** The form destroys something: its submit button says so in red. */
   danger?: boolean
   /** A wider modal, for a form with a long text field. */
@@ -105,12 +110,13 @@ export function FormModal({
   return (
     <>
       {compact && icon ? (
-        <IconButton icon={icon} label={title} onClick={show} />
+        <IconButton icon={icon} label={title} tone={tone} disabled={disabled} onClick={show} />
       ) : (
         <Button
           variant={variant}
           size={size}
           aria-label={label ? undefined : title}
+          disabled={disabled}
           onClick={show}
         >
           {icon ? <Icon name={icon} className="h-4 w-4" /> : null}

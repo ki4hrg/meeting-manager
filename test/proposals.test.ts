@@ -20,7 +20,9 @@ import {
   updateItem,
 } from '../lib/items/items'
 import { createMeeting, getMeeting, listMeetings, updateMeeting } from '../lib/meetings/meetings'
+import { missingDetails } from '../lib/processing/missing'
 import {
+  acceptEdited,
   acceptProposal,
   addProposals,
   approveAll,
@@ -438,6 +440,57 @@ describe('accepting', () => {
     const [proposal] = await propose(meeting.id, [{ payload: item('Book the hall') }])
     await rejectProposal(db, actor, proposal!.id)
     await expect(acceptProposal(db, actor, proposal!.id)).rejects.toThrow(ValidationError)
+    expect(await itemCount(w.parish.id)).toBe(0)
+  })
+})
+
+describe('accepting with what was missing', () => {
+  it('asks for an owner and a due date on an action, a project wherever one could go', () => {
+    expect(missingDetails(item('Book the hall'), true)).toEqual(['owner', 'project', 'due'])
+    expect(missingDetails(item('Book the hall'), false)).toEqual(['owner', 'due'])
+    expect(
+      missingDetails(
+        item('Book the hall', {
+          parties: [{ role: 'owner', name: 'Tom' }],
+          projectId: '11111111-1111-4111-8111-111111111111',
+          dueOn: '2026-10-20',
+        }),
+        true,
+      ),
+    ).toEqual([])
+    // Who it is with is not who owns it.
+    expect(missingDetails(item('Lunch menu?', { kind: 'question', parties: [{ role: 'with', name: 'Tom' }] }), false)).toEqual(['owner'])
+    expect(missingDetails(item('Budget', { kind: 'topic' }), true)).toEqual(['project'])
+    expect(missingDetails(item('Budget', { kind: 'decision' }), false)).toEqual([])
+    expect(missingDetails({ type: 'document', title: 'Agenda', body: '# x' }, true)).toEqual(['project'])
+    expect(missingDetails({ type: 'stub', title: 'Catch up', people: [] }, true)).toEqual([])
+  })
+
+  it('edits and accepts in one step', async () => {
+    const { w, meeting } = await setup()
+    const [proposal] = await propose(meeting.id, [{ payload: item('Book the hall') }])
+    const accepted = await acceptEdited(db, actor, proposal!.id, item('Book the hall', {
+      parties: [{ role: 'owner', name: 'Tom', personId: w.tom.id }],
+      dueOn: '2026-10-20',
+    }))
+    expect(accepted.status).toBe('accepted')
+    expect(accepted.made?.item).toMatchObject({ text: 'Book the hall', dueOn: '2026-10-20' })
+    expect(accepted.made?.item?.parties.map((p) => p.id)).toEqual([w.tom.id])
+  })
+
+  it('keeps neither the edit nor the accept when accepting is refused', async () => {
+    const { w, meeting } = await setup()
+    const [proposal] = await propose(meeting.id, [{ payload: item('Book the hall') }])
+    await expect(
+      acceptEdited(db, actor, proposal!.id, item('Book the hall', {
+        parties: [{ role: 'owner', name: 'Priya' }],
+        dueOn: '2026-10-20',
+      })),
+    ).rejects.toThrow('Say who Priya is before accepting this.')
+    const after = await getProposal(db, proposal!.id)
+    expect(after.status).toBe('pending')
+    expect(after.payload).toMatchObject({ parties: [] })
+    expect((after.payload as ItemPayload).dueOn ?? null).toBeNull()
     expect(await itemCount(w.parish.id)).toBe(0)
   })
 })

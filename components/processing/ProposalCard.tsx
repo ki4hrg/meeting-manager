@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import {
   acceptProposalAction,
+  acceptWithAction,
   editProposalAction,
   rejectProposalAction,
   undoProposalAction,
@@ -14,7 +15,8 @@ import { Badge, DueBadge, KindIcon, StatusBadge, type Tone } from '@/components/
 import { formatDay } from '@/lib/core/dates'
 import type { ItemParty } from '@/lib/items/items'
 import type { ProposalView } from '@/lib/processing/proposals'
-import { CHANGES, ProposalFields, type ProposalChoices } from './ProposalFields'
+import { missingDetails } from '@/lib/processing/missing'
+import { AcceptFields, CHANGES, ProposalFields, type ProposalChoices } from './ProposalFields'
 import { ResolveParty } from './ResolveParty'
 
 const CHANGE: Record<keyof typeof CHANGES, { tone: Tone; icon: IconName }> = {
@@ -116,6 +118,7 @@ export function ProposalCard({
   /* A follow-up named after the one person it is with says who twice. */
   const named =
     payload.type === 'stub' && payload.title === proposal.parties.map((party) => party.name).join(', ')
+  const missing = pending ? missingDetails(payload, choices.projects.length > 0) : []
   const body = payload.type === 'item' ? payload.detail : payload.type === 'update' ? payload.text : null
 
   return (
@@ -275,18 +278,40 @@ export function ProposalCard({
                 icon="close"
                 label="Reject"
               />
-              <FormModal action={editProposalAction} title="Edit" icon="pencil" compact wide>
+              <FormModal
+                action={editProposalAction}
+                title="Edit"
+                icon="pencil"
+                compact
+                wide
+                also={{ label: 'Accept', name: 'accept', value: '1' }}
+              >
                 <input type="hidden" name="id" value={proposal.id} />
                 <ProposalFields proposal={proposal} choices={choices} />
               </FormModal>
-              <IconAction
-                action={acceptProposalAction}
-                fields={{ id: proposal.id }}
-                icon="check"
-                tone="blue"
-                label="Accept"
-                disabled={unknown.length > 0}
-              />
+              {/* What it leaves unsaid is asked for on the way in; blank is fine. */}
+              {missing.length > 0 ? (
+                <FormModal
+                  action={acceptWithAction}
+                  title="Accept"
+                  icon="check"
+                  tone="blue"
+                  compact
+                  submit="Accept"
+                  disabled={unknown.length > 0}
+                >
+                  <AcceptFields proposal={proposal} missing={missing} choices={choices} />
+                </FormModal>
+              ) : (
+                <IconAction
+                  action={acceptProposalAction}
+                  fields={{ id: proposal.id }}
+                  icon="check"
+                  tone="blue"
+                  label="Accept"
+                  disabled={unknown.length > 0}
+                />
+              )}
             </>
           ) : (
             <IconAction action={undoProposalAction} fields={{ id: proposal.id }} icon="undo" label="Undo" />

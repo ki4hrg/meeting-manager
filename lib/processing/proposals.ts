@@ -754,6 +754,23 @@ export async function editProposal(
   })
 }
 
+/**
+ * Edit a pending proposal and accept it in one step: Accept from its edit
+ * form, or from the short form asking what it leaves unsaid. If accepting is
+ * refused, the edit is not kept either.
+ */
+export async function acceptEdited(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  payload: ProposalPayload,
+): Promise<ProposalView> {
+  return inTransaction(exec, async (tx) => {
+    await editProposal(tx, actor, id, payload)
+    return acceptProposal(tx, actor, id)
+  })
+}
+
 /* The history accepting an item proposal writes on the item it makes. Undo
    compares against it to tell whether anything has happened since. */
 function madeEvents(payload: ItemPayload): ItemEventType[] {

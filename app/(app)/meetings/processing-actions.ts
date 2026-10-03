@@ -18,6 +18,7 @@ import { getMeeting } from '@/lib/meetings/meetings'
 import { attendeeIsGroup, dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
 import { getNote, meetingOf, moveNote, saveNote } from '@/lib/notes/notes'
 import {
+  acceptEdited,
   acceptProposal,
   approveAll,
   editProposal,
@@ -304,7 +305,40 @@ export async function editProposalAction(formData: FormData): Promise<ActionResu
       payload = { ...was, title: field(formData, 'title'), people }
     }
 
-    await editProposal(db, actor, proposal.id, payload)
+    // Edit, then accept as edited: the form's second submit.
+    if (formData.get('accept') === '1') await acceptEdited(db, actor, proposal.id, payload)
+    else await editProposal(db, actor, proposal.id, payload)
+  })
+}
+
+/**
+ * Accept, with what the short form asked for filled in: an owner, a project,
+ * a due date. Only the fields it asked for are touched; any left blank stay
+ * unset.
+ */
+export async function acceptWithAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const proposal = await ownProposal(field(formData, 'id'))
+    const asked = new Set(values(formData, 'asked'))
+    const was = proposal.payload
+    if (was.type !== 'item' && was.type !== 'document') {
+      await acceptProposal(db, actor, proposal.id)
+      return
+    }
+    const projectId = asked.has('project') ? field(formData, 'projectId') || null : was.projectId
+    let payload: ProposalPayload
+    if (was.type === 'item') {
+      const owners = asked.has('owner') ? await partiesFrom(formData, 'owners', 'owner', await contextId()) : []
+      payload = {
+        ...was,
+        parties: [...was.parties, ...owners],
+        projectId,
+        dueOn: asked.has('due') ? parseDay(field(formData, 'dueOn')) : was.dueOn,
+      }
+    } else {
+      payload = { ...was, projectId }
+    }
+    await acceptEdited(db, actor, proposal.id, payload)
   })
 }
 

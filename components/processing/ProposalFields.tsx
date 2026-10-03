@@ -1,5 +1,6 @@
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { KIND, type ItemKind } from '@/components/ui/StatusBadge'
+import type { MissingDetail } from '@/lib/processing/missing'
 import type { ProposalParty, ProposalView } from '@/lib/processing/proposals'
 import { PartyPicker, type PartyOption } from './PartyPicker'
 
@@ -38,6 +39,41 @@ function ProjectField({ projects, value }: { projects: Option[]; value: string |
         ))}
       </Select>
     </Field>
+  )
+}
+
+/** The short form on Accept: only what the proposal leaves unsaid, each one optional. */
+export function AcceptFields({
+  proposal,
+  missing,
+  choices,
+}: {
+  proposal: ProposalView
+  missing: MissingDetail[]
+  choices: ProposalChoices
+}) {
+  const parties: PartyOption[] = [
+    ...choices.people.map((person): PartyOption => ({ value: `person:${person.id}`, name: person.name, icon: 'person' })),
+    ...choices.groups.map((group): PartyOption => ({ value: `group:${group.id}`, name: group.name, icon: 'group' })),
+  ]
+  return (
+    <>
+      <input type="hidden" name="id" value={proposal.id} />
+      {missing.map((one) => (
+        <input key={one} type="hidden" name="asked" value={one} />
+      ))}
+      {missing.includes('owner') ? <PartyPicker label="Owner" name="owners" options={parties} /> : null}
+      {missing.includes('project') || missing.includes('due') ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {missing.includes('project') ? <ProjectField projects={choices.projects} value={null} /> : null}
+          {missing.includes('due') ? (
+            <Field label="Due">
+              <Input name="dueOn" type="date" />
+            </Field>
+          ) : null}
+        </div>
+      ) : null}
+    </>
   )
 }
 
