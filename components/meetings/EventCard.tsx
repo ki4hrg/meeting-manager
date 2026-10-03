@@ -40,7 +40,7 @@ export function EventCard({ entry, time }: { entry: UpcomingEntry; time: string 
           <ActionButton
             key={stub.id}
             action={attachStubAction}
-            fields={{ meetingId: stub.id, eventId: event.eventId }}
+            fields={{ meetingId: stub.id, eventId: event.eventId, at: event.startsAt.toISOString() }}
             variant="secondary"
             size="sm"
             aria-label={`Attach ${stub.title}`}
@@ -49,7 +49,11 @@ export function EventCard({ entry, time }: { entry: UpcomingEntry; time: string 
             <span className="max-w-[10rem] truncate">{stub.title}</span>
           </ActionButton>
         ))}
-        <ActionButton action={prepEventAction} fields={{ eventId: event.eventId }} size="sm">
+        <ActionButton
+          action={prepEventAction}
+          fields={{ eventId: event.eventId, at: event.startsAt.toISOString() }}
+          size="sm"
+        >
           Prep
         </ActionButton>
       </div>

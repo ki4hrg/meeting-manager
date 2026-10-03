@@ -57,6 +57,12 @@ async function thenOpen(
 const ids = (formData: FormData, name: string) =>
   formData.getAll(name).map(String).filter(Boolean)
 
+/* When an event card said its event starts, so it is looked for there. */
+function aroundFrom(formData: FormData): Date | undefined {
+  const at = field(formData, 'at')
+  return at ? new Date(at) : undefined
+}
+
 /* A whole number of minutes from a form field, or null when it is empty. */
 function minutesFrom(value: string): number | null {
   if (value === '') return null
@@ -239,7 +245,7 @@ export async function prepEventAction(formData: FormData): Promise<ActionResult>
   return thenOpen(
     async (actor) => {
       const context = await contextId()
-      const event = await findEvent(db, context, field(formData, 'eventId'))
+      const event = await findEvent(db, context, field(formData, 'eventId'), undefined, undefined, aroundFrom(formData))
       id = (await prepFromEvent(db, actor, { contextId: context, event })).id
     },
     () => id,
@@ -251,7 +257,7 @@ export async function attachStubAction(formData: FormData): Promise<ActionResult
   const id = field(formData, 'meetingId')
   return thenOpen(
     async (actor) => {
-      const event = await findEvent(db, await contextId(), field(formData, 'eventId'))
+      const event = await findEvent(db, await contextId(), field(formData, 'eventId'), undefined, undefined, aroundFrom(formData))
       await attachStub(db, actor, id, event)
     },
     () => id,

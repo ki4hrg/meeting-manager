@@ -301,15 +301,24 @@ export async function findOccurrences(
   return events.filter((candidate) => candidate.seriesId === calendarSeriesId)
 }
 
-/** One event of a context's feed, looked up again at the moment it is acted on. */
+/**
+ * One event of a context's feed, looked up again at the moment it is acted on.
+ * `around` is when the card said it starts, so an event in the past (or far
+ * ahead) is looked for there rather than in the coming weeks.
+ */
 export async function findEvent(
   exec: Executor,
   contextId: string,
   eventId: string,
   now: Date = new Date(),
   days = 60,
+  around?: Date,
 ): Promise<CalendarEvent> {
-  const events = await listEventsIn(exec, { contextId, ...feedRange(now, days) })
+  const range =
+    around && !Number.isNaN(around.getTime())
+      ? { from: new Date(around.getTime() - 86_400_000), to: new Date(around.getTime() + 86_400_000) }
+      : feedRange(now, days)
+  const events = await listEventsIn(exec, { contextId, ...range })
   const event = events.find((candidate) => candidate.eventId === eventId)
   if (!event) throw new ValidationError('That event is no longer on the calendar.')
   return event
@@ -324,11 +333,12 @@ export async function findEvent(
 export async function listUpcoming(
   exec: Executor,
   contextId: string,
-  /* `events` stands in for what this context's calendars hold, for tests. */
-  opts: { now?: Date; days?: number; events?: CalendarEvent[] } = {},
+  /* `from` starts the window somewhere ahead (the date jump); `days` is how far it reaches.
+     `events` stands in for what this context's calendars hold, for tests. */
+  opts: { now?: Date; from?: Date; days?: number; events?: CalendarEvent[] } = {},
 ): Promise<{ entries: UpcomingEntry[]; stubs: MeetingView[] }> {
   const now = opts.now ?? new Date()
-  const range = feedRange(now, opts.days ?? 14)
+  const range = feedRange(opts.from && opts.from > now ? opts.from : now, opts.days ?? 14)
 
   const [events, dated, stubs, allSeries] = await Promise.all([
     opts.events
@@ -388,4 +398,60 @@ export async function listUpcoming(
 
   entries.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
   return { entries, stubs }
+}
+
+/**
+ * What happened in a context in a window that has passed: the meetings held,
+ * and the calendar events nobody prepped, so one can still be given a meeting
+ * (to log its notes against). Latest first.
+ */
+export async function listPast(
+  exec: Executor,
+  contextId: string,
+  opts: { now?: Date; before?: Date; days?: number; events?: CalendarEvent[] } = {},
+): Promise<{ entries: UpcomingEntry[]; from: Date; to: Date }> {
+  const now = opts.now ?? new Date()
+  const to = opts.before && opts.before < now ? opts.before : now
+  const from = new Date(to.getTime() - (opts.days ?? 14) * 86_400_000)
+
+  const [events, held] = await Promise.all([
+    opts.events
+      ? eventsHere(
+          exec,
+          contextId,
+          opts.events.map((event) => ({ event, contextId })),
+        )
+      : listEventsIn(exec, { contextId, from, to }),
+    listMeetings(exec, { contextId, when: 'past', now, topLevelOnly: true, between: { from, to } }),
+  ])
+
+  /* An event whose meeting is still under way, or was moved off its time, is not "never prepped". */
+  const prepped = new Set(
+    (
+      await exec
+        .select({ eventId: meetings.calendarEventId })
+        .from(meetings)
+        .where(
+          inArray(
+            meetings.calendarEventId,
+            events.length > 0 ? events.map((event) => event.eventId) : [''],
+          ),
+        )
+    ).map((row) => row.eventId),
+  )
+
+  const entries: UpcomingEntry[] = [
+    ...held.map((meeting) => ({
+      startsAt: meeting.startsAt!,
+      event: null,
+      meeting,
+      series: meeting.series,
+      stubs: [],
+    })),
+    ...events
+      .filter((event) => !event.allDay && !prepped.has(event.eventId) && event.startsAt < to)
+      .map((event) => ({ startsAt: event.startsAt, event, meeting: null, series: null, stubs: [] })),
+  ]
+  entries.sort((a, b) => b.startsAt.getTime() - a.startsAt.getTime())
+  return { entries, from, to }
 }

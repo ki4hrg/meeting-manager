@@ -1,55 +1,71 @@
+import Link from 'next/link'
 import { FormModal } from '@/components/forms'
-import { EventCard } from '@/components/meetings/EventCard'
+import { DateJump } from '@/components/meetings/DateJump'
+import { DayList } from '@/components/meetings/DayList'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
 import { MeetingFields } from '@/components/meetings/MeetingFields'
+import { ReviewSection } from '@/components/meetings/ReviewSection'
 import { LogMeeting } from '@/components/processing/LogMeeting'
 import { CardGrid, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { formatMoment, formatTime, formatWeekday, todayIn } from '@/lib/core/dates'
+import { Tabs } from '@/components/ui/Tabs'
+import { agendaCounts } from '@/lib/agenda/lines'
+import { formatMoment, fromLocalInput } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
-import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
-import { listUpcoming, type UpcomingEntry } from '@/lib/meetings/prep'
+import { listMeetings } from '@/lib/meetings/meetings'
+import { listUpcoming } from '@/lib/meetings/prep'
 import { listSeries } from '@/lib/meetings/series'
 import { pendingByMeeting } from '@/lib/processing/proposals'
 import { listProjects } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
 import { createMeetingAction } from './actions'
 
-export default async function MeetingsPage() {
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+const STEP = 14
+const FARTHEST = 180
+
+type Search = Promise<Record<string, string | string[] | undefined>>
+
+/* Upcoming: the calendar and the meetings made by hand, a window at a time.
+   `from` jumps the window to a day; "More" reaches it further. */
+export default async function MeetingsPage({ searchParams }: { searchParams: Search }) {
   const context = await requireContext()
   const { user, today } = await viewer()
   const timeZone = user.timeZone
 
-  const [{ entries, stubs }, ahead, past, people, groups, projects, series, pending] = await Promise.all([
-    listUpcoming(db, context.id),
+  const query = await searchParams
+  const fromDay = typeof query.from === 'string' && DAY.test(query.from) && query.from > today ? query.from : null
+  const asked = Number(query.days)
+  const days = Number.isInteger(asked) && asked > 0 ? Math.min(asked, FARTHEST) : STEP
+  const from = fromDay ? fromLocalInput(`${fromDay}T00:00`, timeZone) : undefined
+
+  const [{ entries, stubs }, ahead, people, groups, projects, series, pending] = await Promise.all([
+    listUpcoming(db, context.id, { from, days }),
     listMeetings(db, { contextId: context.id, when: 'upcoming', topLevelOnly: true }),
-    listMeetings(db, { contextId: context.id, when: 'past', topLevelOnly: true, limit: 20 }),
     listPeople(db),
     listGroups(db, context.id),
     listProjects(db, context.id),
     listSeries(db, context.id),
     pendingByMeeting(db, context.id),
   ])
-  /* Whatever has proposals waiting, sessions and long-past meetings included:
-     read one by one, because no list below is sure to hold them. */
-  const toReview = (await Promise.all([...pending.keys()].map((id) => getMeeting(db, id)))).sort(
-    (a, b) => (b.startsAt?.getTime() ?? 0) - (a.startsAt?.getTime() ?? 0),
+  const agendas = await agendaCounts(
+    db,
+    entries.flatMap((entry) => (entry.meeting ? [entry.meeting.id] : [])),
   )
   const others = people.filter((person) => !person.isSelf)
   const live = projects.filter((project) => project.status !== 'done')
 
-  // Upcoming by day, in the user's zone.
-  const days = new Map<string, UpcomingEntry[]>()
-  for (const entry of entries) {
-    const day = todayIn(timeZone, entry.startsAt)
-    days.set(day, [...(days.get(day) ?? []), entry])
-  }
-  // Made by hand for a date beyond the calendar window.
+  // Made by hand for a date beyond the window.
   const listed = new Set(entries.flatMap((entry) => (entry.meeting ? [entry.meeting.id] : [])))
-  const later = ahead.filter((meeting) => !listed.has(meeting.id))
+  const windowEnd = (from ?? new Date()).getTime() + days * 86_400_000
+  const later = ahead.filter(
+    (meeting) => !listed.has(meeting.id) && meeting.startsAt && meeting.startsAt.getTime() >= windowEnd,
+  )
+  const more = new URLSearchParams({ ...(fromDay ? { from: fromDay } : {}), days: String(days + STEP) })
 
   return (
     <>
@@ -68,54 +84,51 @@ export default async function MeetingsPage() {
         }
       />
 
-      {toReview.length > 0 ? (
-        <Section title="Review" count={toReview.length}>
-          <CardGrid>
-            {toReview.map((meeting) => (
-              <MeetingCard
-                key={meeting.id}
-                meeting={meeting}
-                when={meeting.startsAt ? formatMoment(meeting.startsAt, timeZone) : null}
-                pending={pending.get(meeting.id)}
-                to="review"
-              />
-            ))}
-          </CardGrid>
-        </Section>
-      ) : null}
+      <Tabs
+        tabs={[
+          { href: '/meetings', label: 'Upcoming', active: true },
+          { href: '/meetings/past', label: 'Past', active: false },
+        ]}
+      />
 
-      <Section title="Upcoming" count={entries.length}>
+      <ReviewSection pending={pending} timeZone={timeZone} />
+
+      <Section
+        title="Upcoming"
+        count={entries.length}
+        action={
+          <div className="flex items-center gap-2">
+            {fromDay ? (
+              <Link
+                href="/meetings"
+                aria-label="Today"
+                title="Today"
+                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              >
+                <Icon name="close" className="h-4 w-4" />
+              </Link>
+            ) : null}
+            <DateJump href="/meetings" param="from" value={fromDay ?? undefined} />
+          </div>
+        }
+      >
         {entries.length === 0 ? (
           <EmptyState icon="meeting" />
         ) : (
-          <div className="flex flex-col gap-5">
-            {[...days].map(([day, dayEntries]) => (
-              <div key={day}>
-                <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
-                  {formatWeekday(day, today)}
-                  {day === today ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-blue-600 dark:bg-blue-400" aria-label="Today" />
-                  ) : null}
-                </h3>
-                <CardGrid>
-                  {dayEntries.map((entry) => {
-                    const time = formatTime(entry.startsAt, timeZone)
-                    return entry.meeting ? (
-                      <MeetingCard
-                        key={entry.meeting.id}
-                        meeting={{ ...entry.meeting, series: entry.series }}
-                        when={time}
-                        pending={pending.get(entry.meeting.id)}
-                      />
-                    ) : (
-                      <EventCard key={entry.event!.eventId} entry={entry} time={time} />
-                    )
-                  })}
-                </CardGrid>
-              </div>
-            ))}
-          </div>
+          <DayList entries={entries} today={today} timeZone={timeZone} pending={pending} agendas={agendas} />
         )}
+        {days < FARTHEST ? (
+          <div className="mt-4 flex justify-center">
+            <Link
+              href={`/meetings?${more}`}
+              scroll={false}
+              className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+            >
+              <Icon name="chevronDown" className="h-4 w-4" />
+              More
+            </Link>
+          </div>
+        ) : null}
       </Section>
 
       {later.length > 0 ? (
@@ -138,21 +151,6 @@ export default async function MeetingsPage() {
           <CardGrid>
             {stubs.map((stub) => (
               <MeetingCard key={stub.id} meeting={stub} when={null} pending={pending.get(stub.id)} />
-            ))}
-          </CardGrid>
-        </Section>
-      ) : null}
-
-      {past.length > 0 ? (
-        <Section title="Past" count={past.length}>
-          <CardGrid>
-            {past.map((meeting) => (
-              <MeetingCard
-                key={meeting.id}
-                meeting={meeting}
-                when={formatMoment(meeting.startsAt!, timeZone)}
-                pending={pending.get(meeting.id)}
-              />
             ))}
           </CardGrid>
         </Section>

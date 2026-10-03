@@ -641,3 +641,14 @@ export async function importOutline(
     }
   })
 }
+
+/** How many rows each meeting's agenda has, sections included: none means not yet prepped. */
+export async function agendaCounts(exec: Executor, meetingIds: string[]): Promise<Map<string, number>> {
+  if (meetingIds.length === 0) return new Map()
+  const rows = await exec
+    .select({ meetingId: agendaLines.meetingId, n: sql<number>`count(*)::int` })
+    .from(agendaLines)
+    .where(inArray(agendaLines.meetingId, meetingIds))
+    .groupBy(agendaLines.meetingId)
+  return new Map(rows.map((row) => [row.meetingId, row.n]))
+}

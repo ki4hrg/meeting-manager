@@ -191,6 +191,8 @@ export type MeetingFilter = {
   projectId?: string
   groupId?: string
   topLevelOnly?: boolean
+  /** Only meetings starting in [from, to). */
+  between?: { from: Date; to: Date }
   now?: Date
   limit?: number
 }
@@ -216,6 +218,12 @@ export async function listMeetings(
     conditions.push(sql`${over} < ${now.toISOString()}::timestamp with time zone`)
   } else if (filter.when === 'stubs') {
     conditions.push(sql`${meetings.startsAt} is null`)
+  }
+
+  if (filter.between) {
+    conditions.push(
+      sql`${meetings.startsAt} >= ${filter.between.from.toISOString()}::timestamptz and ${meetings.startsAt} < ${filter.between.to.toISOString()}::timestamptz`,
+    )
   }
 
   if (filter.seriesId) {

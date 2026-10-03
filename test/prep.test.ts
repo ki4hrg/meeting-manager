@@ -7,10 +7,11 @@ import { getAgenda } from '../lib/agenda/lines'
 import type { CalendarEvent } from '../lib/calendar/feed'
 import { agendaLines, meetings } from '../lib/db/schema'
 import { createItem } from '../lib/items/items'
-import { getMeeting, listMeetings, updateMeeting } from '../lib/meetings/meetings'
+import { createMeeting, getMeeting, listMeetings, updateMeeting } from '../lib/meetings/meetings'
 import { moveMeeting } from '../lib/meetings/move'
 import {
   attachStub,
+  listPast,
   listUpcoming,
   prepFromEvent,
   prepNextInSeries,
@@ -287,5 +288,47 @@ describe('listUpcoming', () => {
       'Council',
     ])
     expect(upcoming.stubs).toHaveLength(1)
+  })
+})
+
+describe('the reach of the meetings lists', () => {
+  it('a window that starts ahead lists only what falls in it', async () => {
+    const w = await makeWorld()
+    const soon = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Soon', startsAt: new Date('2026-10-06T15:00:00Z') })
+    const far = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Far', startsAt: new Date('2026-11-20T15:00:00Z') })
+    const farEvent = event({ eventId: 'evt-far', startsAt: new Date('2026-11-21T15:00:00Z'), endsAt: new Date('2026-11-21T16:00:00Z') })
+
+    const near = await listUpcoming(db, w.parish.id, { now: NOW, events: [] })
+    expect(near.entries.map((entry) => entry.meeting?.id)).toEqual([soon.id])
+
+    const jumped = await listUpcoming(db, w.parish.id, { now: NOW, from: new Date('2026-11-15T06:00:00Z'), events: [farEvent] })
+    expect(jumped.entries.map((entry) => entry.meeting?.id ?? entry.event?.eventId)).toEqual([far.id, 'evt-far'])
+
+    const reached = await listUpcoming(db, w.parish.id, { now: NOW, days: 60, events: [] })
+    expect(reached.entries.map((entry) => entry.meeting?.id)).toEqual([soon.id, far.id])
+  })
+
+  it('the past lists what was held and the events nobody prepped, latest first', async () => {
+    const w = await makeWorld()
+    const held = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Held',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+      calendarId: 'cal-1',
+      calendarEventId: 'evt-held',
+    })
+    await createMeeting(db, actor, { contextId: w.parish.id, title: 'Long ago', startsAt: new Date('2026-08-01T15:00:00Z') })
+    const missed = event({ eventId: 'evt-missed', startsAt: new Date('2026-10-02T15:00:00Z'), endsAt: new Date('2026-10-02T16:00:00Z') })
+    const heldEvent = event({ eventId: 'evt-held', startsAt: new Date('2026-10-01T15:00:00Z'), endsAt: new Date('2026-10-01T16:00:00Z') })
+
+    const past = await listPast(db, w.parish.id, { now: NOW, events: [missed, heldEvent] })
+    expect(past.entries.map((entry) => entry.meeting?.id ?? entry.event?.eventId)).toEqual(['evt-missed', held.id])
+
+    const earlier = await listPast(db, w.parish.id, { now: NOW, before: new Date('2026-08-10T00:00:00Z'), events: [] })
+    expect(earlier.entries.map((entry) => entry.meeting?.title)).toEqual(['Long ago'])
+
+    // A missed event can still be given its meeting, to log its notes against.
+    const made = await prepFromEvent(db, actor, { contextId: w.parish.id, event: missed }, NOW)
+    expect(made.startsAt).toEqual(missed.startsAt)
   })
 })
