@@ -278,6 +278,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                   today={today}
                   timeZone={timeZone}
                   people={leaders}
+                  sessions={sessions}
                   tools={agendaTools(session.id)}
                 />
               ))}
@@ -287,7 +288,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
       ) : (
         <>
           <Section title="Agenda" action={agendaTools(meeting.id)}>
-            <AgendaCard agenda={agenda} today={today} people={leaders} />
+            <AgendaCard agenda={agenda} today={today} people={leaders} sessions={parent?.sessions} />
           </Section>
           <Suggestions candidates={candidates} meetingId={meeting.id} />
         </>

@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/StatusBadge'
 import type { Agenda } from '@/lib/agenda/lines'
 import { formatSpan } from '@/lib/core/dates'
-import { AgendaCard, type LeaderChoice } from './AgendaCard'
+import { AgendaCard, type LeaderChoice, type SessionChoice } from './AgendaCard'
 
 /** One session of a multi-day meeting, as it sits in the meeting's agenda: its name, when, and its own agenda. */
 export function SessionAgenda({
@@ -11,6 +11,7 @@ export function SessionAgenda({
   today,
   timeZone,
   people,
+  sessions,
   tools,
 }: {
   session: { id: string; title: string; startsAt: Date | null; endsAt: Date | null }
@@ -18,6 +19,7 @@ export function SessionAgenda({
   today: string
   timeZone: string | null
   people: LeaderChoice[]
+  sessions?: SessionChoice[]
   tools?: React.ReactNode
 }) {
   return (
@@ -40,7 +42,7 @@ export function SessionAgenda({
         </div>
         {tools}
       </div>
-      <AgendaCard agenda={agenda} today={today} people={people} />
+      <AgendaCard agenda={agenda} today={today} people={people} sessions={sessions} />
     </div>
   )
 }

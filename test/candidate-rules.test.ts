@@ -15,7 +15,7 @@ import {
   type Candidates,
 } from '../lib/agenda/candidates'
 import { computeBlocks } from '../lib/agenda/generated'
-import { getAgenda, removeLine } from '../lib/agenda/lines'
+import { getAgenda, moveToSession, removeLine } from '../lib/agenda/lines'
 import { getRecap, renderPersonSnippet, renderRecap, renderRecapHtml } from '../lib/agenda/recap'
 import { agendaLines, items } from '../lib/db/schema'
 import { createPerson } from '../lib/directory/people'
@@ -464,6 +464,27 @@ describe('a multi-day meeting', () => {
     const second = await session('Day two', '2026-10-07T15:00:00Z')
     return { w, retreat, done, first, second }
   }
+
+  it('a line bumped to the next session goes there, and is not placed back where it was', async () => {
+    const { w, retreat, first, second } = await retreatWithSessions()
+    const aimed = await createItem(db, actor, { contextId: w.parish.id, text: 'for the retreat', target: { meetingId: retreat.id } })
+    await placeAutomatic(db, actor, first.id, NOW)
+    const lineOf = async (meetingId: string) =>
+      (await getAgenda(db, meetingId)).nodes.flatMap((node) => (node.type === 'line' && node.item ? [node] : []))
+    const [line] = await lineOf(first.id)
+    expect(line!.item!.id).toBe(aimed.id)
+
+    await moveToSession(db, actor, line!.id, second.id)
+    expect(await lineOf(first.id)).toEqual([])
+    expect((await lineOf(second.id)).map((one) => one.item!.id)).toEqual([aimed.id])
+    expect(await placeAutomatic(db, actor, first.id, NOW)).toBe(0)
+    expect(ids((await getCandidates(db, first.id, NOW)).dismissed)).toEqual([aimed.id])
+
+    // Only between sessions of one meeting.
+    const elsewhere = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Staff' })
+    const [moved] = await lineOf(second.id)
+    await expect(moveToSession(db, actor, moved!.id, elsewhere.id)).rejects.toThrow('same meeting')
+  })
 
   it('what is aimed at the whole meeting goes to its next session, and the meeting places nothing itself', async () => {
     const { w, retreat, done, first, second } = await retreatWithSessions()
