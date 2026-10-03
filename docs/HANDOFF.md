@@ -67,7 +67,7 @@ On branch `claude/serene-euler-fbpsv1`, one commit per item, not yet deployed. M
 **Not done, needs John**
 
 - **The reach on project, series and group hubs** (item 7) and the New meeting form offering the calendar events on its date (item 8).
-- **A quick-add token for "next meeting for a project"**, and offering to pause a parent's sub-projects.
+- **Offering to pause a parent's sub-projects.** (No quick-add token for "next meeting for a project": John, 2026-10-03.)
 - **Todoist and sub-projects** must be settled before phase 4 binds projects.
 - Phase 4 (Todoist) is untouched. Phase 5 (cutover from Meeter) is done (John, 2026-10-03).
 
