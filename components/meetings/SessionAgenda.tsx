@@ -11,29 +11,34 @@ export function SessionAgenda({
   today,
   timeZone,
   people,
+  tools,
 }: {
   session: { id: string; title: string; startsAt: Date | null; endsAt: Date | null }
   agenda: Agenda
   today: string
   timeZone: string | null
   people: LeaderChoice[]
+  tools?: React.ReactNode
 }) {
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <Link
-          href={`/meetings/${session.id}`}
-          className="min-w-0 truncate text-base font-semibold text-gray-900 hover:underline dark:text-gray-100"
-        >
-          {session.title}
-        </Link>
-        {session.startsAt ? (
-          <span className="text-sm tabular-nums text-gray-500 dark:text-gray-400">
-            {formatSpan(session.startsAt, session.endsAt, timeZone, today)}
-          </span>
-        ) : (
-          <Badge tone="amber">Undated</Badge>
-        )}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <Link
+            href={`/meetings/${session.id}`}
+            className="min-w-0 truncate text-base font-semibold text-gray-900 hover:underline dark:text-gray-100"
+          >
+            {session.title}
+          </Link>
+          {session.startsAt ? (
+            <span className="text-sm tabular-nums text-gray-500 dark:text-gray-400">
+              {formatSpan(session.startsAt, session.endsAt, timeZone, today)}
+            </span>
+          ) : (
+            <Badge tone="amber">Undated</Badge>
+          )}
+        </div>
+        {tools}
       </div>
       <AgendaCard agenda={agenda} today={today} people={people} />
     </div>

@@ -103,7 +103,8 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     series,
   }
 
-  const agendaTools = (
+  // Import, Section and quick-add, aimed at one meeting's own agenda (a session's, on a rollup).
+  const agendaTools = (meetingId: string) => (
     <div className="flex items-center gap-2">
       <FormModal
         action={importOutlineAction}
@@ -114,7 +115,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         submit="Import"
         wide
       >
-        <input type="hidden" name="meetingId" value={meeting.id} />
+        <input type="hidden" name="meetingId" value={meetingId} />
         <Field label="Outline" required>
           <Textarea
             name="text"
@@ -141,12 +142,12 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         size="sm"
         submit="Add"
       >
-        <input type="hidden" name="meetingId" value={meeting.id} />
+        <input type="hidden" name="meetingId" value={meetingId} />
         <Field label="Title" required>
           <Input name="title" required />
         </Field>
       </FormModal>
-      <QuickAdd presets={{ targetMeetingId: meeting.id }} />
+      <QuickAdd presets={{ targetMeetingId: meetingId }} />
     </div>
   )
 
@@ -277,6 +278,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                   today={today}
                   timeZone={timeZone}
                   people={leaders}
+                  tools={agendaTools(session.id)}
                 />
               ))}
             </div>
@@ -284,7 +286,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         </>
       ) : (
         <>
-          <Section title="Agenda" action={agendaTools}>
+          <Section title="Agenda" action={agendaTools(meeting.id)}>
             <AgendaCard agenda={agenda} today={today} people={leaders} />
           </Section>
           <Suggestions candidates={candidates} meetingId={meeting.id} />
