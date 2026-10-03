@@ -4,7 +4,7 @@ Updated 2026-10-03. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (U
 
 ## Build order 7–11 (2026-10-03)
 
-On branch `claude/serene-euler-fbpsv1`, one commit per item, not yet deployed. Migrations `0006` (drop `milestones.done_at`), `0007` (`meeting_absences`), `0008` (`projects.parent_id`), `0009` (`items.target_project_id`, `items_one_target` over three columns) run at boot. `pnpm test` (578 tests, 38 files), `pnpm typecheck` and `pnpm lint` are clean. Each screen was walked in a production build with Playwright, in light, dark and at phone width.
+On branch `claude/serene-euler-fbpsv1`, one commit per item, not yet deployed. Migrations `0006` (drop `milestones.done_at`), `0007` (`meeting_absences`), `0008` (`projects.parent_id`), `0009` (`items.target_project_id`, `items_one_target` over three columns) run at boot. `pnpm test` (578 tests, 37 files), `pnpm typecheck` and `pnpm lint` are clean. Each screen was walked in a production build with Playwright, in light, dark and at phone width.
 
 **Built**
 
