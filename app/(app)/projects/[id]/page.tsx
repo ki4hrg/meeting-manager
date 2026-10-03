@@ -8,6 +8,7 @@ import { Card, CardGrid, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
+import { Markdown } from '@/components/ui/Markdown'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { DueBadge, PROJECT_STATUS, ProjectStatusBadge } from '@/components/ui/StatusBadge'
 import { formatDay, todayIn } from '@/lib/core/dates'
@@ -119,9 +120,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       {project.description ? (
         <Card className="mb-8">
-          <p className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-            {project.description}
-          </p>
+          <Markdown source={project.description} className="text-sm text-gray-700 dark:text-gray-300" />
         </Card>
       ) : null}
 

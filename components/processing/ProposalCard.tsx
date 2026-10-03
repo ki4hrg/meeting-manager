@@ -8,6 +8,7 @@ import {
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
 import { Card } from '@/components/ui/Card'
+import { Markdown } from '@/components/ui/Markdown'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { Badge, DueBadge, KindIcon, StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { formatDay } from '@/lib/core/dates'
@@ -139,10 +140,10 @@ export function ProposalCard({
             <p className="mt-1 whitespace-pre-line text-sm text-gray-600 dark:text-gray-300">{body}</p>
           ) : null}
           {payload.type === 'item' && payload.resolution ? (
-            <p className="mt-1 flex items-start gap-1.5 text-sm text-gray-700 dark:text-gray-300">
+            <div className="mt-1 flex items-start gap-1.5 text-sm text-gray-700 dark:text-gray-300">
               <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0" label="Resolution" />
-              {payload.resolution}
-            </p>
+              <Markdown source={payload.resolution} />
+            </div>
           ) : null}
 
           {payload.type === 'document' ? (
@@ -157,7 +158,7 @@ export function ProposalCard({
                   label="All of it"
                 />
               </summary>
-              <div className="mt-1 whitespace-pre-wrap break-words">{payload.body}</div>
+              <Markdown source={payload.body} className="mt-1" />
             </details>
           ) : null}
 

@@ -9,6 +9,7 @@ import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
 import { Card } from '@/components/ui/Card'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
+import { Markdown } from '@/components/ui/Markdown'
 import { Icon } from '@/components/ui/icons'
 import { Badge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
 import type { Agenda, AgendaLine, AgendaSection } from '@/lib/agenda/lines'
@@ -166,7 +167,7 @@ function LineRow({
         ) : null}
 
         {line.description ? (
-          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">{line.description}</p>
+          <Markdown source={line.description} className="mt-1 text-sm text-gray-600 dark:text-gray-300" />
         ) : null}
 
         {item && (item.parties.length > 0 || item.dueOn || item.project || !isOpen(item)) ? (
@@ -186,10 +187,10 @@ function LineRow({
         ) : null}
 
         {line.privateNote ? (
-          <p className="mt-1 flex items-start gap-1.5 whitespace-pre-wrap text-xs italic text-gray-500 dark:text-gray-400">
+          <div className="mt-1 flex items-start gap-1.5 text-xs italic text-gray-500 dark:text-gray-400">
             <Icon name="lock" className="mt-0.5 h-3 w-3 shrink-0" label="Private note" />
-            {line.privateNote}
-          </p>
+            <Markdown source={line.privateNote} />
+          </div>
         ) : null}
       </div>
 

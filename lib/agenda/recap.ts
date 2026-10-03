@@ -29,7 +29,7 @@ import {
   processingRuns,
 } from '../db/schema'
 import { isOpen, listItems, type ItemKind, type ItemStatus, type ItemView } from '../items/items'
-import { lookaheadParts, toHtml, toMarkdown, type Entry, type Part } from './brief'
+import { lookaheadParts, markdownLeaf, rows, toHtml, toMarkdown, type Entry, type Part } from './brief'
 import { computeBlocks, itemsOf } from './generated'
 import { getAgenda } from './lines'
 import type { LookaheadBlock } from './types'
@@ -61,7 +61,8 @@ export type Recap = {
   /** From the latest finished run of each note, in note order. */
   summary: string | null
   /** What was said under an agenda line, in agenda order. Only lines still on the agenda. */
-  lines: { lineId: string; text: string; summary: string }[]
+  /** Agenda lines the notes said something about, with the line's public description. */
+  lines: { lineId: string; text: string; description: string | null; summary: string }[]
   decisions: { itemId: string; text: string }[]
   /** Open questions and actions by owner; an item with several owners is under each.
       A null party holds what nobody owns yet. */
@@ -241,14 +242,17 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
   if (said.size > 0) {
     for (const row of covered) {
       const agenda = await getAgenda(exec, row.id, { timeZone: opts.timeZone })
-      const rows = agenda.nodes.flatMap((node) =>
+      const listed = agenda.nodes.flatMap((node) =>
         node.type === 'section'
-          ? [{ id: node.id, text: node.title }, ...node.lines.map(({ id, text }) => ({ id, text }))]
-          : [{ id: node.id, text: node.text }],
+          ? [
+              { id: node.id, text: node.title, description: null },
+              ...node.lines.map(({ id, text, description }) => ({ id, text, description })),
+            ]
+          : [{ id: node.id, text: node.text, description: node.description }],
       )
-      for (const { id, text } of rows) {
+      for (const { id, text, description } of listed) {
         const summary = said.get(id)
-        if (summary) lines.push({ lineId: id, text, summary: summary.join('\n\n') })
+        if (summary) lines.push({ lineId: id, text, description, summary: summary.join('\n\n') })
       }
     }
   }
@@ -390,11 +394,7 @@ function recapParts(recap: Recap): Part[] {
         entries: recap.lines.map((line) => ({
           text: line.text,
           bold: true,
-          sub: line.summary
-            .split('\n')
-            .map((row) => row.trim().replace(/^[-*•]\s+/, ''))
-            .filter(Boolean)
-            .map(leaf),
+          sub: [...rows(line.description).map(markdownLeaf), ...rows(line.summary).map(leaf)],
         })),
       },
     )

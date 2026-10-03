@@ -17,6 +17,7 @@
  */
 
 import { formatClock, formatDay, formatSpan, formatTime, todayIn } from '../core/dates'
+import { inlineMarkdownToHtml } from '../core/markdown'
 import type { ItemView } from '../items/items'
 import type { Agenda, AgendaLine } from './lines'
 import type { GeneratedBlocks } from './types'
@@ -39,19 +40,27 @@ export type BriefInput = {
 
 /* A bullet, with whatever is nested under it. A section is a bold bullet whose
    lines are nested, so it is plain where it ends and the loose lines resume. */
-export type Entry = { text: string; bold?: boolean; sub: Entry[] }
+export type Entry = {
+  text: string
+  bold?: boolean
+  /** Written by John in Markdown: the HTML copy renders it rather than showing the marks. */
+  markdown?: boolean
+  sub: Entry[]
+}
 
 export type Part =
   | { type: 'h1' | 'h2' | 'p' | 'label'; text: string }
   | { type: 'list'; entries: Entry[] }
 
 const leaf = (text: string): Entry => ({ text, sub: [] })
+/* A row of long text: Markdown, so the HTML copy renders its bold and links. */
+export const markdownLeaf = (text: string): Entry => ({ text, markdown: true, sub: [] })
 
 const minutes = (value: number | null) => (value ? ` (${value} min)` : '')
 const led = (line: AgendaLine) => (line.leader ? ` — ${line.leader.name}` : '')
 /* Text written across several lines, as one bullet per line. A Markdown
    bullet's own marker is dropped: the line is already a bullet here. */
-const rows = (text: string | null) =>
+export const rows = (text: string | null) =>
   (text ?? '')
     .split('\n')
     .map((row) => row.trim().replace(/^[-*•]\s+/, ''))
@@ -111,9 +120,9 @@ function agendaOf(
   const entry = (line: AgendaLine): Entry => ({
     text: `${at(line.start)}${line.text}${led(line)}${opts.private ? tag(line.item, today) : ''}${minutes(line.minutes ?? line.shareMinutes ?? null)}`,
     sub: [
-      ...rows(line.description).map(leaf),
+      ...rows(line.description).map(markdownLeaf),
       ...(opts.private
-        ? rows(line.privateNote).map((row, index) => leaf(index === 0 ? `Note: ${row}` : row))
+        ? rows(line.privateNote).map((row, index) => markdownLeaf(index === 0 ? `Note: ${row}` : row))
         : []),
     ],
   })
@@ -276,7 +285,8 @@ export function toHtml(parts: Part[]): string {
       ? ''
       : `<ul>${entries
           .map((entry) => {
-            const text = entry.bold ? `<strong>${escape(entry.text)}</strong>` : escape(entry.text)
+            const body = entry.markdown ? inlineMarkdownToHtml(entry.text) : escape(entry.text)
+            const text = entry.bold ? `<strong>${body}</strong>` : body
             return `<li>${text}${bullets(entry.sub)}</li>`
           })
           .join('')}</ul>`

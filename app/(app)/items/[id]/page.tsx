@@ -10,6 +10,7 @@ import { Card, Section } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
 import { RemovableChip } from '@/components/ui/RemovableChip'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
+import { Markdown } from '@/components/ui/Markdown'
 import { Icon, type IconName } from '@/components/ui/icons'
 import {
   Badge,
@@ -215,16 +216,14 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
             </div>
 
             {item.detail ? (
-              <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                {item.detail}
-              </p>
+              <Markdown source={item.detail} className="mt-2 text-sm text-gray-700 dark:text-gray-300" />
             ) : null}
 
             {item.resolution ? (
-              <p className="mt-3 flex gap-2 whitespace-pre-wrap rounded-md bg-green-50 p-3 text-sm text-green-900 dark:bg-green-900/30 dark:text-green-100">
+              <div className="mt-3 flex gap-2 rounded-md bg-green-50 p-3 text-sm text-green-900 dark:bg-green-900/30 dark:text-green-100">
                 <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0" label="Resolution" />
-                {item.resolution}
-              </p>
+                <Markdown source={item.resolution} />
+              </div>
             ) : null}
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
