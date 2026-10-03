@@ -5,8 +5,8 @@ import { ValidationError } from '@/lib/core/types'
 import { isUuid, matchName } from '../../core/match'
 import { createContext, listContexts } from '../../directory/contexts'
 import { addMember, createGroup, listGroups, listMembers } from '../../directory/groups'
-import { createPerson, listPeople } from '../../directory/people'
-import { inferContext, resolveProject } from '../../directory/resolve'
+import { createPerson, listPeople, setPersonEmails, updatePerson } from '../../directory/people'
+import { inferContext, resolvePerson, resolveProject } from '../../directory/resolve'
 import { openCounts } from '../../items/items'
 import {
   addMilestone,
@@ -64,6 +64,7 @@ export const listPeopleTool = defineTool({
         id: p.id,
         name: p.name,
         email: p.email,
+        emails: p.emails,
         ...(p.isSelf ? { is_me: true } : {}),
       })),
     }
@@ -78,12 +79,35 @@ export const createPersonTool = defineTool({
   input: z.object({
     name: z.string().min(1),
     email: z.string().optional(),
+    emails: z.array(z.string()).optional().describe('Every address they use; the first is primary.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
     write(context, 'create_person', input, async (tx) => {
-      const person = await createPerson(tx, { name: input.name, email: input.email })
-      return { person: { id: person.id, name: person.name, email: person.email } }
+      const person = await createPerson(tx, { name: input.name, email: input.email, emails: input.emails })
+      return { person: { id: person.id, name: person.name, email: person.email, emails: person.emails } }
+    }),
+})
+
+export const updatePersonTool = defineTool({
+  name: 'update_person',
+  title: 'Update a person',
+  description:
+    'Rename someone, or set their email addresses (the whole list, primary first). An address ' +
+    'already on someone else is refused with their name.',
+  scope: 'meetings:write',
+  input: z.object({
+    person: z.string().min(1).describe('Person name or id.'),
+    name: z.string().min(1).optional(),
+    emails: z.array(z.string()).optional(),
+    idempotency_key: idempotencyKey,
+  }),
+  handler: async (input, context) =>
+    write(context, 'update_person', input, async (tx) => {
+      const { id } = await resolvePerson(tx, input.person)
+      if (input.emails) await setPersonEmails(tx, id, input.emails)
+      const person = await updatePerson(tx, id, { name: input.name })
+      return { person: { id: person.id, name: person.name, email: person.email, emails: person.emails } }
     }),
 })
 
@@ -258,6 +282,7 @@ export const directoryTools = [
   createContextTool,
   listPeopleTool,
   createPersonTool,
+  updatePersonTool,
   listGroupsTool,
   createGroupTool,
   listProjectsTool,

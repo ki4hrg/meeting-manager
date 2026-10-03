@@ -1,11 +1,13 @@
 import { notFound } from 'next/navigation'
-import { ActionButton, FormModal } from '@/components/forms'
+import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Section } from '@/components/ui/Card'
 import { Field, Input } from '@/components/ui/Field'
+import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { RemovableChip } from '@/components/ui/RemovableChip'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
@@ -13,7 +15,12 @@ import { getPerson } from '@/lib/directory/people'
 import { listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { requireContext, viewer } from '@/lib/web/context'
-import { updatePersonAction } from '../../actions'
+import {
+  addPersonEmailAction,
+  primaryEmailAction,
+  removePersonEmailAction,
+  updatePersonAction,
+} from '../../actions'
 import { prepWithPersonAction } from '../../meetings/actions'
 
 const has = (item: ItemView, personId: string, role: 'owner' | 'with') =>
@@ -56,13 +63,46 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
             <Field label="Name" required>
               <Input name="name" defaultValue={person.name} required />
             </Field>
-            <Field label="Email">
-              <Input name="email" type="email" defaultValue={person.email ?? ''} />
-            </Field>
           </FormModal>
         </div>
       }
     />
+  )
+
+  // Every address they are known by; invitees match any of them.
+  const emails = (
+    <div className="-mt-4 mb-8 flex flex-wrap items-center gap-2">
+      {person.emails.map((email, index) => (
+        <span key={email} className="inline-flex items-center gap-0.5">
+          {index === 0 ? (
+            <Icon name="star" className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" label="Primary" />
+          ) : (
+            <IconAction
+              action={primaryEmailAction}
+              fields={{ personId: person.id, email }}
+              icon="star"
+              label={`Make ${email} primary`}
+            />
+          )}
+          <RemovableChip
+            icon="mail"
+            remove={{
+              action: removePersonEmailAction,
+              fields: { personId: person.id, email },
+              label: `Remove ${email}`,
+            }}
+          >
+            {email}
+          </RemovableChip>
+        </span>
+      ))}
+      <FormModal action={addPersonEmailAction} title="Add email" label="Email" icon="plus" variant="ghost" size="sm" submit="Add">
+        <input type="hidden" name="personId" value={person.id} />
+        <Field label="Email" required>
+          <Input name="email" type="email" required />
+        </Field>
+      </FormModal>
+    </div>
   )
 
   if (person.isSelf) {
@@ -71,6 +111,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     return (
       <>
         {header}
+        {emails}
         <Section
           title="I owe"
           count={owe.length}
@@ -95,6 +136,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   return (
     <>
       {header}
+      {emails}
 
       <Section
         title="Raise"

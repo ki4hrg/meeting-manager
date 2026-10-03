@@ -8,7 +8,13 @@ import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
 import { addMember, createGroup, removeMember, renameGroup } from '@/lib/directory/groups'
-import { createPerson, updatePerson } from '@/lib/directory/people'
+import {
+  addPersonEmail,
+  createPerson,
+  makePrimaryEmail,
+  removePersonEmail,
+  updatePerson,
+} from '@/lib/directory/people'
 import { captureLine, type CapturePresets } from '@/lib/items/capture'
 import {
   ITEM_KINDS,
@@ -210,10 +216,25 @@ export async function createPersonAction(formData: FormData): Promise<ActionResu
 
 export async function updatePersonAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    await updatePerson(db, field(formData, 'id'), {
-      name: field(formData, 'name'),
-      email: field(formData, 'email'),
-    })
+    await updatePerson(db, field(formData, 'id'), { name: field(formData, 'name') })
+  })
+}
+
+export async function addPersonEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await addPersonEmail(db, field(formData, 'personId'), field(formData, 'email'))
+  })
+}
+
+export async function removePersonEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await removePersonEmail(db, field(formData, 'personId'), field(formData, 'email'))
+  })
+}
+
+export async function primaryEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await makePrimaryEmail(db, field(formData, 'personId'), field(formData, 'email'))
   })
 }
 

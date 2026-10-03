@@ -10,6 +10,8 @@ export type Person = {
   isSelf: boolean
   /** The primary address, when there is one. */
   email: string | null
+  /** Every address, the primary first. Invitees are matched against all of them. */
+  emails: string[]
 }
 
 async function withEmails(
@@ -32,7 +34,15 @@ async function withEmails(
   return rows.map((row) => {
     const own = emails.filter((email) => email.personId === row.id)
     const primary = own.find((email) => email.isPrimary) ?? own[0]
-    return { id: row.id, name: row.name, isSelf: row.isSelf, email: primary?.email ?? null }
+    return {
+      id: row.id,
+      name: row.name,
+      isSelf: row.isSelf,
+      email: primary?.email ?? null,
+      emails: primary
+        ? [primary.email, ...own.filter((email) => email !== primary).map((email) => email.email)]
+        : [],
+    }
   })
 }
 
@@ -54,18 +64,26 @@ function cleanEmail(value: string | null | undefined): string | null {
   return email
 }
 
-/* One address per person is all the screens edit today; the table holds
-   several so calendar matching can add the rest in phase 2. */
+/** Who has an address already, if anyone. */
+async function holderOf(exec: Executor, email: string): Promise<{ personId: string; name: string } | null> {
+  const [taken] = await exec
+    .select({ personId: personEmails.personId, name: people.name })
+    .from(personEmails)
+    .innerJoin(people, eq(people.id, personEmails.personId))
+    .where(sql`lower(${personEmails.email}) = ${email}`)
+    .limit(1)
+  return taken ?? null
+}
+
+function belongsTo(email: string, holder: { name: string }): ValidationError {
+  return new ValidationError(`${email} already belongs to ${holder.name}.`)
+}
+
+/* The address the person form edits: it becomes the primary, replacing the old one. */
 async function setPrimaryEmail(exec: Executor, personId: string, email: string | null) {
   if (email) {
-    const [taken] = await exec
-      .select({ personId: personEmails.personId })
-      .from(personEmails)
-      .where(sql`lower(${personEmails.email}) = ${email}`)
-      .limit(1)
-    if (taken && taken.personId !== personId) {
-      throw new ValidationError(`${email} already belongs to someone else.`)
-    }
+    const taken = await holderOf(exec, email)
+    if (taken && taken.personId !== personId) throw belongsTo(email, taken)
     if (taken) {
       await exec
         .update(personEmails)
@@ -81,17 +99,20 @@ async function setPrimaryEmail(exec: Executor, personId: string, email: string |
   if (email) await exec.insert(personEmails).values({ personId, email, isPrimary: true })
 }
 
+/** A new person. With `emails`, the first is the primary; `email` alone is the same as one. */
 export async function createPerson(
   exec: Executor,
-  input: { name: string; email?: string | null },
+  input: { name: string; email?: string | null; emails?: string[] },
 ): Promise<Person> {
   const name = input.name.trim()
   if (name === '') throw new ValidationError('Enter a name.')
-  const email = cleanEmail(input.email)
+  const emails = [input.email, ...(input.emails ?? [])]
+    .map(cleanEmail)
+    .filter((email): email is string => email !== null)
 
   return inTransaction(exec, async (tx) => {
     const [row] = await tx.insert(people).values({ name }).returning()
-    await setPrimaryEmail(tx, row!.id, email)
+    for (const email of emails) await addPersonEmail(tx, row!.id, email)
     return getPerson(tx, row!.id)
   })
 }
@@ -159,13 +180,9 @@ export async function addPersonEmail(exec: Executor, personId: string, value: st
   if (!email) throw new ValidationError('Enter an email address.')
   await getPerson(exec, personId)
 
-  const [taken] = await exec
-    .select({ personId: personEmails.personId })
-    .from(personEmails)
-    .where(sql`lower(${personEmails.email}) = ${email}`)
-    .limit(1)
+  const taken = await holderOf(exec, email)
   if (taken) {
-    if (taken.personId !== personId) throw new ValidationError(`${email} already belongs to someone else.`)
+    if (taken.personId !== personId) throw belongsTo(email, taken)
     return
   }
   const [has] = await exec
@@ -174,4 +191,47 @@ export async function addPersonEmail(exec: Executor, personId: string, value: st
     .where(eq(personEmails.personId, personId))
     .limit(1)
   await exec.insert(personEmails).values({ personId, email, isPrimary: !has })
+}
+
+/** Take an address off someone. If it was their primary, their oldest remaining one takes its place. */
+export async function removePersonEmail(exec: Executor, personId: string, value: string): Promise<void> {
+  const email = cleanEmail(value)
+  if (!email) return
+  await inTransaction(exec, async (tx) => {
+    const [gone] = await tx
+      .delete(personEmails)
+      .where(sql`${personEmails.personId} = ${personId} and lower(${personEmails.email}) = ${email}`)
+      .returning({ isPrimary: personEmails.isPrimary })
+    if (!gone?.isPrimary) return
+    const [next] = await tx
+      .select({ id: personEmails.id })
+      .from(personEmails)
+      .where(eq(personEmails.personId, personId))
+      .orderBy(asc(personEmails.createdAt))
+      .limit(1)
+    if (next) await tx.update(personEmails).set({ isPrimary: true }).where(eq(personEmails.id, next.id))
+  })
+}
+
+/** Make one of someone's addresses their primary. */
+export async function makePrimaryEmail(exec: Executor, personId: string, value: string): Promise<void> {
+  const email = cleanEmail(value)
+  const own = (await getPerson(exec, personId)).emails
+  if (!email || !own.includes(email)) throw new ValidationError('That address is not theirs.')
+  await exec
+    .update(personEmails)
+    .set({ isPrimary: sql`lower(${personEmails.email}) = ${email}` })
+    .where(eq(personEmails.personId, personId))
+}
+
+/** Set someone's addresses to exactly these, the first as primary. */
+export async function setPersonEmails(exec: Executor, personId: string, values: string[]): Promise<void> {
+  const emails = [...new Set(values.map(cleanEmail).filter((email): email is string => email !== null))]
+  await inTransaction(exec, async (tx) => {
+    for (const email of emails) await addPersonEmail(tx, personId, email)
+    for (const email of (await getPerson(tx, personId)).emails) {
+      if (!emails.includes(email)) await removePersonEmail(tx, personId, email)
+    }
+    if (emails[0]) await makePrimaryEmail(tx, personId, emails[0])
+  })
 }
