@@ -6,7 +6,8 @@ import { listItems } from '../lib/items/items'
 import { addProposals } from '../lib/processing/proposals'
 import { processQueued } from '../lib/processing/run'
 import { db, resetBetweenTests } from './helpers/db'
-import { makeWorld } from './helpers/fixtures'
+import { actor, makeWorld } from './helpers/fixtures'
+import { createMeeting } from '../lib/meetings/meetings'
 import { connect, dataOf, identityFor, makeUser, textOf, type ConnectedClient } from './helpers/mcp'
 
 /* The job is never run from a tool call here: the tests stand in for it with
@@ -618,6 +619,18 @@ describe('the Inbox', () => {
     expect(await ok('file_note', { id: two.id, dismiss: true })).toEqual({ dismissed: true })
     expect((await ok<{ notes: unknown[] }>('list_unfiled_notes', {})).notes).toEqual([])
     expect(await refusal('file_note', { id: one.id, context: 'Diocese' })).toMatch(/already filed/)
+  })
+
+  it('files a note on the meeting given, in that meeting\'s context', async () => {
+    const one = await held('Hallway')
+    const staff = await createMeeting(db, actor, { contextId: world.diocese.id, title: 'Staff' })
+    expect(await refusal('file_note', { id: one.id, meeting: staff.id, dismiss: true })).toMatch(/no context/)
+    expect(await refusal('file_note', { id: one.id, meeting: staff.id, context: 'Parish' })).toMatch(
+      /another context/,
+    )
+    const filed = await ok<{ meeting: Meeting; via: string }>('file_note', { id: one.id, meeting: staff.id })
+    expect(filed.via).toBe('chosen')
+    expect(filed.meeting).toMatchObject({ id: staff.id, context_id: world.diocese.id })
   })
 })
 

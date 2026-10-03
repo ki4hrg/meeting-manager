@@ -25,6 +25,7 @@ import {
   dismissHeldNote,
   fileHeldNote,
   listUnfiledNotes,
+  previewFiling,
 } from '../lib/connect/granola/unfiled'
 import { listItems } from '../lib/items/items'
 import { createMeeting, deleteMeeting, getMeeting, listMeetings } from '../lib/meetings/meetings'
@@ -393,6 +394,49 @@ describe('the Inbox', () => {
     // A later delivery updates it where it was filed.
     granola.script.notes[second] = { ...granola.script.notes[second]!, summary_markdown: 'More.', updated_at: '2026-10-01T17:00:00Z' }
     expect(filed(await ingest(second))).toMatchObject({ meetingId: made.meetingId, via: 'note', changed: true })
+  })
+
+  it('shows where File would go, and files a held note on a meeting John picks instead', async () => {
+    const { parish, diocese, granola, ingest } = await setUp()
+    const byHand = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Staff',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+    })
+    const retreat = await createMeeting(db, actor, { contextId: parish.id, title: 'Retreat' })
+    const day = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Day one',
+      parentMeetingId: retreat.id,
+      startsAt: new Date('2026-10-03T15:00:00Z'),
+    })
+    const elsewhere = await createMeeting(db, actor, { contextId: diocese.id, title: 'Council' })
+    const id = noteId()
+    granola.script.notes[id] = note({ id })
+    const held = await ingest(id)
+    if (held.kind !== 'held') throw new Error('expected held')
+
+    expect(await previewFiling(db, held.noteId, parish.id)).toEqual({ meetingId: byHand.id, via: 'time' })
+    expect(await previewFiling(db, held.noteId, diocese.id)).toBeNull()
+    // Previewing files nothing.
+    expect((await listUnfiledNotes(db)).map((one) => one.id)).toEqual([held.noteId])
+
+    // The session, not the meeting it belongs to; and only in the chosen context.
+    await expect(
+      fileHeldNote(db, actor, held.noteId, parish.id, { meetingId: retreat.id }),
+    ).rejects.toThrow(/sessions/)
+    await expect(
+      fileHeldNote(db, actor, held.noteId, parish.id, { meetingId: elsewhere.id }),
+    ).rejects.toThrow(/another context/)
+
+    expect(await fileHeldNote(db, actor, held.noteId, parish.id, { meetingId: day.id })).toEqual({
+      meetingId: day.id,
+      via: 'chosen',
+    })
+    expect((await everyRun()).map((run) => run.noteId)).toEqual([held.noteId])
+    expect(await listUnfiledNotes(db)).toEqual([])
+    // No meeting was made for it.
+    expect(await listMeetings(db, { contextId: parish.id })).toHaveLength(3)
   })
 
   it('keeps a held note held when it changes, and files it once its folder is bound', async () => {

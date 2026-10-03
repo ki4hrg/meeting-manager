@@ -251,6 +251,37 @@ export async function listMeetings(
   return loadViews(exec, and(...conditions), { orderBy, limit: filter.limit })
 }
 
+/**
+ * The meetings of a context nearest a moment, for a picker: top-level ones
+ * dated within `days` either side, closest first, then undated ones. Each
+ * carries its sessions, so a picker can offer those instead.
+ */
+export async function meetingsNear(
+  exec: Executor,
+  contextId: string,
+  at: Date,
+  opts: { days?: number; limit?: number } = {},
+): Promise<MeetingView[]> {
+  const days = opts.days ?? 30
+  const from = new Date(at.getTime() - days * 86_400_000).toISOString()
+  const to = new Date(at.getTime() + days * 86_400_000).toISOString()
+  return loadViews(
+    exec,
+    and(
+      eq(meetings.contextId, contextId),
+      sql`${meetings.parentMeetingId} is null`,
+      sql`(${meetings.startsAt} is null or ${meetings.startsAt} between ${from}::timestamptz and ${to}::timestamptz)`,
+    ),
+    {
+      orderBy: [
+        sql`abs(extract(epoch from ${meetings.startsAt} - ${at.toISOString()}::timestamptz)) asc nulls last`,
+        desc(meetings.createdAt),
+      ],
+      limit: opts.limit ?? 30,
+    },
+  )
+}
+
 // ─── writing ─────────────────────────────────────────────────────────────────
 
 async function assertGroupIn(exec: Executor, groupId: string, contextId: string) {

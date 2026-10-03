@@ -167,7 +167,10 @@ export async function fileNoteAction(formData: FormData): Promise<ActionResult> 
   let to = { contextId: '', meetingId: '' }
   const result = await act(async (actor) => {
     const chosen = field(formData, 'contextId') || (await contextId())
-    const { meetingId } = await fileHeldNote(db, actor, field(formData, 'noteId'), chosen)
+    // Link sends the meeting John picked; File leaves it to the match.
+    const { meetingId } = await fileHeldNote(db, actor, field(formData, 'noteId'), chosen, {
+      meetingId: field(formData, 'meetingId') || undefined,
+    })
     to = { contextId: chosen, meetingId }
     processSoon()
   })

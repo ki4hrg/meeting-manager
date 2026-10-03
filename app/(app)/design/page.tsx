@@ -325,6 +325,16 @@ export default function DesignPage() {
             ]}
             current="a"
             timeZone={null}
+            match={{ id: 'm', title: 'Staff meeting', startsAt: new Date('2026-10-01T15:00:00Z'), sessions: [] }}
+            choices={[
+              { id: 'm', title: 'Staff meeting', startsAt: new Date('2026-10-01T15:00:00Z'), sessions: [] },
+              {
+                id: 'r',
+                title: 'Retreat',
+                startsAt: new Date('2026-10-02T14:00:00Z'),
+                sessions: [{ id: 'r1', title: 'Day one', startsAt: new Date('2026-10-02T14:00:00Z'), endsAt: null }],
+              },
+            ]}
           />
           <UnfiledCard
             note={{
@@ -338,6 +348,8 @@ export default function DesignPage() {
             contexts={[{ id: 'a', name: 'Parish' }]}
             current="a"
             timeZone={null}
+            match={null}
+            choices={[]}
           />
         </CardGrid>
       </Section>

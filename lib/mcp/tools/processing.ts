@@ -367,25 +367,39 @@ export const fileNoteTool = defineTool({
   description:
     'File an unfiled note in a context: on the meeting there that holds its calendar event, ' +
     'else the one that was under way when it started, else a meeting of its own with the ' +
-    'people it names who are in the directory. It is then processed like any arriving note. ' +
+    'people it names who are in the directory. Or meeting: a meeting id to file it on instead ' +
+    '(a session, if the meeting has sessions). It is then processed like any arriving note. ' +
     'Or dismiss: true takes it out of the Inbox. Returns the meeting it was filed on.',
   scope: 'meetings:write',
   input: z.object({
     id: z.uuid().describe('Note id, from list_unfiled_notes.'),
-    context: z.string().min(1).optional().describe('Context name or id. Needed when there are several.'),
+    context: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Context name or id. Needed when there are several and no meeting is given.'),
+    meeting: z.uuid().optional().describe('Meeting id to file it on, instead of the match.'),
     dismiss: z.boolean().optional(),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) => {
     const result = await write(context, 'file_note', input, async (tx) => {
       if (input.dismiss) {
-        if (input.context) throw new ValidationError('A dismissed note goes to no context.')
+        if (input.context || input.meeting) {
+          throw new ValidationError('A dismissed note goes to no context.')
+        }
         await dismissHeldNote(tx, context.actor, input.id)
         return { dismissed: true }
       }
       const clock = await clockFor(tx, context)
-      const target = await inferContext(tx, { context: input.context })
-      const { meetingId, via } = await fileHeldNote(tx, context.actor, input.id, target.id)
+      const chosen = input.meeting ? await getMeeting(tx, input.meeting) : null
+      const target =
+        chosen && !input.context
+          ? { id: chosen.contextId }
+          : await inferContext(tx, { context: input.context })
+      const { meetingId, via } = await fileHeldNote(tx, context.actor, input.id, target.id, {
+        meetingId: chosen?.id,
+      })
       return { meeting: meetingOut(await getMeeting(tx, meetingId), clock), via }
     })
     if (!input.dismiss) kickProcessing()
