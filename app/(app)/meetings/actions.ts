@@ -35,6 +35,7 @@ import {
   seriesFromEvent,
 } from '@/lib/meetings/prep'
 import { settleAttendance } from '@/lib/meetings/attendance'
+import { addToRoster } from '@/lib/meetings/series'
 import { act, field, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { clearAbsences, joinRoster, recordAbsences } from '@/lib/meetings/roster'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
@@ -144,8 +145,13 @@ export async function updateMeetingAction(formData: FormData): Promise<ActionRes
         seriesId,
         groupIds: pickedGroups(formData, 'personIds'),
       })
-      await setMeetingPeople(tx, actor, id, await pickedPeople(tx, formData, 'personIds'))
+      const people = await pickedPeople(tx, formData, 'personIds')
+      await setMeetingPeople(tx, actor, id, people)
       await setMeetingProjects(tx, actor, id, ids(formData, 'projectIds'))
+      // Who was added here joins the series' roster too, when asked.
+      if (seriesId && seriesId === (before.series?.id ?? null) && formData.has('toSeries')) {
+        await addToRoster(tx, seriesId, people, pickedGroups(formData, 'personIds'))
+      }
       /* Within its series, whoever on the roster was taken off is left off
          this meeting alone. Newly in a series, it takes the roster. */
       if (seriesId && seriesId === (before.series?.id ?? null)) {

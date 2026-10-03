@@ -54,6 +54,7 @@ import { clearAbsences, joinRoster, recordAbsences } from '../../meetings/roster
 import { moveMeeting, moveSeries } from '../../meetings/move'
 import { prepMeeting, prepNextInSeries, prepWithPerson } from '../../meetings/prep'
 import {
+  addToRoster,
   createSeries,
   getSeries,
   listSeries,
@@ -648,6 +649,10 @@ export const updateMeetingTool = defineTool({
     groups: groupsArg,
     series: z.string().min(1).nullable().optional().describe('Series name or id.'),
     blocks: blocksArg.nullable().optional(),
+    add_to_series: z
+      .boolean()
+      .optional()
+      .describe("With people or groups: whoever they add joins the series' roster too."),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -693,8 +698,12 @@ export const updateMeetingTool = defineTool({
         seriesId: series,
         blocks,
       })
-      if (input.people) {
-        await setMeetingPeople(tx, actor, input.id, await peopleFrom(tx, input.people))
+      const people = input.people ? await peopleFrom(tx, input.people) : null
+      if (people) await setMeetingPeople(tx, actor, input.id, people)
+      const inSeries = (await getMeeting(tx, input.id)).series
+      if (input.add_to_series) {
+        if (!inSeries) throw new ValidationError('add_to_series needs a meeting in a series.')
+        await addToRoster(tx, inSeries.id, people ?? [], groupIds ?? [])
       }
       if (input.projects) {
         await setMeetingProjects(

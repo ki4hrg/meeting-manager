@@ -80,6 +80,17 @@ export function MeetingFields({
         selected={meeting?.projects.map((project) => project.id)}
       />
 
+      {/* Someone added here can join the series' roster too, and so its next meetings. */}
+      {meeting?.series ? (
+        <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            name="toSeries"
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+          />
+          Also add to {meeting.series.name}
+        </label>
+      ) : null}
       {choices.series.length > 0 ? (
         <Field label="Series">
           <Select name="seriesId" defaultValue={meeting?.series?.id ?? ''}>

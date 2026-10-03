@@ -95,3 +95,45 @@ describe('settling on the first look after', () => {
     await expect(settleAttendance(db, meeting.id, [w.sarah.id, w.tom.id])).rejects.toThrow('stays as it is')
   })
 })
+
+describe('people added to a meeting', () => {
+  it('join the series’ roster when asked, and reach its next meetings', async () => {
+    const w = await makeWorld()
+    const { createSeries, addToRoster } = await import('../lib/meetings/series')
+    const { setMeetingPeople } = await import('../lib/meetings/meetings')
+    const weekly = await createSeries(db, { contextId: w.parish.id, name: 'Weekly', personIds: [w.sarah.id] })
+    const at = (iso: string) => createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date(iso) })
+    const first = await at('2030-01-06T15:00:00Z')
+    const second = await at('2030-01-13T15:00:00Z')
+
+    await setMeetingPeople(db, actor, first.id, [w.sarah.id, w.tom.id])
+    const roster = await addToRoster(db, weekly.id, [w.sarah.id, w.tom.id], [w.staff.id])
+    expect(ids(roster.people)).toEqual(ids([w.sarah, w.tom]))
+    expect(roster.groups.map((g) => g.id)).toEqual([w.staff.id])
+    expect(ids((await getMeeting(db, second.id)).people)).toEqual(ids([w.sarah, w.tom]))
+  })
+
+  it('stay when the calendar event says otherwise: invitees only ever add', async () => {
+    const w = await makeWorld()
+    const { prepFromEvent } = await import('../lib/meetings/prep')
+    const { setMeetingPeople } = await import('../lib/meetings/meetings')
+    const event = {
+      calendarId: 'cal-1',
+      eventId: 'evt-1',
+      seriesId: null,
+      title: 'Planning',
+      startsAt: START,
+      endsAt: new Date('2026-10-06T16:00:00Z'),
+      allDay: false,
+      attendees: [{ personId: w.sarah.id, email: 'sarah@example.test', name: null, declined: false }],
+      location: null,
+      htmlLink: null,
+    }
+    const meeting = await prepFromEvent(db, actor, { contextId: w.parish.id, event })
+    // Sarah taken off by hand, Tom added by hand.
+    await setMeetingPeople(db, actor, meeting.id, [w.tom.id])
+    const again = await prepFromEvent(db, actor, { contextId: w.parish.id, event })
+    expect(again.id).toBe(meeting.id)
+    expect(ids(again.people)).toEqual([w.tom.id])
+  })
+})

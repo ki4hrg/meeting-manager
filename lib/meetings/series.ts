@@ -438,3 +438,24 @@ export async function deleteSeries(exec: Executor, id: string): Promise<void> {
   await getSeries(exec, id)
   await exec.delete(series).where(eq(series.id, id))
 }
+
+/**
+ * Add people and groups to a series' roster, keeping who is on it: someone
+ * added to one of its meetings, joining the rest. The roster's change reaches
+ * its meetings not yet over, as any roster change does.
+ */
+export async function addToRoster(
+  exec: Executor,
+  seriesId: string,
+  personIds: string[],
+  groupIds: string[] = [],
+): Promise<SeriesView> {
+  const view = await getSeries(exec, seriesId)
+  const people = view.people.map((person) => person.id)
+  const groups = view.groups.map((group) => group.id)
+  const newPeople = personIds.filter((id) => !people.includes(id))
+  const newGroups = groupIds.filter((id) => !groups.includes(id))
+  if (newPeople.length > 0) await setSeriesPeople(exec, seriesId, [...people, ...newPeople])
+  if (newGroups.length > 0) await updateSeries(exec, seriesId, { groupIds: [...groups, ...newGroups] })
+  return getSeries(exec, seriesId)
+}
