@@ -94,6 +94,7 @@ export function itemOut(item: ItemView) {
     superseded_by_item_id: item.supersededByItemId,
     target_meeting_id: item.targetMeetingId,
     target_series_id: item.targetSeriesId,
+    target_project_id: item.targetProjectId,
     origin_meeting_id: item.originMeetingId,
     created_at: item.createdAt.toISOString(),
     closed_at: item.closedAt?.toISOString() ?? null,

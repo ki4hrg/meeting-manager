@@ -27,7 +27,7 @@ import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { getThread, isOpen, type ItemEvent, type ItemParty } from '@/lib/items/items'
-import { listProjectChoices } from '@/lib/projects/projects'
+import { getProject, listProjectChoices } from '@/lib/projects/projects'
 import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
 import { viewer } from '@/lib/web/context'
@@ -166,16 +166,26 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
     meetings.unshift(targetMeeting)
   }
   const targetSeries = series.find((one) => one.id === item.targetSeriesId)
+  const targetProject = item.targetProjectId ? await getProject(db, item.targetProjectId) : null
   const target = targetMeeting
     ? { name: targetMeeting.title, href: `/meetings/${targetMeeting.id}` }
     : targetSeries
       ? { name: targetSeries.name, href: `/series/${targetSeries.id}` }
-      : null
+      : targetProject
+        ? { name: `Next for ${targetProject.name}`, href: `/projects/${targetProject.id}` }
+        : null
   const targetValue = targetMeeting
     ? `meeting:${targetMeeting.id}`
     : targetSeries
       ? `series:${targetSeries.id}`
-      : ''
+      : targetProject
+        ? `project:${targetProject.id}`
+        : ''
+  // "Next for <project>": the item's own project first, then the rest of the tree.
+  const projectAims = [
+    ...projects.filter((project) => project.id === item.project?.id).map((project) => ({ ...project, name: project.name.trim() })),
+    ...projects.filter((project) => project.id !== item.project?.id && project.status !== 'done'),
+  ]
   const origin = await lookUp(item.originMeetingId)
   const events = thread.events.filter((event) => event.itemId === id)
 
@@ -302,6 +312,15 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                         <optgroup label="Series">
                           {series.map((one) => (
                             <option key={one.id} value={`series:${one.id}`}>
+                              {one.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                      {projectAims.length > 0 ? (
+                        <optgroup label="Next meeting for">
+                          {projectAims.map((one) => (
+                            <option key={one.id} value={`project:${one.id}`}>
                               {one.name}
                             </option>
                           ))}

@@ -4,8 +4,10 @@
  * This is where a leak would happen, so the rules are deliberately narrow:
  *
  *   - Only open items in the meeting's own context are ever looked at.
- *   - Placed without asking: items aimed at this meeting or at its series, and,
- *     in a 1:1, what John wants to raise with the other person.
+ *   - Placed without asking: items aimed at this meeting, at its series (the
+ *     next occurrence), or at the next meeting for a project (the next one not
+ *     over that carries it or a project within it), and, in a 1:1, what John
+ *     wants to raise with the other person.
  *   - A meeting with sessions has no agenda of its own to fill: nothing is
  *     placed on it, and what is aimed at it goes to its next session, the
  *     first one that is not over.
@@ -19,7 +21,7 @@
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
  */
 
-import { and, asc, eq, gte, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import { isOver } from '../meetings/meetings'
 import {
   NotFoundError,
@@ -94,6 +96,46 @@ export async function nextSession(exec: Executor, meetingId: string, now: Date):
   return (await sessionsOf(exec, meetingId)).find((session) => !isOver(session, now))?.id ?? null
 }
 
+/**
+ * The meeting an item aimed at "the next meeting for a project" goes to: the
+ * earliest top-level meeting not over that carries the project or one within
+ * it, else the oldest undated one that does; a meeting with sessions hands it
+ * to its next session. Null while there is none: the item waits.
+ */
+export async function nextForProject(
+  exec: Executor,
+  contextId: string,
+  projectId: string,
+  now: Date,
+): Promise<string | null> {
+  const tree = await listProjects(exec, contextId)
+  const family = [projectId, ...descendantIds(tree, [projectId])]
+  const carrying = await exec
+    .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt, createdAt: meetings.createdAt })
+    .from(meetings)
+    .where(
+      and(
+        eq(meetings.contextId, contextId),
+        isNull(meetings.parentMeetingId),
+        inArray(
+          meetings.id,
+          exec
+            .select({ id: meetingProjects.meetingId })
+            .from(meetingProjects)
+            .where(inArray(meetingProjects.projectId, family)),
+        ),
+      ),
+    )
+  const ahead = carrying.filter((meeting) => !isOver(meeting, now))
+  const dated = ahead
+    .filter((meeting) => meeting.startsAt)
+    .sort((a, b) => a.startsAt!.getTime() - b.startsAt!.getTime())
+  const undated = ahead.filter((meeting) => !meeting.startsAt).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+  const next = dated[0] ?? undated[0]
+  if (!next) return null
+  return (await sessionsOf(exec, next.id)).length > 0 ? nextSession(exec, next.id, now) : next.id
+}
+
 const GROUP_ORDER = { project: 0, group: 1, person: 2 } as const
 
 function sorted(map: Map<string, CandidateGroup>): CandidateGroup[] {
@@ -165,6 +207,14 @@ export async function getCandidates(
   // The one query for items, and it is bound to the meeting's context.
   const open = await listItems(exec, { contextId: meeting.contextId, open: true })
 
+  // Which meeting takes what is aimed at each project's next meeting: asked once per project.
+  const projectAims = new Map<string, string | null>()
+  for (const item of open) {
+    if (item.targetProjectId && !projectAims.has(item.targetProjectId)) {
+      projectAims.set(item.targetProjectId, await nextForProject(exec, meeting.contextId, item.targetProjectId, now))
+    }
+  }
+
   const toPlace: ItemView[] = []
   const dismissed: ItemView[] = []
   const suggested = new Map<string, CandidateGroup>()
@@ -180,7 +230,8 @@ export async function getCandidates(
     const aimedHere =
       (item.targetMeetingId === meeting.id && !rollup) ||
       (parentAim !== null && item.targetMeetingId === parentAim) ||
-      (next && item.targetSeriesId !== null && item.targetSeriesId === meeting.seriesId)
+      (next && item.targetSeriesId !== null && item.targetSeriesId === meeting.seriesId) ||
+      (item.targetProjectId !== null && projectAims.get(item.targetProjectId) === meeting.id)
     const raiseWithSolo =
       solo !== null &&
       item.parties.some(

@@ -290,6 +290,7 @@ describe('brief rendering', () => {
           originMeetingId: null,
           targetMeetingId: null,
           targetSeriesId: null,
+          targetProjectId: null,
           createdAt: new Date(),
           updatedAt: new Date(),
           parties: [],

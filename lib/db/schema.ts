@@ -342,23 +342,31 @@ export const items = pgTable(
     originMeetingId: uuid('origin_meeting_id').references(() => meetings.id, {
       onDelete: 'set null',
     }),
-    /* "Raise this at": one meeting, or the next occurrence of a series. Such an
-       item is placed on that agenda without being asked for. */
+    /* "Raise this at": one meeting, the next occurrence of a series, or the next
+       meeting that carries a project. Such an item is placed on that agenda
+       without being asked for. */
     targetMeetingId: uuid('target_meeting_id').references(() => meetings.id, {
       onDelete: 'set null',
     }),
     targetSeriesId: uuid('target_series_id').references(() => series.id, {
       onDelete: 'set null',
     }),
+    targetProjectId: uuid('target_project_id').references((): AnyPgColumn => projects.id, {
+      onDelete: 'set null',
+    }),
     ...timestamps,
   },
   (t) => [
-    check('items_one_target', sql`num_nonnulls(${t.targetMeetingId}, ${t.targetSeriesId}) <= 1`),
+    check(
+      'items_one_target',
+      sql`num_nonnulls(${t.targetMeetingId}, ${t.targetSeriesId}, ${t.targetProjectId}) <= 1`,
+    ),
     index('items_context_status_idx').on(t.contextId, t.status),
     index('items_project_idx').on(t.projectId),
     index('items_parent_idx').on(t.parentItemId),
     index('items_target_meeting_idx').on(t.targetMeetingId),
     index('items_target_series_idx').on(t.targetSeriesId),
+    index('items_target_project_idx').on(t.targetProjectId),
     index('items_origin_meeting_idx').on(t.originMeetingId),
   ],
 )

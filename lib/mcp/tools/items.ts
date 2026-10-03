@@ -42,15 +42,18 @@ const KIND_RULE =
 async function targetFrom(
   tx: Parameters<typeof resolveParty>[0],
   contextId: string,
-  input: { target_meeting?: string | null; target_series?: string | null },
+  input: { target_meeting?: string | null; target_series?: string | null; target_project?: string | null },
 ): Promise<ItemTarget | undefined> {
-  if (input.target_meeting && input.target_series) {
-    throw new ValidationError('An item is aimed at one meeting or one series, not both.')
+  if ([input.target_meeting, input.target_series, input.target_project].filter(Boolean).length > 1) {
+    throw new ValidationError('An item is aimed at one meeting, one series or one project, not more.')
   }
   // The item layer refuses a meeting that is in another context.
   if (input.target_meeting) return { meetingId: input.target_meeting }
   if (input.target_series) {
     return { seriesId: (await resolveSeries(tx, contextId, input.target_series)).id }
+  }
+  if (input.target_project) {
+    return { projectId: (await resolveProject(tx, contextId, input.target_project)).id }
   }
   return undefined
 }
@@ -71,7 +74,7 @@ export const captureItemTool = defineTool({
     'Capture a topic, question, action or decision. Only text is required; with nothing else ' +
     `it lands in the Inbox as a topic. ${KIND_RULE} ` +
     'owners owe the action or answer; with is who to raise it with (on an item I own, who it ' +
-    'is owed to). "me" names the account holder. target_meeting or target_series aims it at ' +
+    'is owed to). "me" names the account holder. target_meeting, target_series or target_project aims it at ' +
     'one meeting, or at the next occurrence of a series, where prep places it on the agenda. ' +
     'The context is inferred from the project, the target or a group when there is more than one.',
   scope: 'meetings:write',
@@ -91,6 +94,14 @@ export const captureItemTool = defineTool({
       .min(1)
       .optional()
       .describe('Series name or id: raised at its next occurrence.'),
+    target_project: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Project name or id: raised at the next meeting that carries it (or a project within it), ' +
+          'waiting until there is one, until it is discussed.',
+      ),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -206,7 +217,7 @@ export const updateItemTool = defineTool({
     'it. status done finishes a topic or action; a question closes by giving answer instead. ' +
     'status dropped abandons it and open reopens it. report_to raises the answer with another ' +
     'person or group as a new topic. owners and with each replace the whole list for that role ' +
-    'when given. target_meeting or target_series aims it at a meeting or at the next occurrence ' +
+    'when given. target_meeting, target_series or target_project aims it at a meeting or at the next occurrence ' +
     'of a series. Pass null to clear project, due_on, detail or the target.',
   scope: 'meetings:write',
   input: z.object({
@@ -229,6 +240,12 @@ export const updateItemTool = defineTool({
       .nullable()
       .optional()
       .describe('Series name or id: raised at its next occurrence.'),
+    target_project: z
+      .string()
+      .min(1)
+      .nullable()
+      .optional()
+      .describe('Project name or id: raised at the next meeting that carries it.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -265,7 +282,11 @@ export const updateItemTool = defineTool({
       }
 
       // An item has one target, so null on either field clears it.
-      if (input.target_meeting !== undefined || input.target_series !== undefined) {
+      if (
+        input.target_meeting !== undefined ||
+        input.target_series !== undefined ||
+        input.target_project !== undefined
+      ) {
         const target = await targetFrom(tx, contextId, input)
         await setItemTarget(tx, actor, input.id, target ?? null)
       }

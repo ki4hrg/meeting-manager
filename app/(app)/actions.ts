@@ -193,7 +193,7 @@ export async function addNoteAction(formData: FormData): Promise<ActionResult> {
   })
 }
 
-/* "Raise at": `meeting:<id>`, `series:<id>`, or nothing to stop aiming it anywhere. */
+/* "Raise at": `meeting:<id>`, `series:<id>`, `project:<id>` (its next meeting), or nothing. */
 export async function setItemTargetAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     const [type, id] = field(formData, 'target').split(':')
@@ -201,7 +201,8 @@ export async function setItemTargetAction(formData: FormData): Promise<ActionRes
     if (!type) target = null
     else if (type === 'meeting' && id) target = { meetingId: id }
     else if (type === 'series' && id) target = { seriesId: id }
-    else throw new ValidationError('Pick a meeting or a series.')
+    else if (type === 'project' && id) target = { projectId: id }
+    else throw new ValidationError('Pick a meeting, a series or a project.')
     await setItemTarget(db, actor, field(formData, 'id'), target)
   })
 }

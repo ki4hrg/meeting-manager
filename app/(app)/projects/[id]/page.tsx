@@ -114,6 +114,10 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
     .flat()
     .filter((meeting) => !seen.has(meeting.id) && Boolean(seen.add(meeting.id)))
   const documents = await listDocuments(db, { contextId: project.contextId, projectId: id })
+  // Aimed at this project's next meeting, waiting for it, whatever project they are on.
+  const forNext = (await listItems(db, { contextId: project.contextId, open: true })).filter(
+    (item) => item.targetProjectId === id,
+  )
   // A parent can be anything in the context but itself and what sits inside it.
   const parents = treeOrder(family).filter((one) => one.id !== id && !below.has(one.id))
 
@@ -229,6 +233,12 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           </CardGrid>
         )}
       </Section>
+
+      {forNext.length > 0 ? (
+        <Section title="For the next meeting" count={forNext.length}>
+          <ItemGrid items={forNext} today={today} empty="meeting" />
+        </Section>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
         <Section
