@@ -109,6 +109,7 @@ const PROPOSAL: ProposalView = {
   ],
   unresolved: ['the treasurer'],
   project: { id: 'sample', name: 'Budget' },
+  series: null,
   agendaLine: null,
   item: null,
   parent: null,

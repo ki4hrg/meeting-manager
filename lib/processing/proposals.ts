@@ -40,6 +40,7 @@ import {
   people,
   projects,
   proposals,
+  series,
   type ProposalPayload,
   type ProposalResult,
   type ProposedParty,
@@ -108,6 +109,8 @@ export type ProposalView = {
   /** Names still to be settled; accepting is refused while there are any. */
   unresolved: string[]
   project: { id: string; name: string } | null
+  /** For an item: the series it is to be raised at. */
+  series: { id: string; name: string } | null
   /** The agenda line this came up under. */
   agendaLine: { id: string; text: string } | null
   /** For an update: the item it would change, as it stands. */
@@ -198,6 +201,15 @@ async function projectIn(exec: Executor, id: string, contextId: string): Promise
     .select({ id: projects.id })
     .from(projects)
     .where(and(eq(projects.id, id), eq(projects.contextId, contextId)))
+    .limit(1)
+  return Boolean(row)
+}
+
+async function seriesIn(exec: Executor, id: string, contextId: string): Promise<boolean> {
+  const [row] = await exec
+    .select({ id: series.id })
+    .from(series)
+    .where(and(eq(series.id, id), eq(series.contextId, contextId)))
     .limit(1)
   return Boolean(row)
 }
@@ -311,6 +323,13 @@ export async function cleanPayload(
       else problems.push(`${str(input.dueOn)} is not a date (use YYYY-MM-DD).`)
     }
 
+    let seriesId: string | null = null
+    if (input.seriesId != null && input.seriesId !== '') {
+      const id = uuid(input.seriesId)
+      if (id && (await seriesIn(exec, id, contextId))) seriesId = id
+      else problems.push('That series is not in this context.')
+    }
+
     const payload: ItemPayload = {
       type: 'item',
       kind,
@@ -321,6 +340,7 @@ export async function cleanPayload(
       projectId: await cleanProject(exec, contextId, input.projectId, problems),
       dueOn,
       parentItemId,
+      seriesId,
     }
     return { payload, problems }
   }
@@ -418,6 +438,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
   const personIds = new Set<string>()
   const groupIds = new Set<string>()
   const projectIds = new Set<string>()
+  const seriesIds = new Set<string>()
   const itemIds = new Map<string, Set<string>>() // by context
   const lineIds = new Set<string>()
   const documentIds = new Set<string>()
@@ -439,6 +460,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
         else if (party.groupId) groupIds.add(party.groupId)
       }
       if (payload.projectId) projectIds.add(payload.projectId)
+      if (payload.seriesId) seriesIds.add(payload.seriesId)
       wantItem(row, payload.parentItemId)
       wantItem(row, row.result?.itemId)
     } else if (payload.type === 'update') {
@@ -481,6 +503,17 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
             .select({ id: projects.id, name: projects.name, contextId: projects.contextId })
             .from(projects)
             .where(inArray(projects.id, [...projectIds]))
+        ).map((row) => [row.id, row]),
+  )
+
+  const seriesRows = new Map(
+    seriesIds.size === 0
+      ? []
+      : (
+          await exec
+            .select({ id: series.id, name: series.name, contextId: series.contextId })
+            .from(series)
+            .where(inArray(series.id, [...seriesIds]))
         ).map((row) => [row.id, row]),
   )
 
@@ -559,6 +592,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
     const projectId =
       payload.type === 'item' || payload.type === 'document' ? (payload.projectId ?? null) : null
     const project = projectId ? projectRows.get(projectId) : undefined
+    const raiseAt = payload.type === 'item' && payload.seriesId ? seriesRows.get(payload.seriesId) : undefined
     const line = row.agendaLineId ? lines.get(row.agendaLineId) : undefined
 
     return {
@@ -575,6 +609,8 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
       unresolved: parties.filter((party) => party.unresolved).map((party) => party.name),
       project:
         project && project.contextId === contextId ? { id: project.id, name: project.name } : null,
+      series:
+        raiseAt && raiseAt.contextId === contextId ? { id: raiseAt.id, name: raiseAt.name } : null,
       agendaLine:
         line && line.meetingId === row.meetingId
           ? { id: line.id, text: line.text ?? line.itemText ?? '' }
@@ -812,6 +848,7 @@ async function acceptItem(
     parties,
     parentItemId: payload.parentItemId ?? null,
     originMeetingId: meeting.id,
+    ...(payload.seriesId ? { target: { seriesId: payload.seriesId } } : {}),
   })
 
   if (resolution && payload.kind === 'question') {

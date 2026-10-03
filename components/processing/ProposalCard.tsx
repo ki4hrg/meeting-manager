@@ -181,6 +181,7 @@ export function ProposalCard({
 
           {(known.length + unknown.length > 0 && !named) ||
           proposal.project ||
+          proposal.series ||
           (payload.type === 'document' && meetingTitle) ||
           (payload.type === 'item' && payload.dueOn) ? (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
@@ -236,6 +237,14 @@ export function ProposalCard({
                     </span>
                   </Badge>
                 ) : null}
+                {proposal.series ? (
+                  <Badge>
+                    <Icon name="refresh" className="h-3 w-3" label="Raise at" />
+                    <span className="truncate" title={proposal.series.name}>
+                      {proposal.series.name}
+                    </span>
+                  </Badge>
+                ) : null}
                 {payload.type === 'item' && payload.dueOn ? (
                   <DueBadge label={formatDay(payload.dueOn, today)} dueOn={payload.dueOn} today={today} />
                 ) : null}
@@ -247,11 +256,14 @@ export function ProposalCard({
 
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-gray-100 pt-2 dark:border-gray-700">
         <span className="flex min-w-0 items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-          {proposal.lowConfidence ? (
-            <Badge tone="amber">
-              <Icon name="alert" className="h-3 w-3" />
-              Unsure
-            </Badge>
+          {/* The owner was a guess: worth a look only while it is still to be settled. */}
+          {pending && proposal.lowConfidence ? (
+            <span title="Owner is a guess">
+              <Badge tone="amber">
+                <Icon name="alert" className="h-3 w-3" />
+                Unsure
+              </Badge>
+            </span>
           ) : null}
           {proposal.verbatim ? (
             <span title="Verbatim">
@@ -284,7 +296,6 @@ export function ProposalCard({
                 icon="pencil"
                 compact
                 wide
-                also={{ label: 'Accept', name: 'accept', value: '1' }}
               >
                 <input type="hidden" name="id" value={proposal.id} />
                 <ProposalFields proposal={proposal} choices={choices} />

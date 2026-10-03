@@ -878,6 +878,8 @@ export type ProposalPayload =
       projectId?: string | null
       dueOn?: string | null
       parentItemId?: string | null
+      /* Raise at the next meeting of this series. */
+      seriesId?: string | null
     }
   | {
       type: 'update'

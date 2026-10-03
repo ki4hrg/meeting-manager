@@ -20,6 +20,7 @@ import {
   updateItem,
 } from '../lib/items/items'
 import { createMeeting, getMeeting, listMeetings, updateMeeting } from '../lib/meetings/meetings'
+import { createSeries } from '../lib/meetings/series'
 import { missingDetails } from '../lib/processing/missing'
 import {
   acceptEdited,
@@ -476,6 +477,24 @@ describe('accepting with what was missing', () => {
     expect(accepted.status).toBe('accepted')
     expect(accepted.made?.item).toMatchObject({ text: 'Book the hall', dueOn: '2026-10-20' })
     expect(accepted.made?.item?.parties.map((p) => p.id)).toEqual([w.tom.id])
+  })
+
+  it('raises the item it makes at the series it was edited to name, and refuses another context’s', async () => {
+    const { w, meeting } = await setup()
+    const weekly = await createSeries(db, { contextId: w.parish.id, name: 'Staff weekly' })
+    const theirs = await createSeries(db, { contextId: w.diocese.id, name: 'Clergy' })
+    const [proposal] = await propose(meeting.id, [{ payload: item('Book the hall') }])
+
+    await expect(
+      acceptEdited(db, actor, proposal!.id, item('Book the hall', { seriesId: theirs.id })),
+    ).rejects.toThrow('That series is not in this context.')
+
+    const accepted = await acceptEdited(db, actor, proposal!.id, item('Book the hall', { seriesId: weekly.id }))
+    expect(accepted.series).toEqual({ id: weekly.id, name: 'Staff weekly' })
+    expect(accepted.made?.item?.targetSeriesId).toBe(weekly.id)
+
+    await undoProposal(db, actor, proposal!.id)
+    expect(await itemCount(w.parish.id)).toBe(0)
   })
 
   it('keeps neither the edit nor the accept when accepting is refused', async () => {

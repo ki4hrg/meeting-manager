@@ -260,7 +260,10 @@ async function partiesFrom(
   return parties
 }
 
-/** The edit form over a pending proposal's payload. What the form does not show is kept. */
+/**
+ * The edit form over a pending proposal's payload: saving it accepts it as
+ * edited. What the form does not show is kept.
+ */
 export async function editProposalAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     const proposal = await ownProposal(field(formData, 'id'))
@@ -283,6 +286,7 @@ export async function editProposalAction(formData: FormData): Promise<ActionResu
         ],
         projectId: field(formData, 'projectId') || null,
         dueOn: parseDay(field(formData, 'dueOn')),
+        seriesId: field(formData, 'seriesId') || null,
       }
     } else if (was.type === 'update') {
       payload = {
@@ -305,9 +309,7 @@ export async function editProposalAction(formData: FormData): Promise<ActionResu
       payload = { ...was, title: field(formData, 'title'), people }
     }
 
-    // Edit, then accept as edited: the form's second submit.
-    if (formData.get('accept') === '1') await acceptEdited(db, actor, proposal.id, payload)
-    else await editProposal(db, actor, proposal.id, payload)
+    await acceptEdited(db, actor, proposal.id, payload)
   })
 }
 
