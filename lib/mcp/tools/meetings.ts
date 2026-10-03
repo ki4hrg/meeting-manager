@@ -195,7 +195,7 @@ function meetingOut(meeting: MeetingView, clock: Clock) {
     groups: meeting.groups,
     people: meeting.people,
     // Its people and, until attendance is settled, its groups' members.
-    attendees: meeting.attendees,
+    attendees: meeting.attendees.map(({ id, name }) => ({ id, name })),
     attendance_settled: meeting.attendanceAt !== null,
     projects: meeting.projects,
     parent_meeting_id: meeting.parentMeetingId,
