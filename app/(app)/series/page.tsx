@@ -1,5 +1,6 @@
 import { FormModal } from '@/components/forms'
 import { CardGrid, CardHeader, LinkCard } from '@/components/ui/Card'
+import { PartyPicker } from '@/components/processing/PartyPicker'
 import { CheckList } from '@/components/ui/CheckList'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select } from '@/components/ui/Field'
@@ -42,7 +43,12 @@ export default async function SeriesListPage() {
             <Field label="Name" required>
               <Input name="name" required />
             </Field>
-            <CheckList label="People" name="personIds" options={people} />
+            <PartyPicker
+              label="People"
+              name="personIds"
+              options={people.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+              allowNew
+            />
             {groups.length > 0 ? (
               <Field label="Group">
                 <Select name="groupId" defaultValue="">

@@ -17,7 +17,7 @@ import {
   skeletonFromOutline,
   updateSeries,
 } from '@/lib/meetings/series'
-import { act, field, type ActionResult } from '@/lib/web/action'
+import { act, field, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 const ids = (formData: FormData, name: string): string[] =>
@@ -31,7 +31,7 @@ export async function createSeriesAction(formData: FormData): Promise<ActionResu
       contextId: context.id,
       name: field(formData, 'name'),
       groupId: field(formData, 'groupId') || undefined,
-      personIds: ids(formData, 'personIds'),
+      personIds: await pickedPeople(db, formData, 'personIds'),
       projectIds: ids(formData, 'projectIds'),
     })
   })
@@ -110,7 +110,7 @@ export async function unlinkSeriesCalendarAction(formData: FormData): Promise<Ac
 
 export async function addSeriesPeopleAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    const adding = ids(formData, 'personIds')
+    const adding = await pickedPeople(db, formData, 'personIds')
     if (adding.length === 0) throw new ValidationError('Pick a person.')
     const series = await getSeries(db, field(formData, 'id'))
     await setSeriesPeople(db, series.id, [...series.people.map((person) => person.id), ...adding])

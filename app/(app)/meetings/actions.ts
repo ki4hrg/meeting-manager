@@ -34,7 +34,7 @@ import {
   prepWithPerson,
   seriesFromEvent,
 } from '@/lib/meetings/prep'
-import { act, field, type ActionResult } from '@/lib/web/action'
+import { act, field, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 async function contextId(): Promise<string> {
@@ -82,7 +82,7 @@ export async function createMeetingAction(formData: FormData): Promise<ActionRes
   let id = ''
   return thenOpen(
     async (actor, user) => {
-      const people = ids(formData, 'personIds')
+      const people = await pickedPeople(db, formData, 'personIds')
       const projects = ids(formData, 'projectIds')
       const meeting = await prepMeeting(db, actor, {
         contextId: await contextId(),
@@ -133,7 +133,7 @@ export async function updateMeetingAction(formData: FormData): Promise<ActionRes
         seriesId: field(formData, 'seriesId') || null,
         groupId: field(formData, 'groupId') || null,
       })
-      await setMeetingPeople(tx, actor, id, ids(formData, 'personIds'))
+      await setMeetingPeople(tx, actor, id, await pickedPeople(tx, formData, 'personIds'))
       await setMeetingProjects(tx, actor, id, ids(formData, 'projectIds'))
     })
   })

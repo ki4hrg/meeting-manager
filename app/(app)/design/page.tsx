@@ -497,6 +497,15 @@ export default function DesignPage() {
                   ]}
                   selected={[{ value: 'person:sarah', name: 'Sarah Jones', icon: 'person' }]}
                 />
+                <PartyPicker
+                  label="Members"
+                  name="members"
+                  options={[
+                    { value: 'sarah', name: 'Sarah Jones', icon: 'person' },
+                    { value: 'tom', name: 'Tom Baker', icon: 'person' },
+                  ]}
+                  allowNew
+                />
                 <div>
                   <PendingBadge count={3} />
                 </div>

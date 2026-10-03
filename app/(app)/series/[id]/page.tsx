@@ -3,6 +3,7 @@ import { ActionButton, FormModal } from '@/components/forms'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { SkeletonEditor } from '@/components/series/SkeletonEditor'
 import { Card, CardGrid, CardHeader, LinkCard, Section } from '@/components/ui/Card'
+import { PartyPicker } from '@/components/processing/PartyPicker'
 import { CheckList } from '@/components/ui/CheckList'
 import { Chip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -203,12 +204,15 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
           title="Roster"
           count={series.people.length}
           action={
-            otherPeople.length > 0 ? (
-              <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" size="sm" submit="Add">
-                <input type="hidden" name="id" value={series.id} />
-                <CheckList label="People" name="personIds" options={otherPeople} />
-              </FormModal>
-            ) : null
+            <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" size="sm" submit="Add">
+              <input type="hidden" name="id" value={series.id} />
+              <PartyPicker
+                label="People"
+                name="personIds"
+                options={otherPeople.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+                allowNew
+              />
+            </FormModal>
           }
         >
           {series.people.length === 0 ? (

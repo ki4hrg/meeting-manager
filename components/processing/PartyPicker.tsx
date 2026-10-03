@@ -5,11 +5,11 @@ import { Icon } from '@/components/ui/icons'
 import { matchName } from '@/lib/core/match'
 
 export type PartyOption = {
-  /** What is submitted: an id, or `person:<id>` / `group:<id>` / `name:<text>`. */
+  /** What is submitted: an id, `person:<id>` / `group:<id>` / `name:<text>`, or `new:<name>`. */
   value: string
   name: string
-  /** `alert` is a name nobody has been matched to yet. */
-  icon: 'person' | 'group' | 'alert'
+  /** `alert` is a name nobody has been matched to yet; `plus` someone to add. */
+  icon: 'person' | 'group' | 'alert' | 'plus'
 }
 
 /**
@@ -18,6 +18,10 @@ export type PartyOption = {
  * chip. Every chip is submitted under `name`; whatever is still in the box
  * goes as `<name>Text`, for the server to resolve the way it resolves a name
  * anywhere else, so typing "sarah, tom" and submitting works too.
+ *
+ * With `allowNew`, a name that matches nobody is offered as someone to add
+ * (`new:<name>`). Backspace in an empty box takes the last pick off; ⌘Enter,
+ * or Esc once something is picked, submits the form it is in.
  */
 export function PartyPicker({
   label,
@@ -25,12 +29,14 @@ export function PartyPicker({
   options,
   selected = [],
   required = false,
+  allowNew = false,
 }: {
   label: string
   name: string
   options: PartyOption[]
   selected?: PartyOption[]
   required?: boolean
+  allowNew?: boolean
 }) {
   const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -42,13 +48,18 @@ export function PartyPicker({
   const comma = text.lastIndexOf(',')
   const partial = text.slice(comma + 1).trim()
   const taken = new Set(chosen.map((option) => option.value))
-  const suggestions =
+  const matches =
     partial === ''
       ? []
       : matchName(
           options.filter((option) => !taken.has(option.value)),
           partial,
         ).slice(0, 6)
+  const known = partial !== '' && options.some((option) => option.name.toLowerCase() === partial.toLowerCase())
+  const suggestions: PartyOption[] =
+    allowNew && partial !== '' && !known && !taken.has(`new:${partial}`)
+      ? [...matches, { value: `new:${partial}`, name: partial, icon: 'plus' }]
+      : matches
 
   function pick(option: PartyOption) {
     setChosen((current) => [...current, option])
@@ -58,6 +69,20 @@ export function PartyPicker({
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    const finish =
+      (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) ||
+      (event.key === 'Escape' && chosen.length > 0 && text === '')
+    if (finish) {
+      event.preventDefault()
+      event.currentTarget.form?.requestSubmit()
+      return
+    }
+    if (event.key === 'Escape' && text !== '') {
+      // The first Esc clears what is being typed; the dialog stays open.
+      event.preventDefault()
+      setText(text.slice(0, comma + 1))
+      return
+    }
     if (event.key === 'Backspace' && text === '' && chosen.length > 0) {
       setChosen((current) => current.slice(0, -1))
       return

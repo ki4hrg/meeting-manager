@@ -46,7 +46,7 @@ import {
   type ProjectStatus,
 } from '@/lib/projects/projects'
 import { getMeeting } from '@/lib/meetings/meetings'
-import { act, field, partyRef, type ActionResult } from '@/lib/web/action'
+import { act, field, partyRef, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 // ─── contexts ────────────────────────────────────────────────────────────────
@@ -254,9 +254,11 @@ export async function renameGroupAction(formData: FormData): Promise<ActionResul
 
 export async function addMemberAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    const personId = field(formData, 'personId')
-    if (!personId) throw new ValidationError('Pick a person.')
-    await addMember(db, field(formData, 'groupId'), personId)
+    await inTransaction(db, async (tx) => {
+      const personIds = await pickedPeople(tx, formData, 'people')
+      if (personIds.length === 0) throw new ValidationError('Pick a person.')
+      for (const personId of personIds) await addMember(tx, field(formData, 'groupId'), personId)
+    })
   })
 }
 
