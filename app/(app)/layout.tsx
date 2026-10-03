@@ -2,8 +2,10 @@ import { AppShell, type NavSection } from '@/components/AppShell'
 import { ContextSwitcher } from '@/components/ContextSwitcher'
 import { DirectoryProvider, type Directory } from '@/components/Directory'
 import { QuickAdd } from '@/components/QuickAdd'
+import { countUnfiledNotes } from '@/lib/connect/granola/unfiled'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
+import { inboxCount } from '@/lib/items/items'
 import { listPeople } from '@/lib/directory/people'
 import { listProjects } from '@/lib/projects/projects'
 import { allContexts, currentContext, viewer } from '@/lib/web/context'
@@ -13,7 +15,7 @@ export const dynamic = 'force-dynamic'
 
 const SECTIONS: NavSection[] = [
   { href: '/meetings', label: 'Meetings' },
-  { href: '/inbox', label: 'Inbox' },
+  { href: '/inbox', label: 'Inbox', tone: 'blue' },
   { href: '/projects', label: 'Projects' },
   { href: '/people', label: 'People' },
   { href: '/groups', label: 'Groups' },
@@ -35,11 +37,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }
     : { people: [], groups: [], projects: [] }
 
+  // The Inbox's count is the home tile's: open items with nowhere to go, and unfiled notes.
+  const waiting = context ? (await inboxCount(db, context.id)) + (await countUnfiledNotes(db)) : 0
+  const sections = SECTIONS.map((section) =>
+    section.href === '/inbox' ? { ...section, count: waiting } : section,
+  )
+
   return (
     <DirectoryProvider value={directory}>
       <AppShell
         // Every section lists what is in a context, so there are none without one.
-        sections={context ? SECTIONS : []}
+        sections={context ? sections : []}
         email={user.email}
         signOut={logoutAction}
         switcher={
