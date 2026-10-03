@@ -111,7 +111,9 @@ const agendaLineArg = z
 
 const agendaSectionArg = z.strictObject({
   title: z.string().min(1),
-  minutes: minutes.optional().describe('Only used when its lines carry none.'),
+  minutes: minutes
+    .optional()
+    .describe("A timebox: the section's length. Its lines with minutes use it up; the rest share what is left."),
   pinned_start: pinnedStart.optional(),
   lines: z.array(agendaLineArg).optional(),
 })
@@ -210,6 +212,7 @@ function lineOut(line: AgendaLine) {
     leader: line.leader ? { id: line.leader.id, name: line.leader.name } : null,
     private_note: line.privateNote,
     ...(line.overrunMinutes ? { overrun_minutes: line.overrunMinutes } : {}),
+    ...(line.shareMinutes !== undefined ? { share_minutes: line.shareMinutes } : {}),
   }
 }
 
@@ -226,6 +229,8 @@ function agendaOut(agenda: Agenda) {
             pinned_start: node.pinnedStart,
             start: node.start,
             ...(node.overrunMinutes ? { overrun_minutes: node.overrunMinutes } : {}),
+            ...(node.usedMinutes !== undefined ? { used_minutes: node.usedMinutes } : {}),
+            ...(node.overBudgetMinutes ? { over_budget_minutes: node.overBudgetMinutes } : {}),
             lines: node.lines.map(lineOut),
           },
     ),

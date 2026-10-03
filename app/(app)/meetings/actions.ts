@@ -294,7 +294,8 @@ export async function updateLineAction(formData: FormData): Promise<ActionResult
       ...(formData.has('leaderPersonId') ? { leaderPersonId: field(formData, 'leaderPersonId') || null } : {}),
       ...(formData.has('privateNote') ? { privateNote: field(formData, 'privateNote') } : {}),
       ...(formData.has('minutes') ? { minutes: minutesFrom(field(formData, 'minutes')) } : {}),
-      pinnedStart: field(formData, 'pinnedStart') || null,
+      // Starts at counts only while the row is pinned.
+      pinnedStart: formData.has('pinned') ? field(formData, 'pinnedStart') || null : null,
     })
   })
 }

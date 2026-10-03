@@ -125,11 +125,43 @@ describe('schedule computation', () => {
     expect(nodes[1]!.minutes).toBe(30)
   })
 
-  it('gives a section its own minutes when its lines carry none', () => {
+  it('shares a timebox equally among lines that carry no minutes', () => {
     const nodes = [section([[null], [null]], { minutes: 20 }), line(5)]
     const result = scheduleAgenda(nodes, { startsAt: nineChicago, endsAt: null, timeZone: CHICAGO })
-    expect(starts(nodes)).toEqual(['09:00', '09:00', '09:00', '09:20'])
+    expect(starts(nodes)).toEqual(['09:00', '09:00', '09:10', '09:20'])
     expect(result.totalMinutes).toBe(25)
+  })
+
+  it('a timebox is its length: lines with minutes use it up, the rest share what is left', () => {
+    const budget = section([[10], [null], [null], [null]], { minutes: 45 })
+    const nodes = [budget, line(5)]
+    const result = scheduleAgenda(nodes, { startsAt: nineChicago, endsAt: null, timeZone: CHICAGO })
+    if (budget.type !== 'section') throw new Error('expected a section')
+    // 35 left among three: 12, 12, 11.
+    expect(budget.lines.map((one) => one.shareMinutes)).toEqual([undefined, 12, 12, 11])
+    expect(starts(nodes)).toEqual(['09:00', '09:00', '09:10', '09:22', '09:34', '09:45'])
+    expect(budget).toMatchObject({ minutes: 45, usedMinutes: 10 })
+    expect(budget.overBudgetMinutes).toBeUndefined()
+    expect(result).toEqual({ totalMinutes: 50, end: '09:50', overflowMinutes: 0 })
+  })
+
+  it('reports lines that overrun their timebox, and the next row still starts at its end', () => {
+    const budget = section([[30], [25], [null]], { minutes: 45 })
+    const nodes = [budget, line(5)]
+    const result = scheduleAgenda(nodes, { startsAt: nineChicago, endsAt: null, timeZone: CHICAGO })
+    if (budget.type !== 'section') throw new Error('expected a section')
+    expect(budget).toMatchObject({ minutes: 45, usedMinutes: 55, overBudgetMinutes: 10 })
+    expect(budget.lines[2]!.shareMinutes).toBe(0)
+    expect(starts(nodes)).toEqual(['09:00', '09:00', '09:30', '09:55', '09:45'])
+    expect(result).toEqual({ totalMinutes: 50, end: '09:50', overflowMinutes: 10 })
+  })
+
+  it('a section with no minutes of its own lasts as long as its lines', () => {
+    const nodes = [section([[10], [null]]), line(5)]
+    scheduleAgenda(nodes, { startsAt: nineChicago, endsAt: null, timeZone: CHICAGO })
+    expect(nodes[0]).toMatchObject({ minutes: 10 })
+    expect(nodes[0]).not.toHaveProperty('usedMinutes')
+    expect(starts(nodes)).toEqual(['09:00', '09:00', '09:10', '09:10'])
   })
 
   it('leaves an undated stub untimed but still totals it', () => {
@@ -209,6 +241,7 @@ describe('brief rendering', () => {
         pinnedStart: null,
         start: '09:00',
         minutes: 10,
+        ownMinutes: 10,
         lines: [
           {
             id: 'line-1',

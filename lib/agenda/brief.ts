@@ -109,7 +109,7 @@ function agendaOf(
   if (agenda.nodes.length === 0 && !opts.keepEmpty) return []
 
   const entry = (line: AgendaLine): Entry => ({
-    text: `${at(line.start)}${line.text}${led(line)}${opts.private ? tag(line.item, today) : ''}${minutes(line.minutes)}`,
+    text: `${at(line.start)}${line.text}${led(line)}${opts.private ? tag(line.item, today) : ''}${minutes(line.minutes ?? line.shareMinutes ?? null)}`,
     sub: [
       ...rows(line.description).map(leaf),
       ...(opts.private

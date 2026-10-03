@@ -37,6 +37,8 @@ export type AgendaLine = {
   start: string | null // computed 'HH:MM' in the user's zone; null when the agenda is untimed
   /** Set on a pinned row that what precedes it runs past, by this many minutes. */
   overrunMinutes?: number
+  /** In a timeboxed section, a line with no minutes of its own: its share of what is left. */
+  shareMinutes?: number
   /** The item was marked discussed in this meeting. */
   discussed?: boolean
 }
@@ -46,7 +48,13 @@ export type AgendaSection = {
   title: string
   pinnedStart: string | null
   start: string | null
-  minutes: number | null /* sum of its lines' minutes, or its own */
+  minutes: number | null /* its own (a timebox), else the sum of its lines' */
+  /** The minutes stored on the section: its timebox, or null for none. */
+  ownMinutes: number | null
+  /** In a timebox, the minutes its lines set themselves. */
+  usedMinutes?: number
+  /** In a timebox, by how much its lines' minutes exceed it. */
+  overBudgetMinutes?: number
   overrunMinutes?: number
   lines: AgendaLine[]
 }
@@ -149,6 +157,7 @@ export async function getAgenda(
         pinnedStart: row.pinnedStart,
         start: null,
         minutes: row.minutes,
+        ownMinutes: row.minutes,
         lines: [],
       }
       sections.set(row.id, section)
