@@ -41,6 +41,26 @@ export function matchName<T extends { name: string }>(candidates: T[], token: st
   })
 }
 
+/**
+ * The same, over kinds of thing taken in order of precedence (quick-add's
+ * `@`: people and groups, then projects, then series). An exact name of any
+ * kind wins over a prefix of any; otherwise the first kind with a match
+ * answers, so `@sarah` is Sarah Jones even with a "Sarah/John Check-In".
+ */
+export function matchTiered<T extends { name: string }>(tiers: T[][], token: string): T[] {
+  const wanted = normalise(token)
+  if (wanted === '') return []
+  for (const tier of tiers) {
+    const exact = tier.filter((candidate) => normalise(candidate.name) === wanted)
+    if (exact.length > 0) return exact
+  }
+  for (const tier of tiers) {
+    const matches = matchName(tier, token)
+    if (matches.length > 0) return matches
+  }
+  return []
+}
+
 /** The token that names something unambiguously: "Sarah Jones" becomes "Sarah-Jones". */
 export function tokenFor(name: string): string {
   return name

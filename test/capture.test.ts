@@ -100,14 +100,14 @@ describe('captureLine', () => {
     const { parish } = await makeWorld()
     await expect(
       captureLine(db, actor, { contextId: parish.id, line: 'hello @nobody' }),
-    ).rejects.toThrow('No person or group matches nobody')
+    ).rejects.toThrow('No person, group, project or series matches nobody')
     // Tom Baker and Bishop Wright both have a word starting with "b".
     await expect(captureLine(db, actor, { contextId: parish.id, line: 'hello @b' })).rejects.toThrow(
       'could be',
     )
     await expect(
       captureLine(db, actor, { contextId: parish.id, line: 'hello @council' }),
-    ).rejects.toThrow('No person or group matches council')
+    ).rejects.toThrow('No person, group, project or series matches council')
     await expect(
       captureLine(db, actor, { contextId: parish.id, line: 'hello #synod' }),
     ).rejects.toThrow('No project matches synod')
@@ -138,6 +138,27 @@ describe('captureLine', () => {
     await expect(captureLine(db, actor, { contextId: parish.id, line: 'x >nothing' })).rejects.toThrow(
       'No series matches',
     )
+  })
+
+  it('takes one @ for a person, a project or a series, people first', async () => {
+    const { parish, sarah, retreat } = await makeWorld()
+    const checkIn = await createSeries(db, { contextId: parish.id, name: 'Sarah/John Check-In', personIds: [sarah.id] })
+    const item = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'budget for @retreat lunch @sarah @check-in',
+    })
+    expect(item).toMatchObject({ text: 'budget for Retreat lunch', targetSeriesId: checkIn.id })
+    expect(item.project?.id).toBe(retreat.id)
+    expect(item.parties).toMatchObject([{ id: sarah.id, role: 'with' }])
+
+    // "sarah" starts the series' name too, but a person comes first.
+    const plain = await captureLine(db, actor, { contextId: parish.id, line: 'lunch @sarah' })
+    expect(plain).toMatchObject({ targetSeriesId: null })
+    expect(plain.parties).toMatchObject([{ id: sarah.id }])
+
+    await expect(
+      captureLine(db, actor, { contextId: parish.id, line: 'x @retreat @campaign' }),
+    ).rejects.toThrow('one project')
   })
 
   it('applies presets, and lets the line override the kind', async () => {

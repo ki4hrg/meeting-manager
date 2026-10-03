@@ -107,7 +107,7 @@ One pipeline; every stage is optional, with no rail.
 | Review | One screen | One screen | One screen | One screen |
 | Export | Optional | Optional | Optional | Recap to attendees |
 
-- **Capture:** global quick-add (`@person #project >series`, kind prefix optional, everything optional) and MCP `capture_item`. *(2026-10-03)* `>series` raises the item at that series' next meeting; a token runs across words, so `>check-in` reaches "Adlene/John Check-In".
+- **Capture:** global quick-add (one `@` for a person, group, project or series; kind prefix optional; everything optional) and MCP `capture_item`. *(2026-10-03)* An `@` resolves people and groups first, then projects, then series (an exact name of any kind beats a prefix), so `@sarah` stays Sarah while `@check-in` reaches "Adlene/John Check-In" and raises the item at that series' next meeting. `#project` and `>series` still say which outright, and the completion writes them when an `@` would reach something else of the same name.
 - **Agenda:** two levels (section, line). A line is free text or a reference to a live item, with public text, a public description, a leader (any person, John included) and a private note. The description and leader go out in the brief and the agenda copy; the private note only in the brief.
 - **Timing (optional):** minutes per line, computed start times, pinned starts, overflow flagged.
 - **Generated blocks**, computed on render, defaults set on the series (on for project/committee meetings, off for 1:1s and drop-ins):
