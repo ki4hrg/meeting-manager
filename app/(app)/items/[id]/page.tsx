@@ -36,6 +36,7 @@ import {
   addPartyAction,
   answerItemAction,
   convertItemAction,
+  deleteItemAction,
   itemStatusAction,
   recordDecisionAction,
   removePartyAction,
@@ -429,6 +430,20 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 >
                   Drop
                 </ActionButton>
+              ) : null}
+
+              {/* Only what stands alone: what came out of a meeting or a thread is dropped. */}
+              {!item.originMeetingId && thread.entries.length === 1 ? (
+                <FormModal
+                  action={deleteItemAction}
+                  title="Delete item"
+                  icon="trash"
+                  variant="ghost"
+                  submit="Delete"
+                  danger
+                >
+                  <input type="hidden" name="id" value={item.id} />
+                </FormModal>
               ) : null}
 
               {open && !decision ? (

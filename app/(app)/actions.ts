@@ -23,6 +23,7 @@ import {
   answerItem,
   completeItem,
   convertItem,
+  deleteItem,
   dropItem,
   getItem,
   isOpen,
@@ -128,6 +129,14 @@ export async function itemStatusAction(formData: FormData): Promise<ActionResult
     else if (op === 'reopen') await reopenItem(db, actor, id)
     else throw new ValidationError('Unknown change.')
   })
+}
+
+export async function deleteItemAction(formData: FormData): Promise<ActionResult> {
+  const result = await act(async (actor) => {
+    await deleteItem(db, actor, field(formData, 'id'))
+  })
+  if (!result.error) redirect('/inbox')
+  return result
 }
 
 export async function answerItemAction(formData: FormData): Promise<ActionResult> {

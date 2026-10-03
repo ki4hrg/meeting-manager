@@ -6,6 +6,7 @@ import { Icon } from '@/components/ui/icons'
 import { DateJump } from '@/components/meetings/DateJump'
 import { agendaCounts } from '@/lib/agenda/lines'
 import { countUnfiledNotes } from '@/lib/connect/granola/unfiled'
+import { pendingByMeeting } from '@/lib/processing/proposals'
 import { formatMoment } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
@@ -20,6 +21,7 @@ export default async function HomePage() {
 
   const counts = await openCounts(db, context.id)
   const unfiled = await countUnfiledNotes(db)
+  const toReview = (await pendingByMeeting(db, context.id)).size
   const projects = await listProjects(db, context.id)
   const groups = await listGroups(db, context.id)
   // Three fill the row; the rest scroll, then More opens the whole list.
@@ -48,7 +50,7 @@ export default async function HomePage() {
       <div className="mb-8">
         <CardGrid>
           <Tile href="/meetings" icon="meeting" title="Meetings" tone="teal" />
-          <Tile href="/inbox" icon="inbox" title="Inbox" tone="blue" count={counts.inbox + unfiled} />
+          <Tile href="/inbox" icon="inbox" title="Inbox" tone="blue" count={counts.inbox + unfiled + toReview} />
           <Tile
             href="/projects"
             icon="project"
