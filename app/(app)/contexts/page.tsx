@@ -29,7 +29,7 @@ export default async function ContextsPage() {
         title="Contexts"
         crumbs={[{ href: '/', label: 'Home' }]}
         actions={
-          <FormModal action={createContextAction} title="New context" label="New context">
+          <FormModal action={createContextAction} title="New context" label="New context" icon="plus">
             <Field label="Name" required>
               <Input name="name" required />
             </Field>
@@ -51,10 +51,9 @@ export default async function ContextsPage() {
                 {context.id === current?.id ? <Badge tone="blue">Current</Badge> : null}
                 <FormModal
                   action={renameContextAction}
-                  title="Rename"
+                  title="Edit"
                   icon="pencil"
-                  variant="ghost"
-                  size="sm"
+                  compact
                 >
                   <input type="hidden" name="id" value={context.id} />
                   <Field label="Name" required>

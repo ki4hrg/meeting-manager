@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
-import { ActionButton, FormModal } from '@/components/forms'
+import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
@@ -66,20 +66,23 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
         title={group.name}
         crumbs={[{ href: '/groups', label: 'Groups' }]}
         actions={
-          <div className="flex items-center gap-2">
-            {archived ? null : (
-              <ActionButton action={prepWithGroupAction} fields={{ groupId: group.id }}>
-                Prep
-              </ActionButton>
-            )}
-            <FormModal action={renameGroupAction} title="Rename" label="Rename" variant="secondary">
+          archived ? null : (
+            <ActionButton action={prepWithGroupAction} fields={{ groupId: group.id }}>
+              <Icon name="meeting" className="h-4 w-4" />
+              Prep
+            </ActionButton>
+          )
+        }
+        tools={
+          <>
+            <FormModal action={renameGroupAction} title="Edit" icon="pencil" compact iconSize="md">
               <input type="hidden" name="id" value={group.id} />
               <Field label="Name" required>
                 <Input name="name" defaultValue={group.name} required />
               </Field>
             </FormModal>
             {archived ? null : <ArchiveButton kind="group" id={group.id} />}
-          </div>
+          </>
         }
       />
       {archived ? <ArchivedBar kind="group" id={group.id} /> : null}
@@ -95,7 +98,7 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
               {email}
             </RemovableChip>
           ))}
-          <FormModal action={addGroupEmailAction} title="Add email" label="Email" icon="plus" variant="ghost" size="sm" submit="Add">
+          <FormModal action={addGroupEmailAction} title="Add email" label="Email" icon="plus" variant="secondary" size="sm" submit="Add">
             <input type="hidden" name="groupId" value={group.id} />
             <Field label="Email" required>
               <Input name="email" type="email" required />
@@ -139,7 +142,7 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
           title="Members"
           count={members.length}
           action={
-            <FormModal action={addMemberAction} title="Add members" label="Add" size="sm" submit="Add">
+            <FormModal action={addMemberAction} title="Add members" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
               <input type="hidden" name="groupId" value={group.id} />
               <PartyPicker
                 label="People"
@@ -164,15 +167,12 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
                     >
                       {member.name}
                     </Link>
-                    <ActionButton
+                    <IconAction
                       action={removeMemberAction}
                       fields={{ groupId: group.id, personId: member.id }}
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`Remove ${member.name}`}
-                    >
-                      <Icon name="close" className="h-4 w-4" />
-                    </ActionButton>
+                      icon="close"
+                      label={`Remove ${member.name}`}
+                    />
                   </li>
                 ))}
               </ul>

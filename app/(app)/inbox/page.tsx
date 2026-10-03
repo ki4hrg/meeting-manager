@@ -40,7 +40,7 @@ export default async function InboxPage() {
 
   return (
     <>
-      <PageHeader title="Inbox" count={items.length + notes.length + pending.size} actions={<QuickAdd />} />
+      <PageHeader title="Inbox" count={items.length + notes.length + pending.size} actions={<QuickAdd primary />} />
       <ReviewSection pending={pending} timeZone={user.timeZone} />
       {notes.length > 0 ? (
         <Section title="Meetings" count={notes.length}>

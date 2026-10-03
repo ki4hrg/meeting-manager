@@ -1,4 +1,5 @@
 import { RollCall } from '@/components/meetings/RollCall'
+import { Roster } from '@/components/meetings/Roster'
 import { rollCall, settleIfOver } from '@/lib/meetings/attendance'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
@@ -11,7 +12,8 @@ import { MeetingFields, WhenFields } from '@/components/meetings/MeetingFields'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { Suggestions } from '@/components/meetings/Suggestions'
 import { QuickAdd } from '@/components/QuickAdd'
-import { Card, Section } from '@/components/ui/Card'
+import { Card, CardGrid, Section } from '@/components/ui/Card'
+import { DocumentCard } from '@/components/documents/DocumentCard'
 import { Chip } from '@/components/ui/Chip'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
@@ -23,7 +25,8 @@ import { renderAgenda, renderAgendaHtml, renderBrief, renderBriefHtml } from '@/
 import { getCandidates, placeAutomatic } from '@/lib/agenda/candidates'
 import { computeBlocks } from '@/lib/agenda/generated'
 import { getAgenda } from '@/lib/agenda/lines'
-import { formatSpan } from '@/lib/core/dates'
+import { formatDay, formatSpan, todayIn } from '@/lib/core/dates'
+import { listDocuments } from '@/lib/documents/documents'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
@@ -80,7 +83,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     !rollup && !meeting.attendanceAt && meeting.startsAt !== null && meeting.startsAt <= new Date() && !isOver(meeting)
   const roll = underWay ? await rollCall(db, id) : []
 
-  const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, pending] = await Promise.all([
+  const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, pending, documents] = await Promise.all([
     getAgenda(db, id, { timeZone }),
     Promise.all(meeting.sessions.map((session) => getAgenda(db, session.id, { timeZone }))),
     getCandidates(db, id),
@@ -91,6 +94,8 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     listProjectChoices(db, context.id),
     listSeries(db, context.id),
     pendingByMeeting(db, context.id),
+    // What its notes drafted, its sessions' with it.
+    listDocuments(db, { contextId: context.id, meetingIds: [meeting.id, ...meeting.sessions.map((one) => one.id)] }),
   ])
 
   const sessions = rollup
@@ -113,10 +118,11 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
 
   // Import, Section and quick-add, aimed at one meeting's own agenda (a session's, on a rollup).
   const agendaTools = (meetingId: string) => (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <FormModal
         action={importOutlineAction}
         title="Import outline"
+        label="Import"
         icon="document"
         variant="secondary"
         size="sm"
@@ -146,6 +152,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         action={addSectionAction}
         title="New section"
         label="Section"
+        icon="plus"
         variant="secondary"
         size="sm"
         submit="Add"
@@ -188,7 +195,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
           ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
         ]}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <CopyButton
               label="Copy brief"
               variant="primary"
@@ -197,13 +204,19 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
             />
             <CopyButton label="Copy agenda" text={renderAgenda(brief)} html={renderAgendaHtml(brief)} />
             <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
+              <Icon name="check" className="h-4 w-4" />
               Review
               <PendingBadge count={pending.get(meeting.id)} />
             </ButtonLink>
             <ButtonLink href={`/meetings/${meeting.id}/recap`} variant="secondary">
+              <Icon name="document" className="h-4 w-4" />
               Recap
             </ButtonLink>
-            <FormModal action={updateMeetingAction} title="Edit" label="Edit" variant="secondary">
+          </>
+        }
+        tools={
+          <>
+            <FormModal action={updateMeetingAction} title="Edit" icon="pencil" compact iconSize="md">
               <input type="hidden" name="id" value={meeting.id} />
               <MeetingFields
                 meeting={meeting}
@@ -220,7 +233,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
               />
             )}
             {archived ? null : <ArchiveButton kind="meeting" id={meeting.id} />}
-          </div>
+          </>
         }
       />
       {archived ? <ArchivedBar kind="meeting" id={meeting.id} /> : null}
@@ -240,23 +253,9 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
               {meeting.series.name}
             </Chip>
           ) : null}
-          {/* John is at every meeting: first, and never on its list of people. */}
-          {self ? (
-            <Chip href={`/people/${self.id}`} icon="person">
-              Me
-            </Chip>
-          ) : null}
-          {/* A group stands for its members until who was there is settled; then they are named. */}
-          {meeting.groups.map((group) => (
-            <Chip key={group.id} href={`/groups/${group.id}`} icon="group">
-              {group.name}
-            </Chip>
-          ))}
-          {(meeting.attendanceAt ? meeting.attendees : meeting.people).map((person) => (
-            <Chip key={person.id} href={`/people/${person.id}`} icon="person">
-              {person.name}
-            </Chip>
-          ))}
+          {/* John first; then who is on it by name; then each group with who it brings
+              (live until who was there is settled, then as it was). */}
+          <Roster selfId={self?.id} groups={meeting.groups} attendees={meeting.attendees} />
           {meeting.projects.map((project) => (
             <Chip key={project.id} href={`/projects/${project.id}`} icon="project">
               {project.name}
@@ -271,6 +270,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                 action={settleAttendanceAction}
                 meetingId={meeting.id}
                 entries={roll}
+                groups={meeting.groups}
                 people={people
                   .filter((person) => !person.isSelf)
                   .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
@@ -312,6 +312,24 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
             <Suggestions candidates={candidates} meetingId={meeting.id} />
           </>
         )}
+
+        {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
+        {documents.length > 0 ? (
+          <Section title="Documents" count={documents.length}>
+            <div id="documents" className="scroll-mt-4">
+              <CardGrid>
+                {documents.map((document) => (
+                  <DocumentCard
+                    key={document.id}
+                    title={document.title}
+                    body={document.body}
+                    meta={formatDay(todayIn(timeZone, document.updatedAt), today)}
+                  />
+                ))}
+              </CardGrid>
+            </div>
+          </Section>
+        ) : null}
 
         <Blocks
           meetingId={meeting.id}

@@ -1,4 +1,5 @@
 import { RollCall } from '@/components/meetings/RollCall'
+import { Roster } from '@/components/meetings/Roster'
 import { knownPeople } from '@/lib/connect/granola/ingest'
 import { attendanceLocked, rollCall, settleIfOver } from '@/lib/meetings/attendance'
 import { notFound } from 'next/navigation'
@@ -84,7 +85,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     )
     for (const person of people) {
       if (named.includes(person.id) && !listed.has(person.id)) {
-        roll.push({ id: person.id, name: person.name, present: false, via: 'person' })
+        roll.push({ id: person.id, name: person.name, present: false, via: 'person', groupId: null })
       }
     }
   }
@@ -97,6 +98,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
           choices={choices}
           today={today}
           selfId={self.id}
+          meetingTitle={meeting.title}
         />
       ))}
     </CardGrid>
@@ -207,20 +209,27 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
       {/* Who was there comes before what was said: a name settled here is one
           the proposals below can be given to. */}
-      {locked ? null : (
-        <Section title="Attendance">
-          <Card>
+      <Section title="Attendance">
+        <Card>
+          {locked ? (
+            // Settled for good once something from the notes was accepted.
+            <div className="flex flex-wrap items-center gap-2">
+              <Icon name="lock" className="h-4 w-4 text-gray-400 dark:text-gray-500" label="Settled" />
+              <Roster selfId={self.id} groups={meeting.groups} attendees={meeting.attendees} />
+            </div>
+          ) : (
             <RollCall
               action={settleAttendanceAction}
               meetingId={meeting.id}
               entries={roll}
+              groups={meeting.groups}
               people={people
                 .filter((person) => !person.isSelf)
                 .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
             />
-          </Card>
-        </Section>
-      )}
+          )}
+        </Card>
+      </Section>
       {strangers.length > 0 ? (
         <div className="mb-8 flex flex-wrap items-center gap-2">
           <Icon

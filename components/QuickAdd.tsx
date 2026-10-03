@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react'
 import { captureAction } from '@/app/(app)/actions'
 import { useDirectory } from '@/components/Directory'
 import { useToast } from '@/components/Toast'
-import { Button } from '@/components/ui/Button'
+import { Button, buttonClasses } from '@/components/ui/Button'
 import { FormError } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
@@ -37,11 +37,14 @@ export function QuickAdd({
   presets,
   variant = 'button',
   label = 'Add',
+  primary = false,
 }: {
   presets?: CapturePresets
   /** `bar` is the icon in the top bar, which also answers to the N key. */
   variant?: 'bar' | 'button'
   label?: string
+  /** The page's one blue action (the Inbox); elsewhere it is a gray section add. */
+  primary?: boolean
 }) {
   const directory = useDirectory()
   const toast = useToast()
@@ -172,12 +175,14 @@ export function QuickAdd({
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Add"
-          className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800"
+          title="Add"
+          className={buttonClasses('primary', 'md', 'h-9 w-9 !p-0')}
         >
           <Icon name="plus" />
         </button>
       ) : (
-        <Button size="sm" onClick={() => setOpen(true)}>
+        <Button variant={primary ? 'primary' : 'secondary'} size={primary ? 'md' : 'sm'} onClick={() => setOpen(true)}>
+          <Icon name="plus" className="h-4 w-4" />
           {label}
         </Button>
       )}

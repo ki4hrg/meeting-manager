@@ -600,6 +600,9 @@ export const meetingPeople = pgTable(
     personId: uuid('person_id')
       .notNull()
       .references(() => people.id, { onDelete: 'cascade' }),
+    /* Once attendance is settled: the group that brought them, rather than
+       being on the meeting by name. Null for someone named on it. */
+    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
   },
   (t) => [
     primaryKey({ columns: [t.meetingId, t.personId] }),

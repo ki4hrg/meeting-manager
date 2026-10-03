@@ -58,7 +58,7 @@ export function UnfiledCard({
         </span>
         <IconAction action={dismissNoteAction} fields={{ noteId: note.id }} icon="close" label="Dismiss" />
         {choices.length > 0 ? (
-          <FormModal action={fileNoteAction} title="Link" label="Link" variant="secondary" size="sm" submit="Link">
+          <FormModal action={fileNoteAction} title="Link" label="Link" icon="link" variant="secondary" size="sm" submit="Link">
             <input type="hidden" name="noteId" value={note.id} />
             <input type="hidden" name="contextId" value={current} />
             <Field label="Meeting" required>
@@ -87,7 +87,7 @@ export function UnfiledCard({
           </FormModal>
         ) : null}
         {contexts.length > 1 ? (
-          <FormModal action={fileNoteAction} title="File" label="File" size="sm" submit="File">
+          <FormModal action={fileNoteAction} title="File" label="File" icon="inbox" variant="secondary" size="sm" submit="File">
             <input type="hidden" name="noteId" value={note.id} />
             <Field label="Context" required>
               <Select name="contextId" required defaultValue={current}>
@@ -100,7 +100,8 @@ export function UnfiledCard({
             </Field>
           </FormModal>
         ) : (
-          <ActionButton action={fileNoteAction} fields={{ noteId: note.id, contextId: current }} size="sm">
+          <ActionButton action={fileNoteAction} fields={{ noteId: note.id, contextId: current }} variant="secondary" size="sm">
+            <Icon name="inbox" className="h-4 w-4" />
             File
           </ActionButton>
         )}

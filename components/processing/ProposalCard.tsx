@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import {
   acceptProposalAction,
+  acceptWithAction,
   editProposalAction,
   rejectProposalAction,
   undoProposalAction,
@@ -14,7 +15,8 @@ import { Badge, DueBadge, KindIcon, StatusBadge, type Tone } from '@/components/
 import { formatDay } from '@/lib/core/dates'
 import type { ItemParty } from '@/lib/items/items'
 import type { ProposalView } from '@/lib/processing/proposals'
-import { CHANGES, ProposalFields, type ProposalChoices } from './ProposalFields'
+import { missingDetails } from '@/lib/processing/missing'
+import { AcceptFields, CHANGES, ProposalFields, type ProposalChoices } from './ProposalFields'
 import { ResolveParty } from './ResolveParty'
 
 const CHANGE: Record<keyof typeof CHANGES, { tone: Tone; icon: IconName }> = {
@@ -61,8 +63,10 @@ function Title({ proposal }: { proposal: ProposalView }) {
         ? `/items/${made.item.id}`
         : made?.meeting
           ? `/meetings/${made.meeting.id}`
-          : made?.document && proposal.project
-            ? `/projects/${proposal.project.id}`
+          : made?.document
+            ? proposal.project
+              ? `/projects/${proposal.project.id}`
+              : `/meetings/${proposal.meetingId}#documents`
             : null
 
   const tone =
@@ -92,10 +96,13 @@ export function ProposalCard({
   choices,
   today,
   selfId,
+  meetingTitle,
 }: {
   proposal: ProposalView
   choices: ProposalChoices
   today: string
+  /** The meeting it came from: where a document is kept, with its project if it has one. */
+  meetingTitle?: string
   /** John's person row: a party that is him reads "Me". */
   selfId: string
 }) {
@@ -111,6 +118,7 @@ export function ProposalCard({
   /* A follow-up named after the one person it is with says who twice. */
   const named =
     payload.type === 'stub' && payload.title === proposal.parties.map((party) => party.name).join(', ')
+  const missing = pending ? missingDetails(payload, choices.projects.length > 0) : []
   const body = payload.type === 'item' ? payload.detail : payload.type === 'update' ? payload.text : null
 
   return (
@@ -173,6 +181,7 @@ export function ProposalCard({
 
           {(known.length + unknown.length > 0 && !named) ||
           proposal.project ||
+          (payload.type === 'document' && meetingTitle) ||
           (payload.type === 'item' && payload.dueOn) ? (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
               <span className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -213,7 +222,20 @@ export function ProposalCard({
                 })}
               </span>
               <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-                {proposal.project ? <Badge>{proposal.project.name}</Badge> : null}
+                {payload.type === 'document' && meetingTitle ? (
+                  <Badge>
+                    <Icon name="meeting" className="h-3 w-3" label="Kept on" />
+                    <span className="truncate">{meetingTitle}</span>
+                  </Badge>
+                ) : null}
+                {proposal.project ? (
+                  <Badge>
+                    {payload.type === 'document' ? <Icon name="project" className="h-3 w-3" /> : null}
+                    <span className="truncate" title={proposal.project.name}>
+                      {proposal.project.name}
+                    </span>
+                  </Badge>
+                ) : null}
                 {payload.type === 'item' && payload.dueOn ? (
                   <DueBadge label={formatDay(payload.dueOn, today)} dueOn={payload.dueOn} today={today} />
                 ) : null}
@@ -256,18 +278,40 @@ export function ProposalCard({
                 icon="close"
                 label="Reject"
               />
-              <FormModal action={editProposalAction} title="Edit" icon="pencil" compact wide>
+              <FormModal
+                action={editProposalAction}
+                title="Edit"
+                icon="pencil"
+                compact
+                wide
+                also={{ label: 'Accept', name: 'accept', value: '1' }}
+              >
                 <input type="hidden" name="id" value={proposal.id} />
                 <ProposalFields proposal={proposal} choices={choices} />
               </FormModal>
-              <IconAction
-                action={acceptProposalAction}
-                fields={{ id: proposal.id }}
-                icon="check"
-                tone="blue"
-                label="Accept"
-                disabled={unknown.length > 0}
-              />
+              {/* What it leaves unsaid is asked for on the way in; blank is fine. */}
+              {missing.length > 0 ? (
+                <FormModal
+                  action={acceptWithAction}
+                  title="Accept"
+                  icon="check"
+                  tone="blue"
+                  compact
+                  submit="Accept"
+                  disabled={unknown.length > 0}
+                >
+                  <AcceptFields proposal={proposal} missing={missing} choices={choices} />
+                </FormModal>
+              ) : (
+                <IconAction
+                  action={acceptProposalAction}
+                  fields={{ id: proposal.id }}
+                  icon="check"
+                  tone="blue"
+                  label="Accept"
+                  disabled={unknown.length > 0}
+                />
+              )}
             </>
           ) : (
             <IconAction action={undoProposalAction} fields={{ id: proposal.id }} icon="undo" label="Undo" />

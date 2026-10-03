@@ -50,7 +50,7 @@ describe('I owe by horizon', () => {
   it('splits a list into now and later, later soonest back first and undated last', () => {
     const { now, later } = splitLater(
       [
-        item('open', null),
+        item('soon', '2026-10-10'),
         item('back-never', null, { laterOn: null }),
         item('back-dec', null, { laterOn: '2026-12-01' }),
         item('back-nov', null, { laterOn: '2026-11-01' }),
@@ -58,7 +58,23 @@ describe('I owe by horizon', () => {
       ],
       TODAY,
     )
-    expect(now.map((one) => one.id)).toEqual(['open', 'back-today'])
+    expect(now.map((one) => one.id)).toEqual(['soon', 'back-today'])
     expect(later.map((one) => one.id)).toEqual(['back-nov', 'back-dec', 'back-never'])
+  })
+
+  it('keeps the undated and what is due further out in Later, dated first', () => {
+    const { now, later } = splitLater(
+      [
+        item('undated', null),
+        item('far', '2027-01-15'),
+        item('overdue', '2026-09-30'),
+        item('parked', null, { laterOn: null }),
+        item('back-nov', null, { laterOn: '2026-11-01' }),
+        item('next-month', '2026-11-20'),
+      ],
+      TODAY,
+    )
+    expect(now.map((one) => one.id)).toEqual(['overdue'])
+    expect(later.map((one) => one.id)).toEqual(['back-nov', 'next-month', 'far', 'undated', 'parked'])
   })
 })

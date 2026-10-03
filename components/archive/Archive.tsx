@@ -4,7 +4,7 @@
  * Delete, and Delete says what it takes or what still depends on it.
  */
 
-import { ActionButton } from '@/components/forms'
+import { ActionButton, IconAction } from '@/components/forms'
 import { Card, CardGrid, CollapsedSection, LinkCard } from '@/components/ui/Card'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { previewDelete, type ArchiveKind } from '@/lib/archive/archive'
@@ -14,10 +14,7 @@ import { DeleteButton } from './DeleteButton'
 
 export function ArchiveButton({ kind, id }: { kind: ArchiveKind; id: string }) {
   return (
-    <ActionButton action={archiveAction} fields={{ kind, id }} variant="ghost">
-      <Icon name="archive" className="h-4 w-4" />
-      Archive
-    </ActionButton>
+    <IconAction action={archiveAction} fields={{ kind, id }} icon="archive" label="Archive" size="md" />
   )
 }
 

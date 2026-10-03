@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { addMember } from '../lib/directory/groups'
 import { createPerson } from '../lib/directory/people'
 import { rollCall, settleAttendance, settleIfOver } from '../lib/meetings/attendance'
-import { createMeeting, getMeeting, listMeetings } from '../lib/meetings/meetings'
+import { createMeeting, getMeeting, listMeetings, setMeetingPeople } from '../lib/meetings/meetings'
 import { saveNote } from '../lib/notes/notes'
 import { acceptProposal, listProposals } from '../lib/processing/proposals'
 import { processRun, queueRun } from '../lib/processing/run'
@@ -57,6 +57,50 @@ describe('the roll call', () => {
     const curate = await createPerson(db, { name: 'New Curate' })
     await addMember(db, w.staff.id, curate.id)
     expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([w.sarah, curate]))
+  })
+})
+
+describe('who came with a group', () => {
+  it('is told apart from who is on it by name, live and once settled', async () => {
+    const w = await makeWorld()
+    const guest = await createPerson(db, { name: 'Guest Preacher' })
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      personIds: [w.bishop.id],
+      startsAt: START,
+    })
+    const by = (list: { name: string; groupId: string | null }[]) => list.map((one) => [one.name, one.groupId])
+    expect(by((await getMeeting(db, meeting.id)).attendees)).toEqual([
+      ['Bishop Wright', null],
+      ['Sarah Jones', w.staff.id],
+      ['Tom Baker', w.staff.id],
+    ])
+    expect((await rollCall(db, meeting.id)).map((e) => [e.name, e.groupId])).toEqual([
+      ['Bishop Wright', null],
+      ['Sarah Jones', w.staff.id],
+      ['Tom Baker', w.staff.id],
+    ])
+
+    // Tom is out; a guest came, on their own.
+    await settleAttendance(db, meeting.id, [w.bishop.id, w.sarah.id, guest.id], DURING)
+    expect(by((await getMeeting(db, meeting.id)).attendees)).toEqual([
+      ['Bishop Wright', null],
+      ['Guest Preacher', null],
+      ['Sarah Jones', w.staff.id],
+    ])
+    // Tom, marked out, is still shown under his group.
+    expect((await rollCall(db, meeting.id)).find((e) => e.id === w.tom.id)).toMatchObject({
+      present: false,
+      groupId: w.staff.id,
+    })
+
+    // An edit to its people keeps who came with the group.
+    await setMeetingPeople(db, actor, meeting.id, [w.sarah.id, guest.id])
+    expect(by((await getMeeting(db, meeting.id)).attendees)).toEqual([
+      ['Guest Preacher', null],
+      ['Sarah Jones', w.staff.id],
+    ])
   })
 })
 

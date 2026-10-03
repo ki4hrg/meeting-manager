@@ -1,6 +1,6 @@
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
-import { ActionButton, FormModal } from '@/components/forms'
+import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { SkeletonEditor } from '@/components/series/SkeletonEditor'
 import { Card, CardGrid, CardHeader, LinkCard, Section } from '@/components/ui/Card'
@@ -19,7 +19,8 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { BlockSettings } from '@/lib/db/schema'
-import { allGroupEmails, listGroups } from '@/lib/directory/groups'
+import { allGroupEmails, listGroups, listMembers } from '@/lib/directory/groups'
+import { GroupCluster, MeChip, MemberLink } from '@/components/meetings/Roster'
 import { listPeople } from '@/lib/directory/people'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
 import { calendarLinkOf, unlinkedRecurring } from '@/lib/meetings/prep'
@@ -73,6 +74,12 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
 
   const groups = await listGroups(db, context.id)
   const onRoster = new Set(series.people.map((person) => person.id))
+  // Who each group on the roster brings, less Me and anyone on it by name.
+  const brought = await Promise.all(
+    series.groups.map(async (group) =>
+      (await listMembers(db, group.id)).filter((member) => !member.isSelf && !onRoster.has(member.id)),
+    ),
+  )
   const otherPeople = (await listPeople(db)).filter(
     (person) => !person.isSelf && !onRoster.has(person.id),
   )
@@ -123,8 +130,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
         title={series.name}
         crumbs={[{ href: '/series', label: 'Series' }]}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {link ? (
+          link ? (
               // The recurring event it follows: when it comes round, opening the next one.
               <Chip
                 icon="meeting"
@@ -138,8 +144,11 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                   .filter(Boolean)
                   .join(' · ')}
               </Chip>
-            ) : null}
-            <FormModal action={updateSeriesAction} title="Edit" label="Edit" variant="secondary">
+          ) : null
+        }
+        tools={
+          <>
+            <FormModal action={updateSeriesAction} title="Edit" icon="pencil" compact iconSize="md">
               <input type="hidden" name="id" value={series.id} />
               <Field label="Name" required>
                 <Input name="name" defaultValue={series.name} required />
@@ -172,7 +181,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
               contexts={contexts.filter((one) => one.id !== context.id)}
             />
             {archived ? null : <ArchiveButton kind="series" id={series.id} />}
-          </div>
+          </>
         }
       />
       {archived ? <ArchivedBar kind="series" id={series.id} /> : null}
@@ -183,6 +192,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
           action={
             next ? null : (
               <ActionButton action={prepNextInSeriesAction} fields={{ id: series.id }} size="sm">
+                <Icon name="meeting" className="h-4 w-4" />
                 Prep next
               </ActionButton>
             )
@@ -230,7 +240,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
             title="Roster"
             count={series.people.length + series.groups.length}
             action={
-              <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" size="sm" submit="Add">
+              <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
                 <input type="hidden" name="id" value={series.id} />
                 <PartyPicker
                   label="People"
@@ -242,6 +252,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                       .map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
                   ]}
                   allowNew
+                  me
                 />
               </FormModal>
             }
@@ -251,26 +262,9 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
             ) : (
               <Card>
                 <div className="flex flex-wrap gap-2">
-                  {/* John is at every meeting: shown first, never removed. */}
-                  {self ? (
-                    <Chip icon="person" href={`/people/${self.id}`}>
-                      Me
-                    </Chip>
-                  ) : null}
-                  {series.groups.map((group) => (
-                    <RemovableChip
-                      key={group.id}
-                      icon="group"
-                      href={`/groups/${group.id}`}
-                      remove={{
-                        action: removeSeriesGroupAction,
-                        fields: { id: series.id, groupId: group.id },
-                        label: `Remove ${group.name}`,
-                      }}
-                    >
-                      {group.name}
-                    </RemovableChip>
-                  ))}
+                  {/* John is at every meeting: shown first, never removed. Then who is on it
+                      by name, then each group with the people it brings. */}
+                  <MeChip href={self ? `/people/${self.id}` : undefined} />
                   {series.people.map((person) => (
                     <RemovableChip
                       key={person.id}
@@ -284,6 +278,28 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                     >
                       {person.name}
                     </RemovableChip>
+                  ))}
+                  {series.groups.map((group, index) => (
+                    <GroupCluster
+                      key={group.id}
+                      chip={
+                        <RemovableChip
+                          icon="group"
+                          href={`/groups/${group.id}`}
+                          remove={{
+                            action: removeSeriesGroupAction,
+                            fields: { id: series.id, groupId: group.id },
+                            label: `Remove ${group.name}`,
+                          }}
+                        >
+                          {group.name}
+                        </RemovableChip>
+                      }
+                    >
+                      {brought[index]!.map((member) => (
+                        <MemberLink key={member.id} person={member} />
+                      ))}
+                    </GroupCluster>
                   ))}
                 </div>
               </Card>
@@ -357,7 +373,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
             count={series.projects.length}
             action={
               otherProjects.length > 0 ? (
-                <FormModal action={addSeriesProjectsAction} title="Add projects" label="Add" size="sm" submit="Add">
+                <FormModal action={addSeriesProjectsAction} title="Add projects" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
                   <input type="hidden" name="id" value={series.id} />
                   <CheckList label="Projects" name="projectIds" options={otherProjects} />
                 </FormModal>
@@ -391,28 +407,25 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
 
         <SkeletonEditor seriesId={series.id} skeleton={series.skeleton} />
 
-        <Section title="Blocks">
-          <Card>
-            <div className="flex items-center gap-2">
-              {BLOCKS.map(({ block, icon, label }) => {
-                const on = series.blocks[block]
-                return (
-                  <ActionButton
-                    key={block}
-                    action={setSeriesBlockAction}
-                    fields={{ id: series.id, block, on: String(!on) }}
-                    variant={on ? 'primary' : 'secondary'}
-                    size="sm"
-                    aria-label={label}
-                    aria-pressed={on}
-                    title={label}
-                  >
-                    <Icon name={icon} className="h-4 w-4" />
-                  </ActionButton>
-                )
-              })}
+        <Section
+          title="Blocks"
+          action={
+            <div className="flex items-center gap-1">
+              {BLOCKS.map(({ block, icon, label }) => (
+                <IconAction
+                  key={block}
+                  action={setSeriesBlockAction}
+                  fields={{ id: series.id, block, on: String(!series.blocks[block]) }}
+                  icon={icon}
+                  label={label}
+                  tone={series.blocks[block] ? 'on' : 'gray'}
+                  aria-pressed={series.blocks[block]}
+                />
+              ))}
             </div>
-          </Card>
+          }
+        >
+          {null}
         </Section>
 
         <Section title="History" count={history.length}>

@@ -23,7 +23,7 @@ export default async function PeoplePage() {
         title="People"
         count={people.length}
         actions={
-          <FormModal action={createPersonAction} title="New person" label="New person">
+          <FormModal action={createPersonAction} title="New person" label="New person" icon="plus">
             <Field label="Name" required>
               <Input name="name" required />
             </Field>

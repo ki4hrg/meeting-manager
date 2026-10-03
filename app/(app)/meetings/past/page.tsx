@@ -1,5 +1,7 @@
 import { ArchivedSection } from '@/components/archive/Archive'
 import Link from 'next/link'
+import { iconButtonClasses } from '@/components/ui/IconButton'
+import { ButtonLink } from '@/components/ui/Button'
 import { DateJump } from '@/components/meetings/DateJump'
 import { DayList } from '@/components/meetings/DayList'
 import { ReviewSection } from '@/components/meetings/ReviewSection'
@@ -78,7 +80,7 @@ export default async function PastMeetingsPage({ searchParams }: { searchParams:
                 href="/meetings/past"
                 aria-label="Today"
                 title="Today"
-                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                className={iconButtonClasses()}
               >
                 <Icon name="close" className="h-4 w-4" />
               </Link>
@@ -93,13 +95,13 @@ export default async function PastMeetingsPage({ searchParams }: { searchParams:
           <DayList entries={entries} today={today} timeZone={timeZone} pending={pending} />
         )}
         <div className="mt-4 flex justify-center">
-          <Link
+          <ButtonLink
             href={`/meetings/past?before=${earlier}`}
-            className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+            variant="ghost"
           >
             <Icon name="chevronDown" className="h-4 w-4" />
             Earlier
-          </Link>
+          </ButtonLink>
         </div>
       </Section>
       <ArchivedSection

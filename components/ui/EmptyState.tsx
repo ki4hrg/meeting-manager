@@ -13,7 +13,8 @@ export function EmptyState({
     <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-gray-300 px-6 py-10 dark:border-gray-700">
       <Icon name={icon} className="h-8 w-8 text-gray-300 dark:text-gray-600" />
       {action ? (
-        <ButtonLink href={action.href} size="sm">
+        <ButtonLink href={action.href} variant="secondary" size="sm">
+          <Icon name="plus" className="h-4 w-4" />
           {action.label}
         </ButtonLink>
       ) : null}

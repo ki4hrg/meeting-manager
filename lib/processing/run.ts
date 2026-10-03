@@ -242,7 +242,7 @@ export async function buildExtractionInput(exec: Executor, noteId: string): Prom
       id: meeting.id,
       title: meeting.title,
       startsAt: meeting.startsAt ? toLocalInput(meeting.startsAt, timeZone).replace('T', ' ') : null,
-      people: meeting.attendees,
+      people: meeting.attendees.map(({ id, name }) => ({ id, name })),
       groups: meeting.groups,
       projects: meeting.projects,
     },

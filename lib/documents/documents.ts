@@ -1,10 +1,10 @@
 /*
  * Working documents: drafted content kept whole (a brainstormed agenda, a
- * letter), shown on its project's hub. Each belongs to one context, and its
+ * letter), shown on its project's hub and on the meeting it came out of. Each belongs to one context, and its
  * project and meeting, when it has them, sit in the same one.
  */
 
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { NotFoundError, ValidationError, type ActorContext, type Executor } from '../core/types'
 import { documents, meetings, projects } from '../db/schema'
 import { notDeleted } from '../db/shelf'
@@ -46,11 +46,12 @@ export async function getDocument(exec: Executor, id: string): Promise<Document>
   return row
 }
 
-/** A context's documents, or one project's, most recently changed first. */
+/** A context's documents, or one project's, or those some meetings produced, most recently changed first. */
 export async function listDocuments(
   exec: Executor,
-  filter: { contextId: string; projectId?: string },
+  filter: { contextId: string; projectId?: string; meetingIds?: string[] },
 ): Promise<Document[]> {
+  if (filter.meetingIds?.length === 0) return []
   return exec
     .select()
     .from(documents)
@@ -59,6 +60,7 @@ export async function listDocuments(
         eq(documents.contextId, filter.contextId),
         notDeleted(documents),
         filter.projectId ? eq(documents.projectId, filter.projectId) : undefined,
+        filter.meetingIds ? inArray(documents.meetingId, filter.meetingIds) : undefined,
       ),
     )
     .orderBy(desc(documents.updatedAt), desc(documents.createdAt))

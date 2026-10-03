@@ -51,9 +51,10 @@ export type MeetingView = {
   /**
    * Who is at it, without John: its people and, until attendance is settled,
    * its groups' members, less anyone left off it alone. Once settled, its
-   * people are the record.
+   * people are the record. `groupId` is the group that brought someone, null
+   * for someone on it by name.
    */
-  attendees: { id: string; name: string }[]
+  attendees: { id: string; name: string; groupId: string | null }[]
   /** When who was there was settled; null while its groups are live. */
   attendanceAt: Date | null
   projects: { id: string; name: string }[]
@@ -94,6 +95,7 @@ async function loadViews(
       personId: people.id,
       personName: people.name,
       isSelf: people.isSelf,
+      groupId: meetingPeople.groupId,
     })
     .from(meetingPeople)
     .innerJoin(people, eq(people.id, meetingPeople.personId))
@@ -149,12 +151,12 @@ async function loadViews(
     .where(and(inArray(meetings.parentMeetingId, meetingIds), onShelf(meetings)))
     .orderBy(asc(meetings.startsAt), asc(meetings.createdAt))
 
-  const byMeetingPeople = new Map<string, { id: string; name: string }[]>()
+  const byMeetingPeople = new Map<string, { id: string; name: string; groupId: string | null }[]>()
   for (const row of peopleRows) {
     /* John (is_self) is dropped: he's at every meeting */
     if (row.isSelf) continue
     const list = byMeetingPeople.get(row.meetingId) ?? []
-    list.push({ id: row.personId, name: row.personName })
+    list.push({ id: row.personId, name: row.personName, groupId: row.groupId })
     byMeetingPeople.set(row.meetingId, list)
   }
 
@@ -171,15 +173,18 @@ async function loadViews(
     list.push({ id: row.groupId, name: row.groupName })
     byMeetingGroups.set(row.meetingId, list)
   }
-  const attendeesOf = (meetingId: string, settled: boolean) => {
+  const attendeesOf = (meetingId: string, settled: boolean): MeetingView['attendees'] => {
     const own = byMeetingPeople.get(meetingId) ?? []
     if (settled) return own
     const absent = new Set(absenceRows.filter((row) => row.meetingId === meetingId).map((row) => row.personId))
-    const groupIds = new Set((byMeetingGroups.get(meetingId) ?? []).map((group) => group.id))
-    const byId = new Map(own.map((person) => [person.id, person]))
-    for (const member of memberRows) {
-      if (groupIds.has(member.groupId) && !member.isSelf && !absent.has(member.personId) && !byId.has(member.personId)) {
-        byId.set(member.personId, { id: member.personId, name: member.name })
+    // In name order, so someone in two of its groups is shown under the first.
+    const groupIds = (byMeetingGroups.get(meetingId) ?? []).map((group) => group.id)
+    const byId = new Map(own.map((person) => [person.id, { ...person, groupId: null as string | null }]))
+    for (const groupId of groupIds) {
+      for (const member of memberRows) {
+        if (member.groupId === groupId && !member.isSelf && !absent.has(member.personId) && !byId.has(member.personId)) {
+          byId.set(member.personId, { id: member.personId, name: member.name, groupId })
+        }
       }
     }
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
@@ -206,7 +211,7 @@ async function loadViews(
     /* effective: meeting.blocks ?? series.blocks ?? all false */
     blocks:
       m.blocks ?? seriesBlocks ?? { followUps: false, sinceLast: false, lookahead: false },
-    people: byMeetingPeople.get(m.id) ?? [],
+    people: (byMeetingPeople.get(m.id) ?? []).map(({ id, name }) => ({ id, name })),
     attendees: attendeesOf(m.id, m.attendanceAt !== null),
     attendanceAt: m.attendanceAt,
     projects: byMeetingProjects.get(m.id) ?? [],
@@ -682,10 +687,16 @@ export async function setMeetingPeople(
   }
 
   return inTransaction(exec, async (tx) => {
+    // Whoever stays keeps the group that brought them.
+    const was = await tx
+      .select({ personId: meetingPeople.personId, groupId: meetingPeople.groupId })
+      .from(meetingPeople)
+      .where(eq(meetingPeople.meetingId, id))
+    const broughtBy = new Map(was.map((row) => [row.personId, row.groupId]))
     await tx.delete(meetingPeople).where(eq(meetingPeople.meetingId, id))
     if (filtered.length > 0) {
       await tx.insert(meetingPeople).values(
-        filtered.map((personId) => ({ meetingId: id, personId })),
+        filtered.map((personId) => ({ meetingId: id, personId, groupId: broughtBy.get(personId) ?? null })),
       )
     }
     return getMeeting(tx, id)

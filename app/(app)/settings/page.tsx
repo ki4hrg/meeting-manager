@@ -69,8 +69,7 @@ async function GoogleAccount({
           action={disconnectAction}
           title={`Disconnect ${connection.account}?`}
           icon="trash"
-          variant="ghost"
-          size="sm"
+          compact
           submit="Disconnect"
           danger
         >
@@ -147,7 +146,8 @@ async function GoogleCalendar() {
       action={
         /* A plain link, not next/link: this is a route that redirects off the
            site and sets a cookie, and must not be prefetched. */
-        <a href="/api/connect/google/start" className={buttonClasses('primary', 'sm')}>
+        <a href="/api/connect/google/start" className={buttonClasses('secondary', 'sm')}>
+          <Icon name="plus" className="h-4 w-4" />
           Connect
         </a>
       }

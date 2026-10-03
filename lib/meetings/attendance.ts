@@ -26,6 +26,8 @@ export type RollCallEntry = {
   present: boolean
   /** On it by name, or brought by one of its groups. */
   via: 'person' | 'group'
+  /** The group that brought them; null for someone on it by name, or added. */
+  groupId: string | null
 }
 
 /**
@@ -35,18 +37,18 @@ export type RollCallEntry = {
 export async function rollCall(exec: Executor, meetingId: string): Promise<RollCallEntry[]> {
   const meeting = await getMeeting(exec, meetingId)
   const present = new Set(meeting.attendees.map((person) => person.id))
-  const own = new Set(meeting.people.map((person) => person.id))
   const entries = new Map<string, RollCallEntry>()
   for (const person of meeting.attendees) {
-    entries.set(person.id, { ...person, present: true, via: own.has(person.id) ? 'person' : 'group' })
+    entries.set(person.id, { ...person, present: true, via: person.groupId ? 'group' : 'person' })
   }
 
   const groupIds = meeting.groups.map((group) => group.id)
+  // Its groups' members: who is expected while it is live, and where someone marked out is shown.
   const members =
-    groupIds.length === 0 || meeting.attendanceAt
+    groupIds.length === 0
       ? []
       : await exec
-          .select({ id: people.id, name: people.name, isSelf: people.isSelf })
+          .select({ id: people.id, name: people.name, isSelf: people.isSelf, groupId: groupMembers.groupId })
           .from(groupMembers)
           .innerJoin(people, eq(people.id, groupMembers.personId))
           .where(and(inArray(groupMembers.groupId, groupIds), notDeleted(people)))
@@ -55,9 +57,21 @@ export async function rollCall(exec: Executor, meetingId: string): Promise<RollC
     .from(meetingAbsences)
     .innerJoin(people, eq(people.id, meetingAbsences.personId))
     .where(and(eq(meetingAbsences.meetingId, meetingId), notDeleted(people)))
-  for (const person of [...members, ...absent]) {
+  // Someone marked out is shown under the first of its groups they are in, else on their own.
+  const groupOf = new Map<string, string>()
+  for (const groupId of groupIds) {
+    for (const member of members) if (member.groupId === groupId && !groupOf.has(member.id)) groupOf.set(member.id, groupId)
+  }
+  for (const person of [...(meeting.attendanceAt ? [] : members), ...absent]) {
     if (person.isSelf || entries.has(person.id)) continue
-    entries.set(person.id, { id: person.id, name: person.name, present: present.has(person.id), via: 'group' })
+    const groupId = groupOf.get(person.id) ?? null
+    entries.set(person.id, {
+      id: person.id,
+      name: person.name,
+      present: present.has(person.id),
+      via: groupId ? 'group' : 'person',
+      groupId,
+    })
   }
   return [...entries.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -86,9 +100,15 @@ export async function settleAttendance(
       : []
     const here = rows.filter((row) => !row.isSelf).map((row) => row.id)
     const out = expected.filter((entry) => !here.includes(entry.id)).map((entry) => entry.id)
+    // Who came with a group is kept apart from who was on it by name.
+    const broughtBy = new Map(expected.map((entry) => [entry.id, entry.groupId]))
 
     await tx.delete(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
-    if (here.length > 0) await tx.insert(meetingPeople).values(here.map((personId) => ({ meetingId, personId })))
+    if (here.length > 0) {
+      await tx
+        .insert(meetingPeople)
+        .values(here.map((personId) => ({ meetingId, personId, groupId: broughtBy.get(personId) ?? null })))
+    }
     await tx.delete(meetingAbsences).where(eq(meetingAbsences.meetingId, meetingId))
     if (out.length > 0) await tx.insert(meetingAbsences).values(out.map((personId) => ({ meetingId, personId })))
     await tx.update(meetings).set({ attendanceAt: now, updatedAt: now }).where(eq(meetings.id, meetingId))

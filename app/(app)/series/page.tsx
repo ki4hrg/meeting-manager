@@ -41,7 +41,7 @@ export default async function SeriesListPage() {
         title="Series"
         count={series.length}
         actions={
-          <FormModal action={createSeriesAction} title="New series" label="New">
+          <FormModal action={createSeriesAction} title="New series" label="New series" icon="plus">
             <Field label="Name" required>
               <Input name="name" required />
             </Field>
@@ -53,6 +53,7 @@ export default async function SeriesListPage() {
                 ...groups.map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
               ]}
               allowNew
+              me
             />
             <CheckList label="Projects" name="projectIds" options={projects} />
           </FormModal>

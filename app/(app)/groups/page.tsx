@@ -24,7 +24,7 @@ export default async function GroupsPage() {
         title="Groups"
         count={groups.length}
         actions={
-          <FormModal action={createGroupAction} title="New group" label="New group">
+          <FormModal action={createGroupAction} title="New group" label="New group" icon="plus">
             <Field label="Name" required>
               <Input name="name" required />
             </Field>

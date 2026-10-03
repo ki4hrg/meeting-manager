@@ -145,7 +145,7 @@ function meetingOut(meeting: MeetingView, clock: Clock) {
     series: meeting.series,
     groups: meeting.groups,
     people: meeting.people,
-    attendees: meeting.attendees,
+    attendees: meeting.attendees.map(({ id, name }) => ({ id, name })),
     projects: meeting.projects,
     parent_meeting_id: meeting.parentMeetingId,
   }

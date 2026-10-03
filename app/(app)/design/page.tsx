@@ -4,6 +4,7 @@ import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
 import { RollCall } from '@/components/meetings/RollCall'
+import { Roster } from '@/components/meetings/Roster'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { UnfiledCard } from '@/components/meetings/UnfiledCard'
 import { WhenInputs } from '@/components/meetings/WhenInputs'
@@ -157,7 +158,13 @@ const RUN = {
 export default function DesignPage() {
   return (
     <>
-      <PageHeader title="Design" crumbs={[{ href: '/', label: 'Home' }]} actions={<Button>New</Button>} />
+      <PageHeader title="Design" crumbs={[{ href: '/', label: 'Home' }]} actions={
+          <Button>
+            <Icon name="plus" className="h-4 w-4" />
+            New
+          </Button>
+        }
+      />
 
       <Section title="Tiles">
         <CardGrid>
@@ -169,7 +176,16 @@ export default function DesignPage() {
         </CardGrid>
       </Section>
 
-      <Section title="Items" count={SAMPLE.length} action={<Button size="sm">Add</Button>}>
+      <Section
+        title="Items"
+        count={SAMPLE.length}
+        action={
+          <Button variant="secondary" size="sm">
+            <Icon name="plus" className="h-4 w-4" />
+            Add
+          </Button>
+        }
+      >
         <CardGrid>
           {SAMPLE.map((item) => (
             <Card key={item.text}>
@@ -223,10 +239,24 @@ export default function DesignPage() {
             meetingId="sample"
             entries={[
               { id: 'a', name: 'Sarah Jones', present: true },
-              { id: 'b', name: 'Tom Baker', present: false },
+              { id: 'b', name: 'Tom Baker', present: false, groupId: 'g' },
+              { id: 'd', name: 'Ann Lee', present: true, groupId: 'g' },
             ]}
+            groups={[{ id: 'g', name: 'Finance' }]}
             people={[{ value: 'c', name: 'Bishop Wright', icon: 'person' }]}
           />
+        </Card>
+        <Card className="mt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Roster
+              groups={[{ id: 'g', name: 'Finance' }]}
+              attendees={[
+                { id: 'a', name: 'Sarah Jones', groupId: null },
+                { id: 'd', name: 'Ann Lee', groupId: 'g' },
+                { id: 'e', name: 'Raj Patel', groupId: 'g' },
+              ]}
+            />
+          </div>
         </Card>
       </Section>
 
@@ -307,18 +337,51 @@ export default function DesignPage() {
         </Card>
       </Section>
 
+      {/* The rule: one blue per screen; words always with an icon; housekeeping and rows icon only. */}
       <Section title="Buttons">
         <Card>
+          <PageHeader
+            title="Staff meeting"
+            actions={
+              <>
+                <CopyButton label="Copy brief" variant="primary" text="# Staff meeting" html="<h1>Staff meeting</h1>" />
+                <CopyButton label="Copy agenda" text="# Staff meeting" />
+                <Button variant="secondary">
+                  <Icon name="check" className="h-4 w-4" />
+                  Review
+                </Button>
+              </>
+            }
+            tools={
+              <>
+                <FormModal action={sampleAction} title="Edit" icon="pencil" compact iconSize="md">
+                  <Field label="Title">
+                    <Input name="title" defaultValue="Staff meeting" />
+                  </Field>
+                </FormModal>
+                <IconAction action={sampleAction} fields={{}} icon="arrowRight" label="Move" size="md" />
+                <IconAction action={sampleAction} fields={{}} icon="archive" label="Archive" size="md" />
+              </>
+            }
+          />
           <div className="flex flex-wrap items-center gap-3">
-            <Button>Save</Button>
-            <Button variant="secondary">Cancel</Button>
-            <Button variant="accent">Copy</Button>
-            <Button variant="ghost">Edit</Button>
-            <Button variant="destructive">Delete</Button>
-            <Button size="sm">Add</Button>
-            <Button disabled>Save</Button>
+            <Button variant="secondary" size="sm">
+              <Icon name="plus" className="h-4 w-4" />
+              Add
+            </Button>
+            <Button variant="secondary" size="sm">
+              <Icon name="undo" className="h-4 w-4" />
+              Restore
+            </Button>
+            <Button variant="ghost">
+              <Icon name="chevronDown" className="h-4 w-4" />
+              More
+            </Button>
+            <Button disabled>
+              <Icon name="check" className="h-4 w-4" />
+              Save
+            </Button>
             <Spinner />
-            <CopyButton label="Copy brief" text="# Staff meeting" html="<h1>Staff meeting</h1>" />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <IconAction action={sampleAction} fields={{}} icon="chevronUp" label="Move up" />
@@ -329,8 +392,11 @@ export default function DesignPage() {
               </Field>
             </FormModal>
             <IconAction action={sampleAction} fields={{}} icon="close" label="Remove" />
+            <FormModal action={sampleAction} title="Delete" icon="trash" compact submit="Delete" danger>
+              {null}
+            </FormModal>
             <IconAction action={sampleAction} fields={{}} icon="check" label="Discussed" tone="on" aria-pressed />
-            <IconAction action={sampleAction} fields={{}} icon="plus" label="Place all" tone="blue" />
+            <IconAction action={sampleAction} fields={{}} icon="check" label="Accept" tone="blue" />
             <Chip href="/design" icon="person">
               Sarah Jones
             </Chip>

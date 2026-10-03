@@ -2,6 +2,32 @@
 
 Updated 2026-10-03. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
 
+## Refinements after item 9 (2026-10-03)
+
+On branch `claude/bold-tesla-gbb3re`, one commit per piece, not yet deployed. Migration `0014` adds `meeting_people.group_id` and runs at boot. `pnpm test` (625 tests, 40 files), `pnpm typecheck` and `pnpm lint` are clean. Screens walked in a production build with Playwright, in light, dark and at phone width, including Accept through the prompt and through Edit.
+
+**Built**
+
+- **Who came with a group** (`components/meetings/Roster.tsx`: `Roster`, `GroupCluster`, `MeChip`): each group is drawn in a dashed outline around the people it brings. It shows on the meeting page, in the roll call (meeting page and review) and on the series roster (with each group's current members). Settling attendance writes `group_id`, and `setMeetingPeople` keeps it. `MeetingView.attendees` carries `groupId`; the MCP tools and the extraction input still give id and name only.
+- **Migration 0014 backfill.** It marks settled rows whose person is in one of the meeting's groups as brought by that group. **It also fixes a gap from 0012:** that migration settled every meeting already over without copying its groups' members onto it, so those meetings listed only the people named on them. 0014 copies the members who had joined by the meeting's end and were not marked out. It was checked against a hand-made pre-0014 database.
+- **Accept asks for what is missing** (`lib/processing/missing.ts`, `acceptEdited` in `proposals.ts`, `acceptWithAction`): an owner on an action or question, a project when the context has any, a due date on an action. Each field is optional. The Edit modal has an Accept submit.
+- **Documents on the meeting** that drafted them (a rollup lists its sessions'). The proposal card names the meeting and project, and once accepted its title opens the document there.
+- **Me** is a fixed chip in the meeting, series and Log pickers.
+- **Attendance on review** is always shown; it is read-only, with a lock, once a proposal has been accepted.
+- **I owe and Waiting on show only what is due within 14 days.** The undated and what is due further out wait in Later with the parked items, I owe and Waiting on apart.
+- **Buttons** (rule approved by John on issue #2, then built): `PageHeader` takes `tools` for the icon-only housekeeping (Edit pencil, Move, Archive); `IconButton` has a `md` size for headers and exports `iconButtonClasses` for links; `FormModal` takes `tone`, `iconSize` and `disabled` for its compact trigger. Section adds, QuickAdd (blue only on the Inbox), card actions (Prep, File, Link) and empty-state actions are gray with an icon; New X, Prep, Review and Recap have icons; Remove on rows is the `close` IconAction; Restore is always icon and label; the series' block toggles use the `on` tone. Rule in `CLAUDE.md`, sample on `/design`.
+
+**Decisions made without John**
+
+- Approve all still accepts proposals with gaps; only a single Accept asks.
+- Someone in two of a meeting's groups is shown under the first by name. Someone both named on it and in its group is shown on their own.
+- Waiting on gets the same 14-day rule as I owe.
+- The attendance lock after a first accepted proposal stays as the spec has it.
+
+**Not done, needs John**
+
+- **Consolidating items:** John picked Fold into (2026-10-03), but it waits until the Todoist sync (phase 4) is designed, so a folded item and its task agree. See the spec.
+
 ## Item 9 settled and built (2026-10-03)
 
 On branch `claude/fervent-johnson-h4n3xa`, one commit per piece, not yet deployed. Migrations `0010` (`items.parked_at`, `later_on`), `0011` (`archived_at`/`deleted_at`), `0012` (`meeting_groups`, `series_groups`, `group_emails`, `meetings.attendance_at`; copies each meeting's and series' group across and settles attendance on every meeting already over) and `0013` (drops `meetings.group_id`, `series.group_id`) run at boot. `pnpm test` (620 tests, 40 files), `pnpm typecheck` and `pnpm lint` are clean. Screens walked in a production build with Playwright, light, dark and phone width.

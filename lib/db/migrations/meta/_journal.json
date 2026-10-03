@@ -99,6 +99,13 @@
       "when": 1791044827900,
       "tag": "0013_unique_tarot",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791051300846,
+      "tag": "0014_chunky_vertigo",
+      "breakpoints": true
     }
   ]
 }
