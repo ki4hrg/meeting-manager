@@ -46,12 +46,10 @@ export default async function HomePage() {
       !item.parties.some((party) => party.role === 'owner' && party.isSelf),
   )
 
-  // Soon first; what is parked waits in Later, both lists' together.
+  // What is due soon; everything else waits in Later, each list's apart.
   const mine = splitLater(owed, today)
   const waiting = splitLater(awaited, today)
-  const later = [...mine.later, ...waiting.later].sort((a, b) =>
-    (a.laterOn ?? '9999').localeCompare(b.laterOn ?? '9999'),
-  )
+  const later = mine.later.length + waiting.later.length
 
   return (
     <>
@@ -110,9 +108,26 @@ export default async function HomePage() {
         <ItemGrid items={waiting.now} today={today} empty="clock" />
       </Section>
 
-      {later.length > 0 ? (
-        <CollapsedSection title="Later" icon="later" count={later.length}>
-          <ItemGrid items={later} today={today} empty="later" />
+      {later > 0 ? (
+        <CollapsedSection title="Later" icon="later" count={later}>
+          <div className="flex flex-col gap-5">
+            {[
+              { title: 'I owe', items: mine.later },
+              { title: 'Waiting on', items: waiting.later },
+            ].map((part) =>
+              part.items.length > 0 ? (
+                <div key={part.title}>
+                  <h3 className="mb-2 flex items-baseline gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-300">
+                    {part.title}
+                    <span className="font-normal tabular-nums text-gray-500 dark:text-gray-400">
+                      {part.items.length}
+                    </span>
+                  </h3>
+                  <ItemGrid items={part.items} today={today} empty="later" />
+                </div>
+              ) : null,
+            )}
+          </div>
         </CollapsedSection>
       ) : null}
     </>

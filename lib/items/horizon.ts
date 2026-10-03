@@ -1,11 +1,11 @@
 /*
  * "I owe" and "Waiting on" by horizon (docs/SPEC.md, item 9).
  *
- * What is due soon (or overdue) comes first, soonest first; then what has no
- * deadline; then what is due further out. An item parked for later leaves the
- * list until its day comes, or, parked with no day, until it is brought back.
- * A deadline coming close brings a parked item back regardless, so a deadline
- * is never hidden.
+ * What is due soon (or overdue) is on the list, soonest first. Everything else
+ * waits in Later: what is due further out, what has no deadline, and what was
+ * parked. A parked item comes back on its day, or, parked with no day, when it
+ * is brought back. A deadline coming close brings anything back regardless, so
+ * a deadline is never hidden.
  */
 
 import { addDays } from '../core/dates'
@@ -37,11 +37,21 @@ export function byHorizon<T extends Dated>(items: T[], today: string): T[] {
     .map(({ item }) => item)
 }
 
-/** A list split into what is on it now, by horizon, and what waits for later, soonest back first. */
+/**
+ * A list split into what is on it now (due soon, or parked and back on its
+ * day), by horizon, and what waits in Later: what is due further out and
+ * what was parked till a day, soonest first, then the undated, then what was
+ * parked with no day.
+ */
 export function splitLater<T extends Dated>(items: T[], today: string): { now: T[]; later: T[] } {
-  const now = items.filter((item) => !isLater(item, today))
+  const back = (item: T) => item.parkedAt !== null && !isLater(item, today)
+  const isNow = (item: T) => dueSoon(item, today) || back(item)
+  const key = (item: T) =>
+    item.parkedAt ? (item.laterOn ?? '9999') : (item.dueOn ?? '9998')
   const later = items
-    .filter((item) => isLater(item, today))
-    .sort((a, b) => (a.laterOn ?? '9999').localeCompare(b.laterOn ?? '9999'))
-  return { now: byHorizon(now, today), later }
+    .filter((item) => !isNow(item))
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => key(a.item).localeCompare(key(b.item)) || a.index - b.index)
+    .map(({ item }) => item)
+  return { now: byHorizon(items.filter(isNow), today), later }
 }
