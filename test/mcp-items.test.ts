@@ -146,6 +146,13 @@ describe('the thread through the tools', () => {
       with: [{ name: 'Tom Baker' }],
       project: { name: 'Capital campaign' },
     })
+
+    const parked = dataOf<{ item: Item }>(
+      await call('update_item', { id: item.id, later_on: '2027-02-01' }),
+    ).item
+    expect(parked).toMatchObject({ later: true, later_on: '2027-02-01' })
+    const back = dataOf<{ item: Item }>(await call('update_item', { id: item.id, later: false })).item
+    expect(back).not.toHaveProperty('later')
   })
 })
 

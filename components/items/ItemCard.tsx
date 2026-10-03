@@ -3,6 +3,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { Badge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDay } from '@/lib/core/dates'
+import { isLater } from '@/lib/items/horizon'
 import { isOpen, type ItemParty, type ItemView } from '@/lib/items/items'
 
 function names(parties: ItemParty[]): string {
@@ -83,6 +84,12 @@ export function ItemCard({
                   today={today}
                   open={open}
                 />
+              ) : null}
+              {open && isLater(item, today) ? (
+                <Badge>
+                  <Icon name="later" className="h-3 w-3" label="Later" />
+                  {item.laterOn ? formatDay(item.laterOn, today) : null}
+                </Badge>
               ) : null}
               {item.status !== 'open' ? <StatusBadge status={item.status} /> : null}
             </span>

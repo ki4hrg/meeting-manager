@@ -39,9 +39,11 @@ import {
   convertItemAction,
   deleteItemAction,
   itemStatusAction,
+  parkItemAction,
   recordDecisionAction,
   removePartyAction,
   supersedeDecisionAction,
+  unparkItemAction,
   updateItemAction,
   setItemTargetAction,
 } from '../../actions'
@@ -62,6 +64,8 @@ const EVENT: Record<ItemEvent['type'], { icon: IconName; label: string }> = {
   superseded: { icon: 'refresh', label: 'Superseded' },
   targeted: { icon: 'meeting', label: 'Agenda' },
   discussed: { icon: 'meeting', label: 'Discussed' },
+  parked: { icon: 'later', label: 'Later' },
+  unparked: { icon: 'undo', label: 'Back' },
 }
 
 function eventDetail(event: ItemEvent): React.ReactNode {
@@ -75,6 +79,8 @@ function eventDetail(event: ItemEvent): React.ReactNode {
       return data.resolution
     case 'spawned':
       return data.text
+    case 'parked':
+      return typeof data.until === 'string' ? formatDay(data.until, data.until) : null
     case 'converted':
       return (
         <span className="inline-flex items-center gap-1 align-middle">
@@ -279,8 +285,21 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               </FormModal>
             </div>
 
-            {raisable || target || origin ? (
+            {raisable || target || origin || (open && item.parkedAt) ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
+                {open && item.parkedAt ? (
+                  <RemovableChip
+                    icon="later"
+                    iconLabel="Later"
+                    remove={{
+                      action: unparkItemAction,
+                      fields: { id: item.id },
+                      label: 'Bring back now',
+                    }}
+                  >
+                    {item.laterOn ? formatDay(item.laterOn, today) : 'Later'}
+                  </RemovableChip>
+                ) : null}
                 {origin ? (
                   <Chip icon="undo" href={`/meetings/${origin.id}`}>
                     {origin.title}
@@ -440,6 +459,23 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                   <Input name="dueOn" type="date" defaultValue={item.dueOn ?? ''} />
                 </Field>
               </FormModal>
+
+              {open && !decision ? (
+                <FormModal
+                  action={parkItemAction}
+                  title="Later"
+                  label="Later"
+                  icon="later"
+                  variant="ghost"
+                  size="sm"
+                  submit="Later"
+                >
+                  <input type="hidden" name="id" value={item.id} />
+                  <Field label="Back on">
+                    <Input name="until" type="date" defaultValue={item.laterOn ?? ''} />
+                  </Field>
+                </FormModal>
+              ) : null}
 
               {open ? (
                 <ActionButton

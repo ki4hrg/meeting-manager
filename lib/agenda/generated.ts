@@ -9,6 +9,7 @@
  */
 
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or } from 'drizzle-orm'
+import { addDays } from '../core/dates'
 import { NotFoundError, type Executor } from '../core/types'
 import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 import {
@@ -181,13 +182,6 @@ async function sinceLastFor(
     })),
     stillOpen: stillOpen.map((item) => ({ itemId: item.id, kind: item.kind, text: item.text })),
   }
-}
-
-/* Calendar days, so plain date arithmetic: no time zone enters into it. */
-function addDays(day: string, days: number): string {
-  const date = new Date(`${day}T00:00:00Z`)
-  date.setUTCDate(date.getUTCDate() + days)
-  return date.toISOString().slice(0, 10)
 }
 
 async function lookaheadFor(

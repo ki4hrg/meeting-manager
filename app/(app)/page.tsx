@@ -1,7 +1,7 @@
 import { ItemGrid } from '@/components/items/ItemCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
-import { CardGrid, LinkCard, Section, Tile } from '@/components/ui/Card'
+import { CardGrid, CollapsedSection, LinkCard, Section, Tile } from '@/components/ui/Card'
 import { Icon } from '@/components/ui/icons'
 import { DateJump } from '@/components/meetings/DateJump'
 import { agendaCounts } from '@/lib/agenda/lines'
@@ -10,6 +10,7 @@ import { pendingByMeeting } from '@/lib/processing/proposals'
 import { formatMoment } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
+import { splitLater } from '@/lib/items/horizon'
 import { listItems, openCounts } from '@/lib/items/items'
 import { listUpcoming } from '@/lib/meetings/prep'
 import { listProjects } from '@/lib/projects/projects'
@@ -31,18 +32,25 @@ export default async function HomePage() {
     next.flatMap((entry) => (entry.meeting ? [entry.meeting.id] : [])),
   )
 
-  const mine = await listItems(db, {
+  const owed = await listItems(db, {
     contextId: context.id,
     open: true,
     party: { personId: self.id, role: 'owner' },
   })
   // Owed by someone, and not by me: what I am waiting on.
-  const waiting = (
+  const awaited = (
     await listItems(db, { contextId: context.id, open: true, kinds: ['question', 'action'] })
   ).filter(
     (item) =>
       item.parties.some((party) => party.role === 'owner') &&
       !item.parties.some((party) => party.role === 'owner' && party.isSelf),
+  )
+
+  // Soon first; what is parked waits in Later, both lists' together.
+  const mine = splitLater(owed, today)
+  const waiting = splitLater(awaited, today)
+  const later = [...mine.later, ...waiting.later].sort((a, b) =>
+    (a.laterOn ?? '9999').localeCompare(b.laterOn ?? '9999'),
   )
 
   return (
@@ -94,13 +102,19 @@ export default async function HomePage() {
         </div>
       </Section>
 
-      <Section title="I owe" count={mine.length}>
-        <ItemGrid items={mine} today={today} empty="action" />
+      <Section title="I owe" count={mine.now.length}>
+        <ItemGrid items={mine.now} today={today} empty="action" />
       </Section>
 
-      <Section title="Waiting on" count={waiting.length}>
-        <ItemGrid items={waiting} today={today} empty="clock" />
+      <Section title="Waiting on" count={waiting.now.length}>
+        <ItemGrid items={waiting.now} today={today} empty="clock" />
       </Section>
+
+      {later.length > 0 ? (
+        <CollapsedSection title="Later" icon="later" count={later.length}>
+          <ItemGrid items={later} today={today} empty="later" />
+        </CollapsedSection>
+      ) : null}
     </>
   )
 }

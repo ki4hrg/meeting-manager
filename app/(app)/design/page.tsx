@@ -12,7 +12,7 @@ import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
 import { RunState } from '@/components/processing/RunState'
 import { Button } from '@/components/ui/Button'
-import { Card, CardGrid, CardHeader, LinkCard, Section, Tile } from '@/components/ui/Card'
+import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile } from '@/components/ui/Card'
 import { CheckList } from '@/components/ui/CheckList'
 import { Chip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -214,6 +214,17 @@ export default function DesignPage() {
         </CardGrid>
       </Section>
 
+      <CollapsedSection title="Later" icon="later" count={2}>
+        <CardGrid>
+          <Card>
+            <CardHeader title="Reimagine the journal" meta="Jan 4" />
+          </Card>
+          <Card>
+            <CardHeader title="Staff Christmas lunch" />
+          </Card>
+        </CardGrid>
+      </CollapsedSection>
+
       <Section title="Kinds and status">
         <Card>
           <div className="flex flex-col gap-6">
@@ -257,7 +268,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>

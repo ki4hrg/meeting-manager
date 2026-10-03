@@ -71,6 +71,13 @@
       "when": 1791000013176,
       "tag": "0009_busy_genesis",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791042727942,
+      "tag": "0010_clammy_fallen_one",
+      "breakpoints": true
     }
   ]
 }

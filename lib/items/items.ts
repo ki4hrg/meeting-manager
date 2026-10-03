@@ -73,6 +73,9 @@ export type ItemView = {
   targetMeetingId: string | null
   targetSeriesId: string | null
   targetProjectId: string | null
+  /** Parked for later, and the day it comes back (none: until brought back). */
+  parkedAt: Date | null
+  laterOn: string | null
   createdAt: Date
   updatedAt: Date
   parties: ItemParty[]
@@ -92,6 +95,8 @@ export type ItemEventType =
   | 'superseded'
   | 'targeted'
   | 'discussed'
+  | 'parked'
+  | 'unparked'
 
 export type ItemEvent = {
   id: string
@@ -180,6 +185,8 @@ async function loadViews(exec: Executor, where: SQL | undefined, limit?: number)
     targetMeetingId: item.targetMeetingId,
     targetSeriesId: item.targetSeriesId,
     targetProjectId: item.targetProjectId,
+    parkedAt: item.parkedAt,
+    laterOn: item.laterOn,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     parties: byItem.get(item.id) ?? [],
@@ -641,6 +648,49 @@ export async function setItemTarget(
   })
 }
 
+/* Closing an item ends its parking: reopened, it is back on the lists. */
+const NOT_PARKED = { parkedAt: null, laterOn: null }
+
+/**
+ * Park an open item for later: it leaves "I owe" and "Waiting on" until
+ * `until` (the day it comes back on its own), or until brought back when
+ * there is none. A deadline coming close brings it back regardless
+ * (`lib/items/horizon.ts`). Parking again moves the day.
+ */
+export async function parkItem(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  input: { until?: string | null } = {},
+): Promise<ItemView> {
+  const until = parseDay(input.until)
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (!isOpen(item)) throw new ValidationError('Only an open item can wait for later.')
+    if (item.parkedAt && item.laterOn === until) return item
+    await tx
+      .update(items)
+      .set({ parkedAt: item.parkedAt ?? new Date(), laterOn: until, updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'parked', until ? { until } : {})
+    return getItem(tx, id)
+  })
+}
+
+/** Back from later, onto the lists now. */
+export async function unparkItem(exec: Executor, actor: ActorContext, id: string): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (!item.parkedAt) return item
+    await tx
+      .update(items)
+      .set({ ...NOT_PARKED, updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'unparked')
+    return getItem(tx, id)
+  })
+}
+
 /** Raised in a meeting but not finished: the item stays open and the history says so. */
 export async function markDiscussed(
   exec: Executor,
@@ -790,6 +840,7 @@ export async function completeItem(
         status: 'done',
         closedAt: new Date(),
         updatedAt: new Date(),
+        ...NOT_PARKED,
         ...(resolution ? { resolution } : {}),
       })
       .where(eq(items.id, id))
@@ -818,7 +869,7 @@ export async function answerItem(
 
     await tx
       .update(items)
-      .set({ status: 'done', resolution: answer, closedAt: new Date(), updatedAt: new Date() })
+      .set({ status: 'done', resolution: answer, closedAt: new Date(), updatedAt: new Date(), ...NOT_PARKED })
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'answered', { answer })
 
@@ -837,7 +888,7 @@ export async function dropItem(exec: Executor, actor: ActorContext, id: string):
 
     await tx
       .update(items)
-      .set({ status: 'dropped', closedAt: new Date(), updatedAt: new Date() })
+      .set({ status: 'dropped', closedAt: new Date(), updatedAt: new Date(), ...NOT_PARKED })
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'dropped')
     return getItem(tx, id)

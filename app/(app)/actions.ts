@@ -27,11 +27,13 @@ import {
   dropItem,
   getItem,
   isOpen,
+  parkItem,
   recordDecision,
   removeItemParty,
   reopenItem,
   setItemTarget,
   supersedeDecision,
+  unparkItem,
   updateItem,
   type ItemKind,
   type ItemTarget,
@@ -128,6 +130,18 @@ export async function itemStatusAction(formData: FormData): Promise<ActionResult
     else if (op === 'drop') await dropItem(db, actor, id)
     else if (op === 'reopen') await reopenItem(db, actor, id)
     else throw new ValidationError('Unknown change.')
+  })
+}
+
+export async function parkItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await parkItem(db, actor, field(formData, 'id'), { until: field(formData, 'until') })
+  })
+}
+
+export async function unparkItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await unparkItem(db, actor, field(formData, 'id'))
   })
 }
 

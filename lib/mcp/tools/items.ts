@@ -17,11 +17,13 @@ import {
   getItem,
   getThread,
   listItems,
+  parkItem,
   recordDecision,
   reopenItem,
   setItemParties,
   setItemTarget,
   supersedeDecision,
+  unparkItem,
   updateItem,
   type ItemTarget,
   type PartyRef,
@@ -218,7 +220,9 @@ export const updateItemTool = defineTool({
     'status dropped abandons it and open reopens it. report_to raises the answer with another ' +
     'person or group as a new topic. owners and with each replace the whole list for that role ' +
     'when given. target_meeting, target_series or target_project aims it at a meeting or at the next occurrence ' +
-    'of a series. Pass null to clear project, due_on, detail or the target.',
+    'of a series. later true parks it off "I owe" and "Waiting on" until later_on (or until ' +
+    'brought back with later false); a deadline within two weeks brings it back regardless. ' +
+    'Pass null to clear project, due_on, detail or the target.',
   scope: 'meetings:write',
   input: z.object({
     id: z.uuid(),
@@ -246,6 +250,8 @@ export const updateItemTool = defineTool({
       .nullable()
       .optional()
       .describe('Project name or id: raised at the next meeting that carries it.'),
+    later: z.boolean().optional().describe('true parks it for later; false brings it back.'),
+    later_on: z.string().optional().describe('YYYY-MM-DD it comes back on its own; implies later.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -292,6 +298,13 @@ export const updateItemTool = defineTool({
       }
 
       if (input.note) await addNote(tx, actor, input.id, input.note)
+
+      if (input.later === false) {
+        if (input.later_on) throw new ValidationError('later_on goes with later true.')
+        await unparkItem(tx, actor, input.id)
+      } else if (input.later || input.later_on) {
+        await parkItem(tx, actor, input.id, { until: input.later_on })
+      }
 
       let report = null
       if (input.answer !== undefined) {

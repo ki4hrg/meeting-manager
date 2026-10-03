@@ -354,6 +354,10 @@ export const items = pgTable(
     targetProjectId: uuid('target_project_id').references((): AnyPgColumn => projects.id, {
       onDelete: 'set null',
     }),
+    /* Parked for later: off "I owe" and "Waiting on" until later_on (never,
+       when null) or until its deadline comes close. Neither is a deadline. */
+    parkedAt: timestamp('parked_at', { withTimezone: true }),
+    laterOn: date('later_on'),
     ...timestamps,
   },
   (t) => [
