@@ -74,7 +74,7 @@ export function ItemCard({
           ) : null}
           <div className="mt-2 flex items-center justify-between gap-2">
             <PartyLine parties={item.parties} />
-            <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
               {showProject && item.project ? <Badge>{item.project.name}</Badge> : null}
               {item.dueOn ? (
                 <DueBadge

@@ -34,7 +34,7 @@ export function DateJump({ href, param, value }: { href: string; param: string; 
           const day = event.target.value
           if (day) router.push(`${href}?${param}=${day}`)
         }}
-        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        className="absolute inset-0 h-full min-h-0 w-full cursor-pointer opacity-0"
       />
     </span>
   )

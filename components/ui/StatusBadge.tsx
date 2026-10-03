@@ -30,9 +30,16 @@ const ICON: Record<Tone, string> = {
 export function Badge({ tone = 'gray', children }: { tone?: Tone; children: React.ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold leading-5 ${PILL[tone]}`}
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold leading-5 ${PILL[tone]}`}
     >
-      {children}
+      {/* A long name (a project's) is cut short on a phone rather than widening the page. */}
+      {typeof children === 'string' ? (
+        <span className="truncate" title={children}>
+          {children}
+        </span>
+      ) : (
+        children
+      )}
     </span>
   )
 }

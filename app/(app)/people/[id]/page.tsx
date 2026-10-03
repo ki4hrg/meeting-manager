@@ -50,6 +50,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const header = (
     <PageHeader
       title={person.name}
+      crumbs={[{ href: '/people', label: 'People' }]}
       actions={
         <div className="flex items-center gap-2">
           {/* One click: a stub with everything saved up for them already on its agenda. */}

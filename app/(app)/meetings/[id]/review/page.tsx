@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ActionSelect } from '@/components/ActionSelect'
 import { FormModal } from '@/components/forms'
@@ -158,16 +157,13 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
   return (
     <>
-      <Link
-        href={`/meetings/${meeting.id}`}
-        className="mb-2 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
-      >
-        <Icon name="chevronDown" className="h-4 w-4 rotate-90" />
-        {meeting.title}
-      </Link>
-
       <PageHeader
         title="Review"
+        crumbs={[
+          { href: '/meetings', label: 'Meetings' },
+          ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
+          { href: `/meetings/${meeting.id}`, label: meeting.title },
+        ]}
         count={pending.length}
         actions={
           <div className="flex flex-wrap items-center gap-2">

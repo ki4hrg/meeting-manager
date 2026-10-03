@@ -5,6 +5,7 @@ import { ActionButton, ActionForm, FormModal } from '@/components/forms'
 import { ItemCard } from '@/components/items/ItemCard'
 import { PartyOptions } from '@/components/items/PartyOptions'
 import { QuickAdd } from '@/components/QuickAdd'
+import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs'
 import { Button } from '@/components/ui/Button'
 import { Card, Section } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
@@ -95,18 +96,18 @@ function eventDetail(event: ItemEvent): React.ReactNode {
 
 function PartyChip({ itemId, party }: { itemId: string; party: ItemParty }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 py-0.5 pl-2 pr-0.5 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200">
+    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 py-0.5 pl-2 pr-0.5 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200">
       {party.role === 'with' ? (
-        <Icon name="arrowRight" className="h-3.5 w-3.5 text-gray-400" label="With" />
+        <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0 text-gray-400" label="With" />
       ) : null}
       <Icon
         name={party.type === 'group' ? 'group' : 'person'}
-        className="h-3.5 w-3.5 text-gray-400"
+        className="h-3.5 w-3.5 shrink-0 text-gray-400"
         label={party.role === 'owner' ? 'Owner' : undefined}
       />
       <Link
         href={party.type === 'group' ? `/groups/${party.id}` : `/people/${party.id}`}
-        className="hover:underline"
+        className="min-w-0 truncate hover:underline"
       >
         {party.isSelf ? 'Me' : party.name}
       </Link>
@@ -189,6 +190,24 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
   ]
   const origin = await lookUp(item.originMeetingId)
   const events = thread.events.filter((event) => event.itemId === id)
+  /* Back to where the item lives: its project, the meeting it came from, the
+     person or group it is for, or the Inbox. */
+  const party = item.parties.find((one) => !one.isSelf)
+  const crumbs: Crumb[] = item.project
+    ? [
+        { href: '/projects', label: 'Projects' },
+        { href: `/projects/${item.project.id}`, label: item.project.name },
+      ]
+    : origin
+      ? [
+          { href: '/meetings', label: 'Meetings' },
+          { href: `/meetings/${origin.id}`, label: origin.title },
+        ]
+      : party
+        ? party.type === 'person'
+          ? [{ href: '/people', label: 'People' }, { href: `/people/${party.id}`, label: party.name }]
+          : [{ href: '/groups', label: 'Groups' }, { href: `/groups/${party.id}`, label: party.name }]
+        : [{ href: '/inbox', label: 'Inbox' }]
 
   const reportTo = (
     <Field label="Report to">
@@ -200,6 +219,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
+      <Breadcrumbs crumbs={crumbs} />
       <Card padding="md" className="mb-8">
         <div className="flex items-start gap-4">
           <KindIcon kind={item.kind} className="h-7 w-7" />
@@ -208,9 +228,9 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               <h1 className="min-w-0 flex-1 text-xl font-bold text-gray-900 dark:text-gray-100">
                 {item.text}
               </h1>
-              <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+              <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
                 {item.project ? (
-                  <Link href={`/projects/${item.project.id}`}>
+                  <Link href={`/projects/${item.project.id}`} className="inline-flex min-w-0 max-w-full">
                     <Badge>{item.project.name}</Badge>
                   </Link>
                 ) : null}

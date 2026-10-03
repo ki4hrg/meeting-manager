@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { CopyButton } from '@/components/CopyButton'
 import { FormModal } from '@/components/forms'
@@ -171,18 +170,13 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
-      {parent ? (
-        <Link
-          href={`/meetings/${parent.id}`}
-          className="mb-2 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
-        >
-          <Icon name="chevronDown" className="h-4 w-4 rotate-90" />
-          {parent.title}
-        </Link>
-      ) : null}
 
       <PageHeader
         title={meeting.title}
+        crumbs={[
+          { href: '/meetings', label: 'Meetings' },
+          ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
+        ]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <CopyButton

@@ -115,6 +115,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
     <>
       <PageHeader
         title={series.name}
+        crumbs={[{ href: '/series', label: 'Series' }]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {series.group ? (

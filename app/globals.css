@@ -121,3 +121,31 @@ body {
 .dark .md hr {
   border-color: var(--color-gray-700);
 }
+
+@layer base {
+  /* iOS Safari gives date and time inputs an intrinsic width that ignores
+     `w-full`, so in a narrow form they push past its edge, and centres their
+     value. Let them shrink like any other field, and keep their height when
+     empty. */
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 2.5rem;
+    text-align: left;
+  }
+  input::-webkit-date-and-time-value {
+    text-align: left;
+  }
+
+  /* A long word in a heading (an email address standing in for a name) wraps
+     rather than widening the page. */
+  h1,
+  h2,
+  h3 {
+    overflow-wrap: anywhere;
+  }
+}
