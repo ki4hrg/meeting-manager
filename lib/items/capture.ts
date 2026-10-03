@@ -23,7 +23,7 @@ const KIND_PREFIX: Record<string, ItemKind> = {
   d: 'decision',
 }
 
-const TOKEN = /^([@#])([\p{L}\p{N}][\p{L}\p{N}_-]*)([.,;:!?]*)$/u
+const TOKEN = /^([@#])([\p{L}\p{N}][\p{L}\p{N}_/-]*)([.,;:!?]*)$/u
 
 export type ParsedWord =
   | { type: 'text'; value: string }

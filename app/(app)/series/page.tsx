@@ -13,7 +13,7 @@ import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
 import { createSeriesAction } from './actions'
 
@@ -23,7 +23,7 @@ export default async function SeriesListPage() {
   const series = await listSeries(db, context.id)
   const people = (await listPeople(db)).filter((person) => !person.isSelf)
   const groups = await listGroups(db, context.id)
-  const projects = await listProjects(db, context.id)
+  const projects = await listProjectChoices(db, context.id)
 
   // Soonest first, so the first meeting seen for a series is its next.
   const next = new Map<string, Date>()

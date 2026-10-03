@@ -24,7 +24,7 @@ import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
 import { calendarLinkOf, unlinkedRecurring } from '@/lib/meetings/prep'
 import { outOfStep } from '@/lib/meetings/roster'
 import { getSeries } from '@/lib/meetings/series'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import {
   addSeriesPeopleAction,
@@ -76,7 +76,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
     (person) => !person.isSelf && !onRoster.has(person.id),
   )
   const linked = new Set(series.projects.map((project) => project.id))
-  const otherProjects = (await listProjects(db, context.id)).filter(
+  const otherProjects = (await listProjectChoices(db, context.id)).filter(
     (project) => !linked.has(project.id),
   )
 

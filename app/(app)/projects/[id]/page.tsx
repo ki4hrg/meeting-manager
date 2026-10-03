@@ -1,10 +1,11 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { DocumentCard } from '@/components/documents/DocumentCard'
 import { ActionButton, FormModal } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
-import { Card, CardGrid, Section } from '@/components/ui/Card'
+import { Card, CardGrid, CardHeader, LinkCard, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
@@ -20,14 +21,21 @@ import { isOpen, listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
 import {
   PROJECT_STATUSES,
+  ancestorIds,
+  descendantIds,
   getProject,
+  indented,
   listLinks,
   listMilestones,
+  listProjects,
+  nextMilestones,
+  treeOrder,
 } from '@/lib/projects/projects'
 import { viewer } from '@/lib/web/context'
 import {
   addLinkAction,
   addMilestoneAction,
+  createProjectAction,
   deleteLinkAction,
   deleteMilestoneAction,
   updateProjectAction,
@@ -61,7 +69,9 @@ function byOwner(items: ItemView[]): OwnerGroup[] {
   return sorted
 }
 
-export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
+type Search = Promise<Record<string, string | string[] | undefined>>
+
+export default async function ProjectPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Search }) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -79,9 +89,33 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     ...milestones.filter((m) => m.dueOn !== null && m.dueOn < today).reverse(),
   ]
   const links = await listLinks(db, id)
-  const all = await listItems(db, { contextId: project.contextId, projectId: id })
-  const meetings = await listMeetings(db, { contextId: project.contextId, projectId: id })
+
+  /* The tree around it: the projects above (a trail back up) and the ones
+     directly within it. "Sub-projects" rolls theirs, at any depth, into this
+     page's items and meetings, each item naming its own project. */
+  const family = await listProjects(db, project.contextId)
+  const byId = new Map(family.map((one) => [one.id, one]))
+  const trail = [...ancestorIds(family, [id])].map((one) => byId.get(one)!).reverse()
+  const children = family.filter((one) => one.parentId === id).sort((a, b) => a.name.localeCompare(b.name))
+  const nextOf = await nextMilestones(db, project.contextId, today)
+  const below = descendantIds(family, [id])
+  const rolled = children.length > 0 && (await searchParams).all === '1'
+  const scope = rolled ? [id, ...below] : [id]
+
+  const all = (
+    await Promise.all(scope.map((projectId) => listItems(db, { contextId: project.contextId, projectId })))
+  )
+    .flat()
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  const seen = new Set<string>()
+  const meetings = (
+    await Promise.all(scope.map((projectId) => listMeetings(db, { contextId: project.contextId, projectId })))
+  )
+    .flat()
+    .filter((meeting) => !seen.has(meeting.id) && Boolean(seen.add(meeting.id)))
   const documents = await listDocuments(db, { contextId: project.contextId, projectId: id })
+  // A parent can be anything in the context but itself and what sits inside it.
+  const parents = treeOrder(family).filter((one) => one.id !== id && !below.has(one.id))
 
   const open = all.filter(isOpen)
   const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
@@ -91,6 +125,18 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
+      {trail.length > 0 ? (
+        <nav className="mb-2 flex flex-wrap items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400">
+          {trail.map((one, index) => (
+            <span key={one.id} className="inline-flex items-center gap-1">
+              {index === 0 ? <Icon name="chevronDown" className="h-4 w-4 rotate-90" /> : <span className="text-gray-400">/</span>}
+              <Link href={`/projects/${one.id}`} className="hover:underline">
+                {one.name}
+              </Link>
+            </span>
+          ))}
+        </nav>
+      ) : null}
       <PageHeader
         title={project.name}
         actions={
@@ -110,6 +156,16 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                   ))}
                 </Select>
               </Field>
+              <Field label="Within">
+                <Select name="parentId" defaultValue={project.parentId ?? ''}>
+                  <option value="">—</option>
+                  {parents.map((one) => (
+                    <option key={one.id} value={one.id}>
+                      {indented(one)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
               <Field label="Description">
                 <Textarea name="description" rows={4} defaultValue={project.description ?? ''} />
               </Field>
@@ -123,6 +179,56 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <Markdown source={project.description} className="text-sm text-gray-700 dark:text-gray-300" />
         </Card>
       ) : null}
+
+      <Section
+        title="Sub-projects"
+        count={children.length}
+        action={
+          <div className="flex items-center gap-2">
+            {children.length > 0 ? (
+              <Link
+                href={rolled ? `/projects/${id}` : `/projects/${id}?all=1`}
+                aria-pressed={rolled}
+                title="Include sub-projects"
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                  rolled
+                    ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                <Icon name="project" className="h-3.5 w-3.5" />
+                {rolled ? <Icon name="check" className="h-3.5 w-3.5" label="Included" /> : <Icon name="plus" className="h-3.5 w-3.5" label="Include" />}
+              </Link>
+            ) : null}
+            <FormModal action={createProjectAction} title="New sub-project" label="New" size="sm" submit="Create">
+              <input type="hidden" name="parentId" value={project.id} />
+              <Field label="Name" required>
+                <Input name="name" required />
+              </Field>
+            </FormModal>
+          </div>
+        }
+      >
+        {children.length === 0 ? null : (
+          <CardGrid>
+            {children.map((child) => {
+              const next = nextOf.get(child.id)
+              return (
+                <LinkCard key={child.id} href={`/projects/${child.id}`}>
+                  <CardHeader title={child.name} aside={<ProjectStatusBadge status={child.status} />} />
+                  {next?.dueOn ? (
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      <Icon name="flag" className="h-3.5 w-3.5 shrink-0" label="Next milestone" />
+                      <span className="truncate">{next.title}</span>
+                      <DueBadge label={formatDay(next.dueOn, today)} dueOn={next.dueOn} today={today} />
+                    </span>
+                  ) : null}
+                </LinkCard>
+              )
+            })}
+          </CardGrid>
+        )}
+      </Section>
 
       <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
         <Section
@@ -266,7 +372,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                   <Icon name={owner.group ? 'group' : 'person'} className="h-4 w-4" />
                   {owner.name}
                 </h3>
-                <ItemGrid items={owner.items} today={today} empty="action" showProject={false} />
+                <ItemGrid items={owner.items} today={today} empty="action" showProject={rolled} />
               </div>
             ))}
           </div>
@@ -278,7 +384,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         count={topics.length}
         action={<QuickAdd presets={{ kind: 'topic', projectId: id }} />}
       >
-        <ItemGrid items={topics} today={today} empty="topic" showProject={false} />
+        <ItemGrid items={topics} today={today} empty="topic" showProject={rolled} />
       </Section>
 
       <Section
@@ -286,7 +392,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         count={decisions.length}
         action={<QuickAdd presets={{ kind: 'decision', projectId: id }} />}
       >
-        <ItemGrid items={decisions} today={today} empty="decision" showProject={false} />
+        <ItemGrid items={decisions} today={today} empty="decision" showProject={rolled} />
       </Section>
 
       <Section title="Meetings">
@@ -295,7 +401,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       {closed.length > 0 ? (
         <Section title="Closed">
-          <ItemGrid items={closed} today={today} empty="check" showProject={false} />
+          <ItemGrid items={closed} today={today} empty="check" showProject={rolled} />
         </Section>
       ) : null}
     </>

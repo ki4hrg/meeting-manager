@@ -20,7 +20,7 @@ import { listMeetings } from '@/lib/meetings/meetings'
 import { listUpcoming } from '@/lib/meetings/prep'
 import { listSeries } from '@/lib/meetings/series'
 import { pendingByMeeting } from '@/lib/processing/proposals'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
 import { createMeetingAction } from './actions'
 
@@ -48,7 +48,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
     listMeetings(db, { contextId: context.id, when: 'upcoming', topLevelOnly: true }),
     listPeople(db),
     listGroups(db, context.id),
-    listProjects(db, context.id),
+    listProjectChoices(db, context.id),
     listSeries(db, context.id),
     pendingByMeeting(db, context.id),
   ])

@@ -278,6 +278,7 @@ export async function createProjectAction(formData: FormData): Promise<ActionRes
       contextId: context.id,
       name: field(formData, 'name'),
       description: field(formData, 'description'),
+      parentId: field(formData, 'parentId') || null,
     })
   })
 }
@@ -290,6 +291,7 @@ export async function updateProjectAction(formData: FormData): Promise<ActionRes
       name: field(formData, 'name'),
       description: field(formData, 'description'),
       status,
+      ...(formData.has('parentId') ? { parentId: field(formData, 'parentId') || null } : {}),
     })
   })
 }

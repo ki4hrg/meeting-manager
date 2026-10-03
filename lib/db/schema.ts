@@ -272,9 +272,14 @@ export const projects = pgTable(
     name: text('name').notNull(),
     description: text('description'),
     status: projectStatus('status').notNull().default('active'),
+    /* A project within another, in the same context, any depth, no cycles. */
+    parentId: uuid('parent_id').references((): AnyPgColumn => projects.id, { onDelete: 'set null' }),
     ...timestamps,
   },
-  (t) => [uniqueIndex('projects_name_key').on(t.contextId, sql`lower(${t.name})`)],
+  (t) => [
+    uniqueIndex('projects_name_key').on(t.contextId, sql`lower(${t.name})`),
+    index('projects_parent_idx').on(t.parentId),
+  ],
 )
 
 export const milestones = pgTable(

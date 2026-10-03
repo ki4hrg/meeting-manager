@@ -9,9 +9,11 @@
  *   - A meeting with sessions has no agenda of its own to fill: nothing is
  *     placed on it, and what is aimed at it goes to its next session, the
  *     first one that is not over.
- *   - Suggested: items matched through one of the meeting's projects or its
- *     group. A person match alone is not enough in a larger meeting; those sit
- *     under "more" and are never placed for him.
+ *   - Suggested: items matched through one of the meeting's projects (or a
+ *     project within one of them, grouped by that sub-project) or its group.
+ *     A person match alone is not enough in a larger meeting; those sit under
+ *     "more" and are never placed for him, as do the items of a project the
+ *     meeting's projects sit within.
  *   - John is at every meeting, so nothing is a candidate through him.
  *
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
@@ -36,6 +38,7 @@ import {
   people,
 } from '../db/schema'
 import { getItem, isOpen, listItems, type ItemView } from '../items/items'
+import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 
 export type CandidateGroup = {
   by: { type: 'person' | 'group' | 'project'; id: string; name: string }
@@ -142,6 +145,12 @@ export async function getCandidates(
   // Defensive: John should never be a row, and must never count as a match.
   const attendeeIds = new Set(attendees.filter((row) => !row.isSelf).map((row) => row.id))
   const projectIds = new Set(projectRows.map((row) => row.projectId))
+  /* Projects within the meeting's are suggested too; projects they sit within
+     are reachable under "more". Neither is ever placed. */
+  const tree = projectIds.size > 0 ? await listProjects(exec, meeting.contextId) : []
+  const below = descendantIds(tree, projectIds)
+  const above = ancestorIds(tree, projectIds)
+  const projectName = new Map(tree.map((project) => [project.id, project.name]))
   const solo = attendeeIds.size === 1 ? [...attendeeIds][0]! : null
   const groupName = groupRow[0]?.name ?? ''
   const next = await isNextOccurrence(exec, meeting, now)
@@ -178,19 +187,23 @@ export async function getCandidates(
         (party) => party.type === 'person' && party.id === solo && party.role === 'with',
       )
     const viaProject = item.project !== null && projectIds.has(item.project.id)
+    const viaChild = item.project !== null && !viaProject && below.has(item.project.id)
+    const viaParent = item.project !== null && !viaProject && !viaChild && above.has(item.project.id)
     const viaGroup =
       meeting.groupId !== null &&
       item.parties.some((party) => party.type === 'group' && party.id === meeting.groupId)
 
     if (dismissedIds.has(item.id)) {
-      if (aimedHere || raiseWithSolo || viaProject || viaGroup || attendee) dismissed.push(item)
+      if (aimedHere || raiseWithSolo || viaProject || viaChild || viaGroup || attendee || viaParent) {
+        dismissed.push(item)
+      }
       continue
     }
 
     if (aimedHere || raiseWithSolo) {
       // Its sessions take these; the meeting over them places nothing.
       if (!rollup) toPlace.push(item)
-    } else if (viaProject) {
+    } else if (viaProject || viaChild) {
       push(suggested, { type: 'project', id: item.project!.id, name: item.project!.name }, item)
     } else if (viaGroup) {
       push(suggested, { type: 'group', id: meeting.groupId!, name: groupName }, item)
@@ -200,6 +213,9 @@ export async function getCandidates(
          "more". */
       const by = { type: 'person' as const, id: attendee.id, name: attendee.name }
       push(solo ? suggested : more, by, item)
+    } else if (viaParent) {
+      const id = item.project!.id
+      push(more, { type: 'project', id, name: projectName.get(id) ?? item.project!.name }, item)
     }
   }
 

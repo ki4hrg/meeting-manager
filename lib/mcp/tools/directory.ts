@@ -192,6 +192,7 @@ export const listProjectsTool = defineTool({
           name: p.name,
           status: p.status,
           description: p.description,
+          parent_id: p.parentId,
           open_items: counts.byProject.get(p.id) ?? 0,
           milestones: (await listMilestones(exec, p.id)).map((m) => ({
             id: m.id,
@@ -207,30 +208,35 @@ export const listProjectsTool = defineTool({
 export const createProjectTool = defineTool({
   name: 'create_project',
   title: 'Create a project',
-  description: 'Add a project to a context.',
+  description: 'Add a project to a context, optionally within another project there.',
   scope: 'meetings:write',
   input: z.object({
     name: z.string().min(1),
     context: contextArg,
     description: z.string().optional(),
+    parent: z.string().optional().describe('The project it sits within: name, path ("AC2027/Worship") or id.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
     write(context, 'create_project', input, async (tx) => {
       const target = await inferContext(tx, { context: input.context })
+      const parent = input.parent ? await resolveProject(tx, target.id, input.parent) : null
       const project = await createProject(tx, {
         contextId: target.id,
         name: input.name,
         description: input.description,
+        parentId: parent?.id ?? null,
       })
-      return { project: { id: project.id, name: project.name, status: project.status } }
+      return { project: { id: project.id, name: project.name, status: project.status, parent_id: project.parentId } }
     }),
 })
 
 export const updateProjectTool = defineTool({
   name: 'update_project',
   title: 'Update a project',
-  description: 'Rename a project, change its description or status, or add a milestone to it.',
+  description:
+    'Rename a project, change its description or status, move it within another project ' +
+    '(parent; null takes it to the top), or add a milestone to it.',
   scope: 'meetings:write',
   input: z.object({
     project: z.string().describe('Project name or id.'),
@@ -238,6 +244,7 @@ export const updateProjectTool = defineTool({
     name: z.string().min(1).optional(),
     description: z.string().nullable().optional(),
     status: z.enum(['active', 'paused', 'done']).optional(),
+    parent: z.string().nullable().optional().describe('The project it sits within, or null for none.'),
     add_milestone: z
       .object({ title: z.string().min(1), due_on: z.string().optional() })
       .optional(),
@@ -248,10 +255,17 @@ export const updateProjectTool = defineTool({
       const target = await inferContext(tx, { context: input.context, project: input.project })
       const { id } = await resolveProject(tx, target.id, input.project)
 
+      const parentId =
+        input.parent === undefined
+          ? undefined
+          : input.parent === null
+            ? null
+            : (await resolveProject(tx, target.id, input.parent)).id
       const project = await updateProject(tx, id, {
         name: input.name,
         description: input.description,
         status: input.status,
+        parentId,
       })
       if (input.add_milestone) {
         await addMilestone(tx, {

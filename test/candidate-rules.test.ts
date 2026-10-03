@@ -25,7 +25,8 @@ import { createMeeting, getMeeting, setMeetingPeople, updateMeeting } from '../l
 import { prepMeeting } from '../lib/meetings/prep'
 import { joinRoster, outOfStep, recordAbsences, syncRoster } from '../lib/meetings/roster'
 import { createSeries, setSeriesPeople } from '../lib/meetings/series'
-import { addMilestone, nextMilestones } from '../lib/projects/projects'
+import { addMilestone, createProject, nextMilestones, updateProject } from '../lib/projects/projects'
+import { resolveProject } from '../lib/directory/resolve'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 
@@ -733,5 +734,102 @@ describe('milestones in the lookahead', () => {
     const next = await nextMilestones(db, w.parish.id, TODAY)
     expect(next.get(w.retreat.id)?.title).toBe('Retreat day')
     expect((await nextMilestones(db, w.parish.id, '2026-10-06')).has(w.retreat.id)).toBe(false)
+  })
+})
+
+describe('projects within projects', () => {
+  async function conference() {
+    const w = await makeWorld()
+    const standing = await createProject(db, { contextId: w.parish.id, name: 'Annual Conference' })
+    const year = await createProject(db, { contextId: w.parish.id, name: '2027 Annual Conference', parentId: standing.id })
+    const lastYear = await createProject(db, { contextId: w.parish.id, name: '2026 Annual Conference', parentId: standing.id })
+    const worship = await createProject(db, { contextId: w.parish.id, name: 'AC2027 Worship', parentId: year.id })
+    const music = await createProject(db, { contextId: w.parish.id, name: 'AC2027 Music', parentId: year.id })
+    const on = (projectId: string, text: string) =>
+      createItem(db, actor, { contextId: w.parish.id, text, projectId })
+    return {
+      w,
+      standing,
+      year,
+      lastYear,
+      worship,
+      music,
+      items: {
+        standing: await on(standing.id, 'bylaws'),
+        year: await on(year.id, 'venue for 2027'),
+        lastYear: await on(lastYear.id, '2026 accounts'),
+        worship: await on(worship.id, 'hymn list'),
+        music: await on(music.id, 'organist'),
+      },
+    }
+  }
+  const meetingOn = (contextId: string, projectId: string) =>
+    createMeeting(db, actor, { contextId, title: 'Planning', personIds: [], projectIds: [projectId] })
+
+  it('a meeting on a project suggests its sub-projects’ items by sub-project, and keeps its parent’s under more', async () => {
+    const { w, year, worship, music, standing, items } = await conference()
+    const meeting = await meetingOn(w.parish.id, year.id)
+    const c = await getCandidates(db, meeting.id, NOW)
+
+    expect(ids(c.toPlace)).toEqual([])
+    expect(c.suggested.map((group) => [group.by.id, ids(group.items)]).sort()).toEqual(
+      [
+        [year.id, [items.year.id]],
+        [worship.id, [items.worship.id]],
+        [music.id, [items.music.id]],
+      ].sort(),
+    )
+    expect(c.more.map((group) => [group.by.id, ids(group.items)])).toEqual([[standing.id, [items.standing.id]]])
+    // A sibling of the meeting's project is nobody's business here.
+    expect([...offered(c), ...grouped(c.more)]).not.toContain(items.lastYear.id)
+    expect(await placeAutomatic(db, actor, meeting.id, NOW)).toBe(0)
+  })
+
+  it('a meeting on a leaf reaches every project above it under more, and no sibling', async () => {
+    const { w, worship, year, standing, items } = await conference()
+    const meeting = await meetingOn(w.parish.id, worship.id)
+    const c = await getCandidates(db, meeting.id, NOW)
+    expect(grouped(c.suggested)).toEqual([items.worship.id])
+    expect(c.more.map((group) => group.by.id).sort()).toEqual([year.id, standing.id].sort())
+    expect(grouped(c.more)).toEqual([items.year.id, items.standing.id].sort())
+    expect([...offered(c), ...grouped(c.more)]).not.toContain(items.music.id)
+  })
+
+  it('the lookahead reads up and down the tree, not sideways', async () => {
+    const { w, year, worship, standing, lastYear, music } = await conference()
+    await addMilestone(db, { projectId: standing.id, title: 'Bylaws vote', dueOn: '2026-10-20' })
+    await addMilestone(db, { projectId: year.id, title: 'Registration opens', dueOn: '2026-10-21' })
+    await addMilestone(db, { projectId: worship.id, title: 'Hymns chosen', dueOn: '2026-10-22' })
+    await addMilestone(db, { projectId: music.id, title: 'Organist booked', dueOn: '2026-10-23' })
+    await addMilestone(db, { projectId: lastYear.id, title: '2026 accounts closed', dueOn: '2026-10-24' })
+
+    const onLeaf = await meetingOn(w.parish.id, worship.id)
+    const leaf = await computeBlocks(db, onLeaf.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(leaf.lookahead?.milestones.map((m) => `${m.projectName}: ${m.title}`)).toEqual([
+      'Annual Conference: Bylaws vote',
+      '2027 Annual Conference: Registration opens',
+      'AC2027 Worship: Hymns chosen',
+    ])
+
+    const onYear = await meetingOn(w.parish.id, year.id)
+    const middle = await computeBlocks(db, onYear.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(middle.lookahead?.milestones.map((m) => m.title)).toEqual([
+      'Bylaws vote',
+      'Registration opens',
+      'Hymns chosen',
+      'Organist booked',
+    ])
+  })
+
+  it('refuses a cycle and a parent in another context, and names a child by path', async () => {
+    const { w, standing, worship } = await conference()
+    await expect(updateProject(db, standing.id, { parentId: worship.id })).rejects.toThrow(/inside itself/)
+    await expect(updateProject(db, standing.id, { parentId: standing.id })).rejects.toThrow(/inside itself/)
+    const elsewhere = await createProject(db, { contextId: w.diocese.id, name: 'Synod 2027' })
+    await expect(updateProject(db, elsewhere.id, { parentId: standing.id })).rejects.toThrow(/another context/)
+
+    expect((await resolveProject(db, w.parish.id, 'AC2027/Worship')).id).toBe(worship.id)
+    expect((await resolveProject(db, w.parish.id, '2027/Worship')).id).toBe(worship.id)
+    await expect(resolveProject(db, w.parish.id, '2026/Worship')).rejects.toThrow(/No project/)
   })
 })

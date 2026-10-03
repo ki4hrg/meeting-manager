@@ -14,7 +14,7 @@ import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listPast } from '@/lib/meetings/prep'
 import { pendingByMeeting } from '@/lib/processing/proposals'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -38,7 +38,7 @@ export default async function PastMeetingsPage({ searchParams }: { searchParams:
     pendingByMeeting(db, context.id),
     listPeople(db),
     listGroups(db, context.id),
-    listProjects(db, context.id),
+    listProjectChoices(db, context.id),
   ])
   const earlier = todayIn(timeZone, from)
 

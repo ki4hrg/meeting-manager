@@ -27,7 +27,7 @@ import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { getThread, isOpen, type ItemEvent, type ItemParty } from '@/lib/items/items'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
 import { viewer } from '@/lib/web/context'
@@ -138,7 +138,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
 
   const people = await listPeople(db)
   const groups = await listGroups(db, item.contextId)
-  const projects = await listProjects(db, item.contextId)
+  const projects = await listProjectChoices(db, item.contextId)
 
   const open = isOpen(item)
   const decision = item.kind === 'decision'

@@ -30,7 +30,7 @@ import { listPeople } from '@/lib/directory/people'
 import { getMeeting, isOver } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
 import { pendingByMeeting } from '@/lib/processing/proposals'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context'
 import {
   addSectionAction,
@@ -80,7 +80,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     meeting.parentMeetingId ? getMeeting(db, meeting.parentMeetingId) : null,
     listPeople(db),
     listGroups(db, context.id),
-    listProjects(db, context.id),
+    listProjectChoices(db, context.id),
     listSeries(db, context.id),
     pendingByMeeting(db, context.id),
   ])
