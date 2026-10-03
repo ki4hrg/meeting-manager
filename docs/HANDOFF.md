@@ -37,8 +37,8 @@ On branch `claude/serene-euler-fbpsv1`, one commit per item, not yet deployed. M
 
 **Not done, needs John**
 
-- **Archive, then delete** (item 9): settled 2026-10-03, not built. Meetings archive then delete; done/dropped is an item's archive; soft delete with a 30-day purge. Archiving a context (dormant bindings, held notes to the Inbox) is written up in the spec as a proposal for John to confirm.
-- **Groups among a meeting's attendees** and **group emails** (item 9): settled 2026-10-03, not built. Several groups per meeting and series; live until the meeting is over, then frozen; carried from the series roster. When the freeze happens is proposed in the spec.
+- **Archive, then delete** (item 9): settled 2026-10-03, not built. Meetings archive then delete; done/dropped is an item's archive; soft delete with a 30-day purge and Restore from a "Deleted" list on Settings. Archiving a context (dormant bindings, held notes to the Inbox) approved as written in the spec.
+- **Groups among a meeting's attendees** and **group emails** (item 9): settled 2026-10-03, not built. Several groups per meeting and series; live until the meeting is over, then frozen; carried from the series roster. The freeze is a roll call on the meeting page while it is under way, falling back to the first open or processing after its end.
 - **"I owe" by horizon** (item 9): approved 2026-10-03, not built. `parked_at` plus a nullable `later_on`.
 - **Adding attendees on the meeting page**: settled 2026-10-03, not built. Offer "Also add to the series"; calendar invitees only add, and hand edits stay.
 - **The reach on project, series and group hubs** (item 7) and the New meeting form offering the calendar events on its date (item 8).
