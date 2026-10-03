@@ -81,7 +81,7 @@ type StubPayload = Extract<ProposalPayload, { type: 'stub' }>
 export type ProposalDraft = {
   payload: ProposalPayload
   verbatim?: boolean
-  lowConfidence?: boolean
+  ownerGuessed?: boolean
   agendaLineId?: string | null
 }
 
@@ -102,7 +102,7 @@ export type ProposalView = {
   status: ProposalStatus
   payload: ProposalPayload
   verbatim: boolean
-  lowConfidence: boolean
+  ownerGuessed: boolean
   position: number
   /** An item's parties, or a stub's people, with their names as they stand now. */
   parties: ProposalParty[]
@@ -603,7 +603,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
       status: row.status,
       payload,
       verbatim: row.verbatim,
-      lowConfidence: row.lowConfidence,
+      ownerGuessed: row.ownerGuessed,
       position: row.position,
       parties,
       unresolved: parties.filter((party) => party.unresolved).map((party) => party.name),
@@ -725,7 +725,7 @@ export async function addProposals(
         fingerprint,
         payload,
         verbatim: draft.verbatim ?? false,
-        lowConfidence: draft.lowConfidence ?? false,
+        ownerGuessed: draft.ownerGuessed ?? false,
         agendaLineId:
           draft.agendaLineId && meetingLines.has(draft.agendaLineId) ? draft.agendaLineId : null,
         position: position++,
@@ -784,7 +784,7 @@ export async function editProposal(
 
     await tx
       .update(proposals)
-      .set({ payload: cleaned.payload, lowConfidence: false, updatedAt: new Date() })
+      .set({ payload: cleaned.payload, ownerGuessed: false, updatedAt: new Date() })
       .where(eq(proposals.id, id))
     return getProposal(tx, id)
   })
@@ -966,7 +966,8 @@ export async function acceptProposal(
 
     await tx
       .update(proposals)
-      .set({ status: 'accepted', result, resolvedAt: new Date(), updatedAt: new Date() })
+      // Accepting it confirms whatever was guessed: undone, it does not come back as a guess.
+      .set({ status: 'accepted', ownerGuessed: false, result, resolvedAt: new Date(), updatedAt: new Date() })
       .where(eq(proposals.id, id))
     return getProposal(tx, id)
   })
@@ -1151,7 +1152,7 @@ export async function approveAll(
   let accepted = 0
   const refused: { id: string; message: string }[] = []
   for (const row of pending) {
-    if (row.lowConfidence || unresolvedIn(row.payload).length > 0) continue
+    if (row.ownerGuessed || unresolvedIn(row.payload).length > 0) continue
     try {
       const view = await acceptProposal(exec, actor, row.id)
       if (view.status === 'accepted') accepted++

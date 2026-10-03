@@ -72,7 +72,7 @@
     { "say": "an update answering the lock-in question with 14 November", "where": { "itemId": "f2000000-0000-4000-8000-000000000002", "change": ["answer"], "text": "14|fourteenth" }, "min": 1, "max": 1 },
     {
       "say": "one action for John to write the reference letter, due 2026-10-15, owner stated",
-      "where": { "kind": ["action"], "text": "reference|letter", "owners": ["b1000000-0000-4000-8000-000000000000"], "dueOn": "2026-10-15", "lowConfidence": false },
+      "where": { "kind": ["action"], "text": "reference|letter", "owners": ["b1000000-0000-4000-8000-000000000000"], "dueOn": "2026-10-15", "ownerGuessed": false },
       "min": 1,
       "max": 1
     },

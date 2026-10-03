@@ -932,8 +932,9 @@ export const proposals = pgTable(
     payload: jsonb('payload').$type<ProposalPayload>().notNull(),
     /* A verbatim line (`D:` `Q:` `A:` `T:`): the wording is John's and is not the model's to change. */
     verbatim: boolean('verbatim').notNull().default(false),
-    /* The owner was inferred with low confidence: highlighted, and left out of approve-all. */
-    lowConfidence: boolean('low_confidence').notNull().default(false),
+    /* The owner was a guess: marked on the owner, and left out of approve-all.
+       Accepting confirms it, so an accepted row never carries it. */
+    ownerGuessed: boolean('owner_guessed').notNull().default(false),
     /* The agenda line this came up under, when the model could tell. */
     agendaLineId: uuid('agenda_line_id').references(() => agendaLines.id, { onDelete: 'set null' }),
     position: integer('position').notNull().default(0),
@@ -944,6 +945,7 @@ export const proposals = pgTable(
   (t) => [
     uniqueIndex('proposals_fingerprint_key').on(t.meetingId, t.fingerprint),
     index('proposals_meeting_idx').on(t.meetingId, t.status),
+    check('proposals_guess_unconfirmed', sql`not (${t.ownerGuessed} and ${t.status} = 'accepted')`),
   ],
 )
 

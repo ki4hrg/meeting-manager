@@ -24,7 +24,7 @@ export type Where = {
   itemId?: string
   change?: ('complete' | 'answer' | 'drop' | 'note' | 'discussed')[]
   dueOn?: string | null
-  lowConfidence?: boolean
+  ownerGuessed?: boolean
 }
 
 export type Expectation =
@@ -66,7 +66,7 @@ export function matches(draft: ExtractionDraft, where: Where): boolean {
   const payload = draft.payload
   if (where.type && !where.type.includes(payload.type)) return false
   if (where.text && !new RegExp(where.text, 'i').test(wording(draft))) return false
-  if (where.lowConfidence !== undefined && draft.lowConfidence !== where.lowConfidence) return false
+  if (where.ownerGuessed !== undefined && draft.ownerGuessed !== where.ownerGuessed) return false
 
   if (where.kind || where.owners || where.dueOn !== undefined) {
     if (payload.type !== 'item') return false

@@ -194,7 +194,7 @@ export function ProposalCard({
                   return (
                     <span key={role} className="flex min-w-0 flex-wrap items-center gap-1.5">
                       {settled.length > 0 ? (
-                        <PartyLine parties={settled} />
+                        <PartyLine parties={settled} ownerGuessed={pending && role === 'owner' && proposal.ownerGuessed} />
                       ) : role === 'with' ? (
                         <Icon
                           name="arrowRight"
@@ -256,15 +256,6 @@ export function ProposalCard({
 
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-gray-100 pt-2 dark:border-gray-700">
         <span className="flex min-w-0 items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-          {/* The owner was a guess: worth a look only while it is still to be settled. */}
-          {pending && proposal.lowConfidence ? (
-            <span title="Owner is a guess">
-              <Badge tone="amber">
-                <Icon name="alert" className="h-3 w-3" />
-                Unsure
-              </Badge>
-            </span>
-          ) : null}
           {proposal.verbatim ? (
             <span title="Verbatim">
               <Badge>

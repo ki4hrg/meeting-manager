@@ -110,7 +110,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const accepted = proposals.filter((proposal) => proposal.status === 'accepted')
   const rejected = proposals.filter((proposal) => proposal.status === 'rejected')
   // What approve-all passes over: a guess, or a name still to be settled.
-  const needsLook = (proposal: ProposalView) => proposal.lowConfidence || proposal.unresolved.length > 0
+  const needsLook = (proposal: ProposalView) => proposal.ownerGuessed || proposal.unresolved.length > 0
   const unsure = pending.filter(needsLook)
   const ready = pending.filter((proposal) => !needsLook(proposal))
 

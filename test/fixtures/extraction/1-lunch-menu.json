@@ -78,7 +78,7 @@
       "min": 1,
       "max": 1
     },
-    { "say": "the stated owners are not marked as guesses", "where": { "type": ["item"], "text": "menu|lunch|deposit", "lowConfidence": true }, "min": 0, "max": 0 },
+    { "say": "the stated owners are not marked as guesses", "where": { "type": ["item"], "text": "menu|lunch|deposit", "ownerGuessed": true }, "min": 0, "max": 0 },
     { "say": "nothing about the game, the registration count or the untouched parking item", "where": { "text": "game|registr|signed up|parking|quotes" }, "min": 0, "max": 0 },
     { "say": "no more than three proposals", "maxDrafts": 3 }
   ]

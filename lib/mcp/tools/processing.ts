@@ -211,7 +211,7 @@ function proposalOut(proposal: ProposalView, clock: Clock) {
     type: payload.type,
     ...about,
     verbatim: proposal.verbatim,
-    low_confidence: proposal.lowConfidence,
+    low_confidence: proposal.ownerGuessed,
     unresolved: proposal.unresolved,
     agenda_line: proposal.agendaLine,
     made: proposal.made
@@ -430,8 +430,8 @@ export const listProposalsTool = defineTool({
   description:
     'What processing proposed for one meeting, pending first, and where processing stands ' +
     `(run: queued, running, done or failed, with its error). ${PROPOSAL_SHAPE} verbatim marks ` +
-    'my own D:/Q:/A:/T: line, kept in my wording. low_confidence marks a guess, usually at the ' +
-    'owner. unresolved lists names that match nobody yet; such a proposal cannot be accepted ' +
+    'my own D:/Q:/A:/T: line, kept in my wording. low_confidence marks that the owner is a ' +
+    'guess; accepting confirms it. unresolved lists names that match nobody yet; such a proposal cannot be accepted ' +
     'until edited. made is what accepting it created.',
   scope: 'meetings:read',
   input: z.object({

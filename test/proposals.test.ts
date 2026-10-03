@@ -112,13 +112,13 @@ describe('addProposals', () => {
       await addProposals(db, { meetingId: meeting.id }, [
         { payload: item('Book the hall') },
         { payload: item('book the hall!') },
-        { payload: item('Order chairs'), lowConfidence: true },
+        { payload: item('Order chairs'), ownerGuessed: true },
       ]),
     ).toBe(2)
     expect(await addProposals(db, { meetingId: meeting.id }, [{ payload: item('BOOK THE HALL') }])).toBe(0)
 
     const list = await listProposals(db, meeting.id)
-    expect(list.map((p) => [p.position, (p.payload as ItemPayload).text, p.lowConfidence])).toEqual([
+    expect(list.map((p) => [p.position, (p.payload as ItemPayload).text, p.ownerGuessed])).toEqual([
       [0, 'Book the hall', false],
       [1, 'Order chairs', true],
     ])
@@ -187,7 +187,7 @@ describe('listProposals', () => {
     expect(made).toMatchObject({
       status: 'pending',
       verbatim: false,
-      lowConfidence: false,
+      ownerGuessed: false,
       parties: [
         { role: 'owner', name: 'Sarah Jones', type: 'person', id: w.sarah.id, unresolved: false },
         { role: 'with', name: 'Staff', type: 'group', id: w.staff.id, unresolved: false },
@@ -479,6 +479,32 @@ describe('accepting with what was missing', () => {
     expect(accepted.made?.item?.parties.map((p) => p.id)).toEqual([w.tom.id])
   })
 
+  it('confirms a guessed owner on accept, and does not bring the guess back on undo', async () => {
+    const { w, meeting } = await setup()
+    const [proposal] = await propose(meeting.id, [
+      { payload: item('A guess', { parties: [{ role: 'owner', name: 'Sarah', personId: w.sarah.id }] }), ownerGuessed: true },
+    ])
+    expect(proposal!.ownerGuessed).toBe(true)
+
+    expect((await acceptProposal(db, actor, proposal!.id)).ownerGuessed).toBe(false)
+    expect((await undoProposal(db, actor, proposal!.id)).ownerGuessed).toBe(false)
+
+    // Rejecting keeps it: put back, the owner is still to be confirmed.
+    await db.update(proposals).set({ ownerGuessed: true }).where(eq(proposals.id, proposal!.id))
+    expect((await rejectProposal(db, actor, proposal!.id)).ownerGuessed).toBe(true)
+  })
+
+  it('holds no accepted proposal that is still a guess', async () => {
+    const { w, meeting } = await setup()
+    const [proposal] = await propose(meeting.id, [
+      { payload: item('A guess', { parties: [{ role: 'owner', name: 'Sarah', personId: w.sarah.id }] }) },
+    ])
+    await acceptProposal(db, actor, proposal!.id)
+    await expect(
+      db.update(proposals).set({ ownerGuessed: true }).where(eq(proposals.id, proposal!.id)),
+    ).rejects.toThrow()
+  })
+
   it('raises the item it makes at the series it was edited to name, and refuses another context’s', async () => {
     const { w, meeting } = await setup()
     const weekly = await createSeries(db, { contextId: w.parish.id, name: 'Staff weekly' })
@@ -518,7 +544,7 @@ describe('editing', () => {
   it('replaces the payload while pending and keeps the fingerprint and the verbatim flag', async () => {
     const { w, meeting } = await setup()
     await addProposals(db, { meetingId: meeting.id }, [
-      { payload: item('Book teh hall', { kind: 'decision' }), verbatim: true, lowConfidence: true },
+      { payload: item('Book teh hall', { kind: 'decision' }), verbatim: true, ownerGuessed: true },
     ])
     const [proposal] = await listProposals(db, meeting.id)
     const [before] = await db.select().from(proposals).where(eq(proposals.id, proposal!.id))
@@ -531,7 +557,7 @@ describe('editing', () => {
     expect(edited.payload).toMatchObject({ kind: 'action', text: 'Book the hall', dueOn: '2026-10-20' })
     expect(edited.verbatim).toBe(true)
     // John has now said who owns it.
-    expect(edited.lowConfidence).toBe(false)
+    expect(edited.ownerGuessed).toBe(false)
 
     const [after] = await db.select().from(proposals).where(eq(proposals.id, proposal!.id))
     expect(after!.fingerprint).toBe(before!.fingerprint)
@@ -749,11 +775,11 @@ describe('rejecting and undoing', () => {
 })
 
 describe('approveAll', () => {
-  it('leaves out low-confidence and unresolved proposals', async () => {
+  it('leaves out guessed owners and unresolved proposals', async () => {
     const { w, meeting } = await setup()
     await propose(meeting.id, [
       { payload: item('Sure thing', { parties: [{ role: 'owner', name: 'Tom', personId: w.tom.id }] }) },
-      { payload: item('A guess', { parties: [{ role: 'owner', name: 'Sarah', personId: w.sarah.id }] }), lowConfidence: true },
+      { payload: item('A guess', { parties: [{ role: 'owner', name: 'Sarah', personId: w.sarah.id }] }), ownerGuessed: true },
       { payload: item('Who is this', { parties: [{ role: 'owner', name: 'Priya' }] }) },
       { payload: item('Move to May', { kind: 'decision' }) },
     ])

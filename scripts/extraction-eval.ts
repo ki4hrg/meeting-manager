@@ -49,7 +49,7 @@ async function main() {
 
     console.log(`  summary: ${output.summary ?? '(none)'}`)
     for (const draft of output.drafts) {
-      console.log(`  · ${JSON.stringify(draft.payload)}${draft.lowConfidence ? '  (owner inferred)' : ''}`)
+      console.log(`  · ${JSON.stringify(draft.payload)}${draft.ownerGuessed ? '  (owner inferred)' : ''}`)
     }
     console.log('')
   }

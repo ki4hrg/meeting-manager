@@ -74,7 +74,7 @@ function fake(answer: (input: ExtractionInput) => Partial<ExtractionOutput> = ()
 
 const action = (text: string, over: Partial<ItemPayload> = {}) => ({
   payload: { type: 'item', kind: 'action', text, parties: [], ...over } as ProposalPayload,
-  lowConfidence: false,
+  ownerGuessed: false,
   agendaLineId: null,
 })
 
@@ -105,7 +105,7 @@ describe('verbatim lines', () => {
     expect(list[0]).toMatchObject({
       status: 'pending',
       verbatim: true,
-      lowConfidence: false,
+      ownerGuessed: false,
       noteId: note.id,
       runId: run.id,
       payload: { type: 'item', kind: 'decision', text: 'Keep the Thursday slot, for now.' },
@@ -237,7 +237,7 @@ describe('with an extractor', () => {
       drafts: [
         {
           ...action('Email the caterer', { parties: [{ role: 'owner', name: 'sarah' }] }),
-          lowConfidence: true,
+          ownerGuessed: true,
           agendaLineId: lineId,
         },
         // The verbatim line again, in the model's own words and kind.
@@ -249,14 +249,14 @@ describe('with an extractor', () => {
           projectId: w.synod.id,
           parties: [{ role: 'with', name: 'Council', groupId: w.council.id }],
         }),
-        { payload: { type: 'update', itemId: open.id, change: 'complete', text: 'Booked' }, lowConfidence: false, agendaLineId: null },
-        { payload: { type: 'update', itemId: closed.id, change: 'complete' }, lowConfidence: false, agendaLineId: null },
-        { payload: { type: 'update', itemId: elsewhere.id, change: 'complete' }, lowConfidence: false, agendaLineId: null },
-        { payload: { type: 'document', title: 'Retreat plan', body: 'Day one…', projectId: w.retreat.id }, lowConfidence: false, agendaLineId: null },
-        { payload: { type: 'stub', title: 'Follow up', people: [{ name: 'Tom' }] }, lowConfidence: false, agendaLineId: null },
+        { payload: { type: 'update', itemId: open.id, change: 'complete', text: 'Booked' }, ownerGuessed: false, agendaLineId: null },
+        { payload: { type: 'update', itemId: closed.id, change: 'complete' }, ownerGuessed: false, agendaLineId: null },
+        { payload: { type: 'update', itemId: elsewhere.id, change: 'complete' }, ownerGuessed: false, agendaLineId: null },
+        { payload: { type: 'document', title: 'Retreat plan', body: 'Day one…', projectId: w.retreat.id }, ownerGuessed: false, agendaLineId: null },
+        { payload: { type: 'stub', title: 'Follow up', people: [{ name: 'Tom' }] }, ownerGuessed: false, agendaLineId: null },
         null,
         { payload: { type: 'nonsense' } },
-        { lowConfidence: true },
+        { ownerGuessed: true },
       ] as ExtractionOutput['drafts'],
       verbatimDetails: [
         { index: 0, detail: ' Thursday suits everyone. ' },
@@ -292,7 +292,7 @@ describe('with an extractor', () => {
     })
     expect(caterer).toMatchObject({
       verbatim: false,
-      lowConfidence: true,
+      ownerGuessed: true,
       agendaLine: { id: lineId, text: 'Budget' },
       runId: run.id,
     })
