@@ -24,7 +24,7 @@ import { unknownAttendees } from '@/lib/notes/attendees'
 import { listNotes } from '@/lib/notes/notes'
 import { listProposals, type ProposalView } from '@/lib/processing/proposals'
 import { latestRun } from '@/lib/processing/run'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import { openMeetingAction } from '../../actions'
 import { addNoteAction, moveNoteAction } from '../../processing-actions'
@@ -61,7 +61,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     meeting.parentMeetingId ? getMeeting(db, meeting.parentMeetingId) : null,
     listPeople(db),
     listGroups(db, context.id),
-    listProjects(db, context.id),
+    listProjectChoices(db, context.id),
     unknownAttendees(db, id),
   ])
 

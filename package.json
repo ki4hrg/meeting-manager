@@ -23,6 +23,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@node-rs/argon2": "2.1.0",
     "drizzle-orm": "0.45.2",
+    "marked": "^18.0.14",
     "next": "16.3.3",
     "postgres": "3.4.9",
     "react": "19.2.8",

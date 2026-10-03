@@ -1,5 +1,6 @@
 import { FormModal } from '@/components/forms'
 import { CardGrid, CardHeader, LinkCard } from '@/components/ui/Card'
+import { PartyPicker } from '@/components/processing/PartyPicker'
 import { CheckList } from '@/components/ui/CheckList'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select } from '@/components/ui/Field'
@@ -12,7 +13,7 @@ import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
 import { createSeriesAction } from './actions'
 
@@ -22,7 +23,7 @@ export default async function SeriesListPage() {
   const series = await listSeries(db, context.id)
   const people = (await listPeople(db)).filter((person) => !person.isSelf)
   const groups = await listGroups(db, context.id)
-  const projects = await listProjects(db, context.id)
+  const projects = await listProjectChoices(db, context.id)
 
   // Soonest first, so the first meeting seen for a series is its next.
   const next = new Map<string, Date>()
@@ -42,7 +43,12 @@ export default async function SeriesListPage() {
             <Field label="Name" required>
               <Input name="name" required />
             </Field>
-            <CheckList label="People" name="personIds" options={people} />
+            <PartyPicker
+              label="People"
+              name="personIds"
+              options={people.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+              allowNew
+            />
             {groups.length > 0 ? (
               <Field label="Group">
                 <Select name="groupId" defaultValue="">

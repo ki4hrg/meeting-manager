@@ -18,7 +18,7 @@ const KINDS = Object.keys(PREFIX) as ItemKind[]
 const KIND_OF_PREFIX = /^([tqad]):\s*/i
 
 /* The @ or # token the caret is at the end of, if any. */
-const ACTIVE_TOKEN = /(?:^|\s)([@#])([\p{L}\p{N}_-]*)$/u
+const ACTIVE_TOKEN = /(?:^|\s)([@#])([\p{L}\p{N}_/-]*)$/u
 
 type Suggestion = { name: string; icon: 'person' | 'group' | 'project' }
 

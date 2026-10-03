@@ -4,20 +4,24 @@
  * This is where a leak would happen, so the rules are deliberately narrow:
  *
  *   - Only open items in the meeting's own context are ever looked at.
- *   - Placed without asking: items aimed at this meeting or at its series, and,
- *     in a 1:1, what John wants to raise with the other person.
+ *   - Placed without asking: items aimed at this meeting, at its series (the
+ *     next occurrence), or at the next meeting for a project (the next one not
+ *     over that carries it or a project within it), and, in a 1:1, what John
+ *     wants to raise with the other person.
  *   - A meeting with sessions has no agenda of its own to fill: nothing is
  *     placed on it, and what is aimed at it goes to its next session, the
  *     first one that is not over.
- *   - Suggested: items matched through one of the meeting's projects or its
- *     group. A person match alone is not enough in a larger meeting; those sit
- *     under "more" and are never placed for him.
+ *   - Suggested: items matched through one of the meeting's projects (or a
+ *     project within one of them, grouped by that sub-project) or its group.
+ *     A person match alone is not enough in a larger meeting; those sit under
+ *     "more" and are never placed for him, as do the items of a project the
+ *     meeting's projects sit within.
  *   - John is at every meeting, so nothing is a candidate through him.
  *
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
  */
 
-import { and, asc, eq, gte, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import { isOver } from '../meetings/meetings'
 import {
   NotFoundError,
@@ -36,6 +40,7 @@ import {
   people,
 } from '../db/schema'
 import { getItem, isOpen, listItems, type ItemView } from '../items/items'
+import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 
 export type CandidateGroup = {
   by: { type: 'person' | 'group' | 'project'; id: string; name: string }
@@ -91,6 +96,46 @@ export async function nextSession(exec: Executor, meetingId: string, now: Date):
   return (await sessionsOf(exec, meetingId)).find((session) => !isOver(session, now))?.id ?? null
 }
 
+/**
+ * The meeting an item aimed at "the next meeting for a project" goes to: the
+ * earliest top-level meeting not over that carries the project or one within
+ * it, else the oldest undated one that does; a meeting with sessions hands it
+ * to its next session. Null while there is none: the item waits.
+ */
+export async function nextForProject(
+  exec: Executor,
+  contextId: string,
+  projectId: string,
+  now: Date,
+): Promise<string | null> {
+  const tree = await listProjects(exec, contextId)
+  const family = [projectId, ...descendantIds(tree, [projectId])]
+  const carrying = await exec
+    .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt, createdAt: meetings.createdAt })
+    .from(meetings)
+    .where(
+      and(
+        eq(meetings.contextId, contextId),
+        isNull(meetings.parentMeetingId),
+        inArray(
+          meetings.id,
+          exec
+            .select({ id: meetingProjects.meetingId })
+            .from(meetingProjects)
+            .where(inArray(meetingProjects.projectId, family)),
+        ),
+      ),
+    )
+  const ahead = carrying.filter((meeting) => !isOver(meeting, now))
+  const dated = ahead
+    .filter((meeting) => meeting.startsAt)
+    .sort((a, b) => a.startsAt!.getTime() - b.startsAt!.getTime())
+  const undated = ahead.filter((meeting) => !meeting.startsAt).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+  const next = dated[0] ?? undated[0]
+  if (!next) return null
+  return (await sessionsOf(exec, next.id)).length > 0 ? nextSession(exec, next.id, now) : next.id
+}
+
 const GROUP_ORDER = { project: 0, group: 1, person: 2 } as const
 
 function sorted(map: Map<string, CandidateGroup>): CandidateGroup[] {
@@ -142,6 +187,12 @@ export async function getCandidates(
   // Defensive: John should never be a row, and must never count as a match.
   const attendeeIds = new Set(attendees.filter((row) => !row.isSelf).map((row) => row.id))
   const projectIds = new Set(projectRows.map((row) => row.projectId))
+  /* Projects within the meeting's are suggested too; projects they sit within
+     are reachable under "more". Neither is ever placed. */
+  const tree = projectIds.size > 0 ? await listProjects(exec, meeting.contextId) : []
+  const below = descendantIds(tree, projectIds)
+  const above = ancestorIds(tree, projectIds)
+  const projectName = new Map(tree.map((project) => [project.id, project.name]))
   const solo = attendeeIds.size === 1 ? [...attendeeIds][0]! : null
   const groupName = groupRow[0]?.name ?? ''
   const next = await isNextOccurrence(exec, meeting, now)
@@ -155,6 +206,14 @@ export async function getCandidates(
 
   // The one query for items, and it is bound to the meeting's context.
   const open = await listItems(exec, { contextId: meeting.contextId, open: true })
+
+  // Which meeting takes what is aimed at each project's next meeting: asked once per project.
+  const projectAims = new Map<string, string | null>()
+  for (const item of open) {
+    if (item.targetProjectId && !projectAims.has(item.targetProjectId)) {
+      projectAims.set(item.targetProjectId, await nextForProject(exec, meeting.contextId, item.targetProjectId, now))
+    }
+  }
 
   const toPlace: ItemView[] = []
   const dismissed: ItemView[] = []
@@ -171,26 +230,31 @@ export async function getCandidates(
     const aimedHere =
       (item.targetMeetingId === meeting.id && !rollup) ||
       (parentAim !== null && item.targetMeetingId === parentAim) ||
-      (next && item.targetSeriesId !== null && item.targetSeriesId === meeting.seriesId)
+      (next && item.targetSeriesId !== null && item.targetSeriesId === meeting.seriesId) ||
+      (item.targetProjectId !== null && projectAims.get(item.targetProjectId) === meeting.id)
     const raiseWithSolo =
       solo !== null &&
       item.parties.some(
         (party) => party.type === 'person' && party.id === solo && party.role === 'with',
       )
     const viaProject = item.project !== null && projectIds.has(item.project.id)
+    const viaChild = item.project !== null && !viaProject && below.has(item.project.id)
+    const viaParent = item.project !== null && !viaProject && !viaChild && above.has(item.project.id)
     const viaGroup =
       meeting.groupId !== null &&
       item.parties.some((party) => party.type === 'group' && party.id === meeting.groupId)
 
     if (dismissedIds.has(item.id)) {
-      if (aimedHere || raiseWithSolo || viaProject || viaGroup || attendee) dismissed.push(item)
+      if (aimedHere || raiseWithSolo || viaProject || viaChild || viaGroup || attendee || viaParent) {
+        dismissed.push(item)
+      }
       continue
     }
 
     if (aimedHere || raiseWithSolo) {
       // Its sessions take these; the meeting over them places nothing.
       if (!rollup) toPlace.push(item)
-    } else if (viaProject) {
+    } else if (viaProject || viaChild) {
       push(suggested, { type: 'project', id: item.project!.id, name: item.project!.name }, item)
     } else if (viaGroup) {
       push(suggested, { type: 'group', id: meeting.groupId!, name: groupName }, item)
@@ -200,6 +264,9 @@ export async function getCandidates(
          "more". */
       const by = { type: 'person' as const, id: attendee.id, name: attendee.name }
       push(solo ? suggested : more, by, item)
+    } else if (viaParent) {
+      const id = item.project!.id
+      push(more, { type: 'project', id, name: projectName.get(id) ?? item.project!.name }, item)
     }
   }
 

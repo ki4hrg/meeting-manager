@@ -10,6 +10,7 @@
 
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or } from 'drizzle-orm'
 import { NotFoundError, type Executor } from '../core/types'
+import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 import {
   agendaLines,
   meetingProjects,
@@ -195,12 +196,17 @@ async function lookaheadFor(
   today: string,
   now: Date,
 ): Promise<LookaheadBlock | null> {
-  const projectIds = (
+  const own = (
     await exec
       .select({ projectId: meetingProjects.projectId })
       .from(meetingProjects)
       .where(eq(meetingProjects.meetingId, meeting.id))
   ).map((row) => row.projectId)
+  /* The lookahead reads up and down the project tree: what the projects the
+     meeting's sit within, and the ones within them, have coming. Not sideways:
+     a sibling's dates are its own. Each row names its project. */
+  const tree = own.length > 0 ? await listProjects(exec, meeting.contextId) : []
+  const projectIds = [...new Set([...own, ...ancestorIds(tree, own), ...descendantIds(tree, own)])]
   const until = addDays(today, LOOKAHEAD_DAYS)
 
   const dueMilestones =
@@ -219,7 +225,6 @@ async function lookaheadFor(
             and(
               inArray(milestones.projectId, projectIds),
               eq(projects.contextId, meeting.contextId),
-              isNull(milestones.doneAt),
               gte(milestones.dueOn, today),
               lte(milestones.dueOn, until),
             ),

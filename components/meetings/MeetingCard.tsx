@@ -2,6 +2,7 @@ import { CardGrid, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { Icon } from '@/components/ui/icons'
+import { Badge } from '@/components/ui/StatusBadge'
 import { formatMoment } from '@/lib/core/dates'
 import { isOver } from '@/lib/meetings/meetings'
 
@@ -66,21 +67,35 @@ export function SeriesMark({ series }: { series?: { name: string } | null }) {
   )
 }
 
+/* Whether a meeting is prepped: how many rows its agenda has, green once it
+   has any, amber while it is empty. */
+function AgendaMark({ rows }: { rows: number }) {
+  return (
+    <Badge tone={rows > 0 ? 'green' : 'amber'}>
+      <Icon name={rows > 0 ? 'check' : 'section'} className="h-3 w-3" label={rows > 0 ? 'Agenda' : 'No agenda yet'} />
+      {rows}
+    </Badge>
+  )
+}
+
 /**
  * One meeting as a card. `when` is how its time reads in the list it sits in;
  * `pending` is how many proposals are waiting for review, and `to` sends the
- * card straight to that review instead of the meeting's page.
+ * card straight to that review instead of the meeting's page. `agenda`, when
+ * given, is how many rows its agenda has, shown as whether it is prepped.
  */
 export function MeetingCard({
   meeting,
   when,
   pending,
   to,
+  agenda,
 }: {
   meeting: Listed
   when: string | null
   pending?: number
   to?: 'review'
+  agenda?: number
 }) {
   return (
     <LinkCard href={to === 'review' ? `/meetings/${meeting.id}/review` : `/meetings/${meeting.id}`}>
@@ -93,6 +108,7 @@ export function MeetingCard({
           <Roster people={meeting.people} group={meeting.group} />
         </div>
         <PendingBadge count={pending} />
+        {agenda !== undefined ? <AgendaMark rows={agenda} /> : null}
         <SeriesMark series={meeting.series} />
       </div>
     </LinkCard>

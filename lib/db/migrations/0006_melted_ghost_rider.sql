@@ -1,0 +1,1 @@
+ALTER TABLE "milestones" DROP COLUMN "done_at";

@@ -6,8 +6,9 @@ import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Field, Input, Select } from '@/components/ui/Field'
+import { Field, Input } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
+import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
@@ -103,23 +104,15 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
         title="Members"
         count={members.length}
         action={
-          others.length > 0 ? (
-            <FormModal action={addMemberAction} title="Add member" label="Add" size="sm" submit="Add">
-              <input type="hidden" name="groupId" value={group.id} />
-              <Field label="Person" required>
-                <Select name="personId" required defaultValue="">
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {others.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {person.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </FormModal>
-          ) : null
+          <FormModal action={addMemberAction} title="Add members" label="Add" size="sm" submit="Add">
+            <input type="hidden" name="groupId" value={group.id} />
+            <PartyPicker
+              label="People"
+              name="people"
+              options={others.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+              allowNew
+            />
+          </FormModal>
         }
       >
         {members.length === 0 ? (

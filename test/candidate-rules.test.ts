@@ -20,9 +20,13 @@ import { getRecap, renderPersonSnippet, renderRecap, renderRecapHtml } from '../
 import { agendaLines, items } from '../lib/db/schema'
 import { createPerson } from '../lib/directory/people'
 import { addMember } from '../lib/directory/groups'
-import { completeItem, createItem, recordDecision } from '../lib/items/items'
-import { createMeeting } from '../lib/meetings/meetings'
-import { createSeries } from '../lib/meetings/series'
+import { completeItem, createItem, getItem, markDiscussed, recordDecision } from '../lib/items/items'
+import { createMeeting, getMeeting, setMeetingPeople, updateMeeting } from '../lib/meetings/meetings'
+import { prepMeeting } from '../lib/meetings/prep'
+import { joinRoster, outOfStep, recordAbsences, syncRoster } from '../lib/meetings/roster'
+import { createSeries, setSeriesPeople } from '../lib/meetings/series'
+import { addMilestone, createProject, nextMilestones, updateProject } from '../lib/projects/projects'
+import { resolveProject } from '../lib/directory/resolve'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 
@@ -297,6 +301,84 @@ describe('a series target', () => {
     await placeAutomatic(db, actor, next.id, NOW)
     await placeAutomatic(db, actor, next.id, NOW)
     expect(await db.select().from(agendaLines)).toHaveLength(1)
+  })
+})
+
+describe('a roster change', () => {
+  // Far enough ahead that the meetings are not over whenever the suite runs.
+  const at = (day: string) => new Date(`2030-01-${day}T15:00:00Z`)
+
+  it('reaches the series’ upcoming meetings, and an item for the person added is placed', async () => {
+    const w = await makeWorld()
+    const adlene = await createPerson(db, { name: 'Adlene' })
+    const series = await createSeries(db, { contextId: w.parish.id, name: 'Adlene/John Check-In' })
+    const first = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('07') })
+    const second = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('14') })
+    const topic = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'Accountability process for team-to-team collaborations',
+      parties: [{ personId: adlene.id, role: 'owner' }],
+    })
+    const owedToHer = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'ask about the handbook',
+      parties: [{ personId: adlene.id, role: 'with' }],
+    })
+    expect(offered(await getCandidates(db, first.id, NOW))).toEqual([])
+
+    await setSeriesPeople(db, series.id, [adlene.id])
+
+    for (const meeting of [first, second]) {
+      expect((await getMeeting(db, meeting.id)).people.map((person) => person.id)).toEqual([adlene.id])
+    }
+    const placed = (await getAgenda(db, first.id)).nodes.flatMap((node) =>
+      node.type === 'line' && node.item ? [node.item.id] : [],
+    )
+    expect(placed).toEqual([owedToHer.id])
+    // What she owes is one click away in her 1:1, as at prep.
+    expect(grouped((await getCandidates(db, first.id, NOW)).suggested)).toEqual([topic.id])
+  })
+
+  it('leaves a meeting edited by hand until asked, and never puts back someone left off it', async () => {
+    const w = await makeWorld()
+    const series = await createSeries(db, { contextId: w.parish.id, name: 'Staff', personIds: [w.sarah.id] })
+    const out = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('07') })
+    const edited = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('14') })
+    const untouched = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('21') })
+    // Sarah is out on the 7th; the bishop joins on the 14th.
+    await setMeetingPeople(db, actor, out.id, [])
+    await recordAbsences(db, out.id)
+    await setMeetingPeople(db, actor, edited.id, [w.sarah.id, w.bishop.id])
+    await recordAbsences(db, edited.id)
+
+    await setSeriesPeople(db, series.id, [w.sarah.id, w.tom.id])
+
+    const people = async (id: string) => (await getMeeting(db, id)).people.map((person) => person.id).sort()
+    expect(await people(out.id)).toEqual([w.tom.id])
+    expect(await people(edited.id)).toEqual([w.sarah.id, w.bishop.id].sort())
+    expect(await people(untouched.id)).toEqual([w.sarah.id, w.tom.id].sort())
+
+    expect((await outOfStep(db, series.id)).map((meeting) => meeting.id)).toEqual([edited.id])
+    expect(await syncRoster(db, actor, series.id)).toBe(1)
+    expect(await people(edited.id)).toEqual([w.sarah.id, w.tom.id, w.bishop.id].sort())
+    expect(await people(out.id)).toEqual([w.tom.id])
+    expect(await outOfStep(db, series.id)).toEqual([])
+  })
+
+  it('a meeting newly in a series takes its roster and projects', async () => {
+    const w = await makeWorld()
+    const series = await createSeries(db, {
+      contextId: w.parish.id,
+      name: 'Staff',
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+    })
+    const byHand = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Check-in', startsAt: at('07') })
+    await updateMeeting(db, actor, byHand.id, { seriesId: series.id })
+    expect(await joinRoster(db, actor, byHand.id)).toBe(true)
+    const meeting = await getMeeting(db, byHand.id)
+    expect(meeting.people.map((person) => person.id)).toEqual([w.sarah.id])
+    expect(meeting.projects.map((project) => project.id)).toEqual([w.retreat.id])
   })
 })
 
@@ -631,5 +713,166 @@ describe('the recap', () => {
     const recap = await getRecap(db, meeting.id, { today: TODAY, timeZone: null, selfId: w.john.id, now: NOW })
     expect(recap.lookahead?.deadlines.map((deadline) => deadline.text)).toEqual(['raised and dated'])
     expect(renderRecap(recap)).not.toContain('private and dated')
+  })
+})
+
+describe('milestones in the lookahead', () => {
+  it('a milestone is upcoming or past by its date alone', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Retreat planning',
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+      projectIds: [w.retreat.id],
+    })
+    await addMilestone(db, { projectId: w.retreat.id, title: 'Venue booked', dueOn: '2026-10-04' })
+    await addMilestone(db, { projectId: w.retreat.id, title: 'Retreat day', dueOn: TODAY })
+    await addMilestone(db, { projectId: w.retreat.id, title: 'Someday' })
+
+    const blocks = await computeBlocks(db, meeting.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(blocks.lookahead?.milestones.map((m) => m.title)).toEqual(['Retreat day'])
+    const next = await nextMilestones(db, w.parish.id, TODAY)
+    expect(next.get(w.retreat.id)?.title).toBe('Retreat day')
+    expect((await nextMilestones(db, w.parish.id, '2026-10-06')).has(w.retreat.id)).toBe(false)
+  })
+})
+
+describe('projects within projects', () => {
+  async function conference() {
+    const w = await makeWorld()
+    const standing = await createProject(db, { contextId: w.parish.id, name: 'Annual Conference' })
+    const year = await createProject(db, { contextId: w.parish.id, name: '2027 Annual Conference', parentId: standing.id })
+    const lastYear = await createProject(db, { contextId: w.parish.id, name: '2026 Annual Conference', parentId: standing.id })
+    const worship = await createProject(db, { contextId: w.parish.id, name: 'AC2027 Worship', parentId: year.id })
+    const music = await createProject(db, { contextId: w.parish.id, name: 'AC2027 Music', parentId: year.id })
+    const on = (projectId: string, text: string) =>
+      createItem(db, actor, { contextId: w.parish.id, text, projectId })
+    return {
+      w,
+      standing,
+      year,
+      lastYear,
+      worship,
+      music,
+      items: {
+        standing: await on(standing.id, 'bylaws'),
+        year: await on(year.id, 'venue for 2027'),
+        lastYear: await on(lastYear.id, '2026 accounts'),
+        worship: await on(worship.id, 'hymn list'),
+        music: await on(music.id, 'organist'),
+      },
+    }
+  }
+  const meetingOn = (contextId: string, projectId: string) =>
+    createMeeting(db, actor, { contextId, title: 'Planning', personIds: [], projectIds: [projectId] })
+
+  it('a meeting on a project suggests its sub-projects’ items by sub-project, and keeps its parent’s under more', async () => {
+    const { w, year, worship, music, standing, items } = await conference()
+    const meeting = await meetingOn(w.parish.id, year.id)
+    const c = await getCandidates(db, meeting.id, NOW)
+
+    expect(ids(c.toPlace)).toEqual([])
+    expect(c.suggested.map((group) => [group.by.id, ids(group.items)]).sort()).toEqual(
+      [
+        [year.id, [items.year.id]],
+        [worship.id, [items.worship.id]],
+        [music.id, [items.music.id]],
+      ].sort(),
+    )
+    expect(c.more.map((group) => [group.by.id, ids(group.items)])).toEqual([[standing.id, [items.standing.id]]])
+    // A sibling of the meeting's project is nobody's business here.
+    expect([...offered(c), ...grouped(c.more)]).not.toContain(items.lastYear.id)
+    expect(await placeAutomatic(db, actor, meeting.id, NOW)).toBe(0)
+  })
+
+  it('a meeting on a leaf reaches every project above it under more, and no sibling', async () => {
+    const { w, worship, year, standing, items } = await conference()
+    const meeting = await meetingOn(w.parish.id, worship.id)
+    const c = await getCandidates(db, meeting.id, NOW)
+    expect(grouped(c.suggested)).toEqual([items.worship.id])
+    expect(c.more.map((group) => group.by.id).sort()).toEqual([year.id, standing.id].sort())
+    expect(grouped(c.more)).toEqual([items.year.id, items.standing.id].sort())
+    expect([...offered(c), ...grouped(c.more)]).not.toContain(items.music.id)
+  })
+
+  it('the lookahead reads up and down the tree, not sideways', async () => {
+    const { w, year, worship, standing, lastYear, music } = await conference()
+    await addMilestone(db, { projectId: standing.id, title: 'Bylaws vote', dueOn: '2026-10-20' })
+    await addMilestone(db, { projectId: year.id, title: 'Registration opens', dueOn: '2026-10-21' })
+    await addMilestone(db, { projectId: worship.id, title: 'Hymns chosen', dueOn: '2026-10-22' })
+    await addMilestone(db, { projectId: music.id, title: 'Organist booked', dueOn: '2026-10-23' })
+    await addMilestone(db, { projectId: lastYear.id, title: '2026 accounts closed', dueOn: '2026-10-24' })
+
+    const onLeaf = await meetingOn(w.parish.id, worship.id)
+    const leaf = await computeBlocks(db, onLeaf.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(leaf.lookahead?.milestones.map((m) => `${m.projectName}: ${m.title}`)).toEqual([
+      'Annual Conference: Bylaws vote',
+      '2027 Annual Conference: Registration opens',
+      'AC2027 Worship: Hymns chosen',
+    ])
+
+    const onYear = await meetingOn(w.parish.id, year.id)
+    const middle = await computeBlocks(db, onYear.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(middle.lookahead?.milestones.map((m) => m.title)).toEqual([
+      'Bylaws vote',
+      'Registration opens',
+      'Hymns chosen',
+      'Organist booked',
+    ])
+  })
+
+  it('refuses a cycle and a parent in another context, and names a child by path', async () => {
+    const { w, standing, worship } = await conference()
+    await expect(updateProject(db, standing.id, { parentId: worship.id })).rejects.toThrow(/inside itself/)
+    await expect(updateProject(db, standing.id, { parentId: standing.id })).rejects.toThrow(/inside itself/)
+    const elsewhere = await createProject(db, { contextId: w.diocese.id, name: 'Synod 2027' })
+    await expect(updateProject(db, elsewhere.id, { parentId: standing.id })).rejects.toThrow(/another context/)
+
+    expect((await resolveProject(db, w.parish.id, 'AC2027/Worship')).id).toBe(worship.id)
+    expect((await resolveProject(db, w.parish.id, '2027/Worship')).id).toBe(worship.id)
+    await expect(resolveProject(db, w.parish.id, '2026/Worship')).rejects.toThrow(/No project/)
+  })
+})
+
+describe('the next meeting for a project', () => {
+  const at = (day: string) => new Date(`2030-01-${day}T15:00:00Z`)
+
+  it('waits until a meeting carries the project, then goes to the next one only, until discussed', async () => {
+    const w = await makeWorld()
+    const worship = await createProject(db, { contextId: w.parish.id, name: 'Worship', parentId: w.retreat.id })
+    const item = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'choose the hymns',
+      target: { projectId: w.retreat.id },
+    })
+    const unrelated = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Staff', startsAt: at('06') })
+    expect(ids((await getCandidates(db, unrelated.id, NOW)).toPlace)).toEqual([])
+
+    // A meeting on a project within it counts; a past one does not.
+    await createMeeting(db, actor, { contextId: w.parish.id, title: 'Old', startsAt: new Date('2026-09-01T15:00:00Z'), projectIds: [w.retreat.id] })
+    const later = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Later', startsAt: at('20'), projectIds: [w.retreat.id] })
+    const first = await prepMeeting(db, actor, { contextId: w.parish.id, title: 'Worship planning', startsAt: at('13'), projectIds: [worship.id] })
+    expect(ids((await getCandidates(db, later.id)).toPlace)).toEqual([])
+    const placed = (await getAgenda(db, first.id)).nodes.flatMap((node) => (node.type === 'line' && node.item ? [node.item.id] : []))
+    expect(placed).toEqual([item.id])
+
+    // Discussed there, it is aimed nowhere any more.
+    await markDiscussed(db, actor, item.id, first.id)
+    expect((await getItem(db, item.id)).targetProjectId).toBeNull()
+  })
+
+  it('a meeting with sessions hands it to its next session, and another context never sees it', async () => {
+    const w = await makeWorld()
+    const item = await createItem(db, actor, { contextId: w.parish.id, text: 'budget', target: { projectId: w.retreat.id } })
+    const retreat = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Retreat', startsAt: at('10'), projectIds: [w.retreat.id] })
+    const day = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Day one', parentMeetingId: retreat.id, startsAt: at('10') })
+    expect(ids((await getCandidates(db, retreat.id)).toPlace)).toEqual([])
+    expect(ids((await getCandidates(db, day.id)).toPlace)).toEqual([item.id])
+
+    const synod = await createMeeting(db, actor, { contextId: w.diocese.id, title: 'Synod', startsAt: at('09'), projectIds: [w.synod.id] })
+    expect(offered(await getCandidates(db, synod.id))).toEqual([])
+    await expect(
+      createItem(db, actor, { contextId: w.diocese.id, text: 'x', target: { projectId: w.retreat.id } }),
+    ).rejects.toThrow(/another context/)
   })
 })

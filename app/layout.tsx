@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from '@/components/providers'
+import { ServiceWorker } from '@/components/ServiceWorker'
 import { themeInitScript } from '@/components/theme-provider'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -9,6 +10,7 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Meeting Manager',
   applicationName: 'Meeting Manager',
+  appleWebApp: { capable: true, title: 'Meetings', statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {
@@ -30,6 +32,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       </head>
       <body className={`${inter.className} antialiased`}>
         <Providers>{children}</Providers>
+        <ServiceWorker />
       </body>
     </html>
   )

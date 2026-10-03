@@ -57,3 +57,65 @@ body {
 .success-message {
   @apply text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900/50 rounded-md p-3 text-sm;
 }
+
+/* Rendered Markdown (components/ui/Markdown.tsx). Colour and size are the
+   caller's; this only spaces the blocks and marks links, lists and code. */
+.md > * + * {
+  margin-top: 0.5em;
+}
+.md ul {
+  list-style: disc;
+  padding-left: 1.25em;
+}
+.md ol {
+  list-style: decimal;
+  padding-left: 1.25em;
+}
+.md li + li {
+  margin-top: 0.125em;
+}
+.md li > ul,
+.md li > ol {
+  margin-top: 0.125em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+}
+.md strong {
+  font-weight: 600;
+}
+.md a {
+  color: var(--color-blue-600);
+  text-decoration: underline;
+}
+.dark .md a {
+  color: var(--color-blue-400);
+}
+.md code {
+  border-radius: 0.25rem;
+  background: var(--color-gray-100);
+  padding: 0 0.25em;
+  font-size: 0.9em;
+}
+.dark .md code {
+  background: var(--color-gray-700);
+}
+.md pre {
+  overflow-x: auto;
+}
+.md blockquote {
+  border-left: 2px solid var(--color-gray-300);
+  padding-left: 0.75em;
+}
+.dark .md blockquote {
+  border-left-color: var(--color-gray-600);
+}
+.md hr {
+  border-color: var(--color-gray-200);
+}
+.dark .md hr {
+  border-color: var(--color-gray-700);
+}

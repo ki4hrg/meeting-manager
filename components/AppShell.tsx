@@ -5,13 +5,20 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import ThemeToggle from '@/components/ThemeToggle'
 import { Icon } from '@/components/ui/icons'
+import { Badge, type Tone } from '@/components/ui/StatusBadge'
 
-export type NavSection = { href: string; label: string }
+export type NavSection = { href: string; label: string; count?: number; tone?: Tone }
 
 const ICON_BUTTON =
   'flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700 ' +
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ' +
   'dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+
+/** A section's count, hidden at zero. */
+function NavCount({ section }: { section: NavSection }) {
+  if (!section.count) return null
+  return <Badge tone={section.tone}>{section.count}</Badge>
+}
 
 function isActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false
@@ -64,9 +71,19 @@ export function AppShell({
                   onClick={() => setDrawerOpen((open) => !open)}
                   aria-label="Main menu"
                   aria-expanded={drawerOpen}
-                  className={`${ICON_BUTTON} -ml-2 md:hidden`}
+                  className={`${ICON_BUTTON} relative -ml-2 md:hidden`}
                 >
                   <Icon name={drawerOpen ? 'close' : 'menu'} />
+                  {drawerOpen
+                    ? null
+                    : sections
+                        .filter((section) => section.count)
+                        .slice(0, 1)
+                        .map((section) => (
+                          <span key={section.href} className="absolute -right-1.5 -top-1">
+                            <NavCount section={section} />
+                          </span>
+                        ))}
                 </button>
               ) : null}
 
@@ -85,13 +102,14 @@ export function AppShell({
                     key={section.href}
                     href={section.href}
                     aria-current={isActive(pathname, section.href) ? 'page' : undefined}
-                    className={`whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                       isActive(pathname, section.href)
                         ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-gray-100'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700/50 dark:hover:text-gray-100'
                     }`}
                   >
                     {section.label}
+                    <NavCount section={section} />
                   </Link>
                 ))}
               </div>
@@ -156,13 +174,14 @@ export function AppShell({
                   href={section.href}
                   onClick={() => setDrawerOpen(false)}
                   aria-current={isActive(pathname, section.href) ? 'page' : undefined}
-                  className={`block rounded-md px-3 py-3 text-base font-medium ${
+                  className={`flex items-center justify-between rounded-md px-3 py-3 text-base font-medium ${
                     isActive(pathname, section.href)
                       ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-gray-100'
                       : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50'
                   }`}
                 >
                   {section.label}
+                  <NavCount section={section} />
                 </Link>
               ))}
             </div>

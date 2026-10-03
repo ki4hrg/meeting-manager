@@ -1,6 +1,6 @@
 /* Projects, with their milestones and links. Each belongs to one context. */
 
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { parseDay } from '../core/dates'
 import { NotFoundError, ValidationError, type Executor } from '../core/types'
 import { milestones, projectLinks, projects } from '../db/schema'
@@ -44,18 +44,35 @@ function blankToNull(value: string | null | undefined): string | null {
   return trimmed === '' ? null : trimmed
 }
 
+/* A parent must be in the same context and must not be the project or one of its own sub-projects. */
+async function assertParent(exec: Executor, contextId: string, parentId: string, childId?: string) {
+  const parent = await getProject(exec, parentId)
+  if (parent.contextId !== contextId) throw new ValidationError('That project belongs to another context.')
+  if (!childId) return
+  const all = await listProjects(exec, contextId)
+  if (parentId === childId || descendantIds(all, [childId]).has(parentId)) {
+    throw new ValidationError('A project cannot sit inside itself.')
+  }
+}
+
 export async function createProject(
   exec: Executor,
-  input: { contextId: string; name: string; description?: string | null },
+  input: { contextId: string; name: string; description?: string | null; parentId?: string | null },
 ): Promise<Project> {
   const name = input.name.trim()
   if (name === '') throw new ValidationError('Enter a name.')
   await getContext(exec, input.contextId)
   await assertNameFree(exec, input.contextId, name)
+  if (input.parentId) await assertParent(exec, input.contextId, input.parentId)
 
   const [row] = await exec
     .insert(projects)
-    .values({ contextId: input.contextId, name, description: blankToNull(input.description) })
+    .values({
+      contextId: input.contextId,
+      name,
+      description: blankToNull(input.description),
+      parentId: input.parentId || null,
+    })
     .returning()
   return row!
 }
@@ -63,10 +80,15 @@ export async function createProject(
 export async function updateProject(
   exec: Executor,
   id: string,
-  input: { name?: string; description?: string | null; status?: ProjectStatus },
+  input: { name?: string; description?: string | null; status?: ProjectStatus; parentId?: string | null },
 ): Promise<Project> {
   const project = await getProject(exec, id)
   const patch: Partial<typeof projects.$inferInsert> = {}
+
+  if (input.parentId !== undefined) {
+    if (input.parentId) await assertParent(exec, project.contextId, input.parentId, id)
+    patch.parentId = input.parentId || null
+  }
 
   if (input.name !== undefined) {
     const name = input.name.trim()
@@ -90,6 +112,56 @@ export async function updateProject(
   return row!
 }
 
+// ─── the tree ────────────────────────────────────────────────────────────────
+
+/** Every project under these, at any depth, not counting them. */
+export function descendantIds(all: Pick<Project, 'id' | 'parentId'>[], ids: Iterable<string>): Set<string> {
+  const found = new Set<string>()
+  let frontier = [...ids]
+  while (frontier.length > 0) {
+    const next = all.filter((one) => one.parentId && frontier.includes(one.parentId) && !found.has(one.id))
+    for (const one of next) found.add(one.id)
+    frontier = next.map((one) => one.id)
+  }
+  return found
+}
+
+/** Every project above these, up to the top, not counting them. */
+export function ancestorIds(all: Pick<Project, 'id' | 'parentId'>[], ids: Iterable<string>): Set<string> {
+  const byId = new Map(all.map((one) => [one.id, one]))
+  const found = new Set<string>()
+  for (const id of ids) {
+    let parent = byId.get(id)?.parentId ?? null
+    while (parent && !found.has(parent)) {
+      found.add(parent)
+      parent = byId.get(parent)?.parentId ?? null
+    }
+  }
+  return found
+}
+
+/** A context's projects in tree order, each with how deep it sits: for pickers that show the tree indented. */
+export function treeOrder<T extends Pick<Project, 'id' | 'parentId' | 'name'>>(all: T[]): Array<T & { depth: number }> {
+  const ids = new Set(all.map((one) => one.id))
+  const out: Array<T & { depth: number }> = []
+  const walk = (parentId: string | null, depth: number) => {
+    const children = all
+      .filter((one) => (parentId === null ? !one.parentId || !ids.has(one.parentId) : one.parentId === parentId))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    for (const child of children) {
+      out.push({ ...child, depth })
+      walk(child.id, depth + 1)
+    }
+  }
+  walk(null, 0)
+  return out
+}
+
+/** A project's name indented by its depth, for an <option>. */
+export function indented(project: { name: string; depth: number }): string {
+  return `${'\u00a0\u00a0\u00a0'.repeat(project.depth)}${project.name}`
+}
+
 // ─── milestones ──────────────────────────────────────────────────────────────
 
 export async function listMilestones(exec: Executor, projectId: string): Promise<Milestone[]> {
@@ -100,10 +172,11 @@ export async function listMilestones(exec: Executor, projectId: string): Promise
     .orderBy(sql`${milestones.dueOn} asc nulls last`, asc(milestones.createdAt))
 }
 
-/** The next unfinished, dated milestone of each project in a context. */
+/** The next milestone of each project in a context, from `today` (the user's day) on. */
 export async function nextMilestones(
   exec: Executor,
   contextId: string,
+  today: string,
 ): Promise<Map<string, Milestone>> {
   const rows = await exec
     .select({ milestone: milestones })
@@ -112,7 +185,7 @@ export async function nextMilestones(
     .where(
       and(
         eq(projects.contextId, contextId),
-        sql`${milestones.doneAt} is null and ${milestones.dueOn} is not null`,
+        gte(milestones.dueOn, today),
       ),
     )
     .orderBy(asc(milestones.dueOn))
@@ -137,20 +210,6 @@ export async function addMilestone(
     .values({ projectId: input.projectId, title, dueOn: parseDay(input.dueOn) })
     .returning()
   return row!
-}
-
-export async function setMilestoneDone(
-  exec: Executor,
-  id: string,
-  done: boolean,
-): Promise<Milestone> {
-  const [row] = await exec
-    .update(milestones)
-    .set({ doneAt: done ? new Date() : null, updatedAt: new Date() })
-    .where(eq(milestones.id, id))
-    .returning()
-  if (!row) throw new NotFoundError('Milestone', id)
-  return row
 }
 
 export async function deleteMilestone(exec: Executor, id: string): Promise<void> {
@@ -200,4 +259,12 @@ export async function addLink(
 
 export async function deleteLink(exec: Executor, id: string): Promise<void> {
   await exec.delete(projectLinks).where(eq(projectLinks.id, id))
+}
+
+/** A context's projects for a picker: in tree order, each name indented by its depth. */
+export async function listProjectChoices(exec: Executor, contextId: string): Promise<Project[]> {
+  return treeOrder(await listProjects(exec, contextId)).map(({ depth, ...project }) => ({
+    ...project,
+    name: indented({ name: project.name, depth }),
+  }))
 }

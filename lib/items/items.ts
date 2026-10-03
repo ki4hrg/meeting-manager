@@ -33,6 +33,7 @@ import {
   projects,
   series,
 } from '../db/schema'
+import { getProject } from '../projects/projects'
 import { getContext } from '../directory/contexts'
 
 export type ItemKind = (typeof items.$inferSelect)['kind']
@@ -71,6 +72,7 @@ export type ItemView = {
   originMeetingId: string | null
   targetMeetingId: string | null
   targetSeriesId: string | null
+  targetProjectId: string | null
   createdAt: Date
   updatedAt: Date
   parties: ItemParty[]
@@ -177,6 +179,7 @@ async function loadViews(exec: Executor, where: SQL | undefined, limit?: number)
     originMeetingId: item.originMeetingId,
     targetMeetingId: item.targetMeetingId,
     targetSeriesId: item.targetSeriesId,
+    targetProjectId: item.targetProjectId,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     parties: byItem.get(item.id) ?? [],
@@ -257,20 +260,25 @@ export type OpenCounts = {
   byGroup: Map<string, number>
 }
 
-/** How much is open in a context, for the tiles and list pages. */
-export async function openCounts(exec: Executor, contextId: string): Promise<OpenCounts> {
-  const open = and(eq(items.contextId, contextId), inArray(items.status, OPEN_STATUSES))
-
-  const [inbox] = await exec
+/** Open items in a context with no project and no party: what waits in the Inbox. */
+export async function inboxCount(exec: Executor, contextId: string): Promise<number> {
+  const [row] = await exec
     .select({ n: sql<number>`count(*)::int` })
     .from(items)
     .where(
       and(
-        open,
+        eq(items.contextId, contextId),
+        inArray(items.status, OPEN_STATUSES),
         sql`${items.projectId} is null`,
         sql`not exists (select 1 from ${itemParties} where ${itemParties.itemId} = ${items.id})`,
       ),
     )
+  return row?.n ?? 0
+}
+
+/** How much is open in a context, for the tiles and list pages. */
+export async function openCounts(exec: Executor, contextId: string): Promise<OpenCounts> {
+  const open = and(eq(items.contextId, contextId), inArray(items.status, OPEN_STATUSES))
 
   const projectRows = await exec
     .select({ id: items.projectId, n: sql<number>`count(*)::int` })
@@ -290,7 +298,7 @@ export async function openCounts(exec: Executor, contextId: string): Promise<Ope
     .groupBy(itemParties.personId, itemParties.groupId)
 
   const counts: OpenCounts = {
-    inbox: inbox?.n ?? 0,
+    inbox: await inboxCount(exec, contextId),
     byProject: new Map(projectRows.map((row) => [row.id!, row.n])),
     byPerson: new Map(),
     byGroup: new Map(),
@@ -398,7 +406,7 @@ async function assertProjectIn(exec: Executor, projectId: string, contextId: str
 }
 
 /** Where an item is to be raised: one meeting, or the next occurrence of a series. */
-export type ItemTarget = { meetingId: string } | { seriesId: string } | null
+export type ItemTarget = { meetingId: string } | { seriesId: string } | { projectId: string } | null
 
 async function assertMeetingIn(exec: Executor, meetingId: string, contextId: string) {
   const [meeting] = await exec
@@ -425,13 +433,19 @@ async function assertSeriesIn(exec: Executor, seriesId: string, contextId: strin
 }
 
 async function targetColumns(exec: Executor, target: ItemTarget | undefined, contextId: string) {
-  if (!target) return { targetMeetingId: null, targetSeriesId: null }
+  const none = { targetMeetingId: null, targetSeriesId: null, targetProjectId: null }
+  if (!target) return none
   if ('meetingId' in target) {
     await assertMeetingIn(exec, target.meetingId, contextId)
-    return { targetMeetingId: target.meetingId, targetSeriesId: null }
+    return { ...none, targetMeetingId: target.meetingId }
+  }
+  if ('projectId' in target) {
+    const project = await getProject(exec, target.projectId)
+    if (project.contextId !== contextId) throw new ValidationError('That project belongs to another context.')
+    return { ...none, targetProjectId: target.projectId }
   }
   await assertSeriesIn(exec, target.seriesId, contextId)
-  return { targetMeetingId: null, targetSeriesId: target.seriesId }
+  return { ...none, targetSeriesId: target.seriesId }
 }
 
 /* Replaces an item's parties. Validated here rather than left to the foreign
@@ -609,7 +623,8 @@ export async function setItemTarget(
     const columns = await targetColumns(tx, target, item.contextId)
     if (
       columns.targetMeetingId === item.targetMeetingId &&
-      columns.targetSeriesId === item.targetSeriesId
+      columns.targetSeriesId === item.targetSeriesId &&
+      columns.targetProjectId === item.targetProjectId
     ) {
       return item
     }
@@ -620,6 +635,7 @@ export async function setItemTarget(
     await logEvent(tx, actor, id, 'targeted', {
       meetingId: columns.targetMeetingId,
       seriesId: columns.targetSeriesId,
+      projectId: columns.targetProjectId,
     })
     return getItem(tx, id)
   })
@@ -635,7 +651,11 @@ export async function markDiscussed(
   await inTransaction(exec, async (tx) => {
     const item = await getItem(tx, id)
     await assertMeetingIn(tx, meetingId, item.contextId)
-    await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id))
+    /* Aimed at the next meeting for a project, it has now had that meeting. */
+    await tx
+      .update(items)
+      .set({ updatedAt: new Date(), ...(item.targetProjectId ? { targetProjectId: null } : {}) })
+      .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'discussed', { meetingId })
   })
 }

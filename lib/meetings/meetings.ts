@@ -191,6 +191,8 @@ export type MeetingFilter = {
   projectId?: string
   groupId?: string
   topLevelOnly?: boolean
+  /** Only meetings starting in [from, to). */
+  between?: { from: Date; to: Date }
   now?: Date
   limit?: number
 }
@@ -216,6 +218,12 @@ export async function listMeetings(
     conditions.push(sql`${over} < ${now.toISOString()}::timestamp with time zone`)
   } else if (filter.when === 'stubs') {
     conditions.push(sql`${meetings.startsAt} is null`)
+  }
+
+  if (filter.between) {
+    conditions.push(
+      sql`${meetings.startsAt} >= ${filter.between.from.toISOString()}::timestamptz and ${meetings.startsAt} < ${filter.between.to.toISOString()}::timestamptz`,
+    )
   }
 
   if (filter.seriesId) {
@@ -249,6 +257,37 @@ export async function listMeetings(
           : [sql`${meetings.startsAt} asc nulls last`, desc(meetings.createdAt)]
 
   return loadViews(exec, and(...conditions), { orderBy, limit: filter.limit })
+}
+
+/**
+ * The meetings of a context nearest a moment, for a picker: top-level ones
+ * dated within `days` either side, closest first, then undated ones. Each
+ * carries its sessions, so a picker can offer those instead.
+ */
+export async function meetingsNear(
+  exec: Executor,
+  contextId: string,
+  at: Date,
+  opts: { days?: number; limit?: number } = {},
+): Promise<MeetingView[]> {
+  const days = opts.days ?? 30
+  const from = new Date(at.getTime() - days * 86_400_000).toISOString()
+  const to = new Date(at.getTime() + days * 86_400_000).toISOString()
+  return loadViews(
+    exec,
+    and(
+      eq(meetings.contextId, contextId),
+      sql`${meetings.parentMeetingId} is null`,
+      sql`(${meetings.startsAt} is null or ${meetings.startsAt} between ${from}::timestamptz and ${to}::timestamptz)`,
+    ),
+    {
+      orderBy: [
+        sql`abs(extract(epoch from ${meetings.startsAt} - ${at.toISOString()}::timestamptz)) asc nulls last`,
+        desc(meetings.createdAt),
+      ],
+      limit: opts.limit ?? 30,
+    },
+  )
 }
 
 // ─── writing ─────────────────────────────────────────────────────────────────

@@ -162,7 +162,7 @@ describe('directory tools', () => {
       add_milestone: { title: 'Deposit', due_on: '2026-12-01' },
     })
     expect(dataOf(project)).toMatchObject({
-      project: { status: 'paused', milestones: [{ title: 'Deposit', due_on: '2026-12-01', done: false }] },
+      project: { status: 'paused', milestones: [{ title: 'Deposit', due_on: '2026-12-01' }] },
     })
 
     const people = dataOf<{ people: Array<{ name: string }> }>(await call('list_people', { search: 'sar' }))
@@ -171,6 +171,24 @@ describe('directory tools', () => {
     const dup = await call('create_project', { name: 'retreat', context: 'Parish' })
     expect(dup.isError).toBe(true)
     expect(textOf(dup)).toContain('already a project')
+  })
+
+  it('keeps several addresses per person, primary first, and names who has one already', async () => {
+    const made = dataOf<{ person: { id: string; email: string; emails: string[] } }>(
+      await call('create_person', { name: 'Adlene', emails: ['adlene@work.test', 'Adlene@home.test'] }),
+    )
+    expect(made.person).toMatchObject({ email: 'adlene@work.test', emails: ['adlene@work.test', 'adlene@home.test'] })
+
+    const updated = dataOf<{ person: { email: string; emails: string[] } }>(
+      await call('update_person', { person: 'Adlene', emails: ['adlene@home.test', 'adlene@new.test'] }),
+    )
+    expect(updated.person).toEqual(
+      expect.objectContaining({ email: 'adlene@home.test', emails: ['adlene@home.test', 'adlene@new.test'] }),
+    )
+
+    const taken = await call('update_person', { person: 'Adlene', emails: ['sarah@example.test'] })
+    expect(taken.isError).toBe(true)
+    expect(textOf(taken)).toContain('Sarah Jones')
   })
 
   it('offers only the read tools to a read connection', async () => {

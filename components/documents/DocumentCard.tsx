@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { CopyButton } from '@/components/CopyButton'
+import { Markdown } from '@/components/ui/Markdown'
 import { Icon } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 
@@ -50,9 +51,7 @@ export function DocumentCard({
 
       <Modal open={open} onClose={() => setOpen(false)} title={title} size="lg">
         <div className="flex flex-col gap-4">
-          <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">
-            {body}
-          </div>
+          <Markdown source={body} className="max-h-[60vh] overflow-y-auto text-sm text-gray-700 dark:text-gray-300" />
           <div className="flex justify-end">
             <CopyButton label="Copy" text={body} />
           </div>

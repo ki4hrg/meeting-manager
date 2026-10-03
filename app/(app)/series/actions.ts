@@ -2,12 +2,14 @@
 
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { ValidationError } from '@/lib/core/types'
+import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { SkeletonSection } from '@/lib/db/schema'
 import { getContext } from '@/lib/directory/contexts'
+import { addPersonEmail, createPerson } from '@/lib/directory/people'
 import { moveSeries } from '@/lib/meetings/move'
-import { prepNextInSeries } from '@/lib/meetings/prep'
+import { calendarLinkOf, linkSeriesCalendar, prepNextInSeries } from '@/lib/meetings/prep'
+import { syncRoster } from '@/lib/meetings/roster'
 import {
   createSeries,
   deleteSeries,
@@ -17,7 +19,7 @@ import {
   skeletonFromOutline,
   updateSeries,
 } from '@/lib/meetings/series'
-import { act, field, type ActionResult } from '@/lib/web/action'
+import { act, field, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 const ids = (formData: FormData, name: string): string[] =>
@@ -31,18 +33,23 @@ export async function createSeriesAction(formData: FormData): Promise<ActionResu
       contextId: context.id,
       name: field(formData, 'name'),
       groupId: field(formData, 'groupId') || undefined,
-      personIds: ids(formData, 'personIds'),
+      personIds: await pickedPeople(db, formData, 'personIds'),
       projectIds: ids(formData, 'projectIds'),
     })
   })
 }
 
 export async function updateSeriesAction(formData: FormData): Promise<ActionResult> {
-  return act(async () => {
-    await updateSeries(db, field(formData, 'id'), {
+  return act(async (actor) => {
+    const id = field(formData, 'id')
+    await updateSeries(db, id, {
       name: field(formData, 'name'),
       groupId: field(formData, 'groupId') || null,
     })
+    // Unlinking is a box ticked in Edit; linking picks one of the context's recurring events.
+    if (formData.has('unlinkCalendar')) await updateSeries(db, id, { calendarSeriesId: null })
+    const calendar = field(formData, 'calendarSeriesId')
+    if (calendar) await linkSeriesCalendar(db, actor, id, calendar)
   })
 }
 
@@ -99,18 +106,44 @@ export async function openSeriesAction(formData: FormData): Promise<ActionResult
   return openIn(contextId, id)
 }
 
-/* The series stays; it just stops being the home of a calendar's recurring event. */
-export async function unlinkSeriesCalendarAction(formData: FormData): Promise<ActionResult> {
+// ─── roster and projects ─────────────────────────────────────────────────────
+
+/* The next occurrence's invitees, as the feed has them now. */
+async function invitees(seriesId: string) {
+  const series = await getSeries(db, seriesId)
+  const link = await calendarLinkOf(db, series)
+  return { series, attendees: link?.next?.attendees ?? [] }
+}
+
+/** Add to the roster whoever is invited on the calendar and in the directory. */
+export async function rosterFromCalendarAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    await updateSeries(db, field(formData, 'id'), { calendarSeriesId: null })
+    const { series, attendees } = await invitees(field(formData, 'id'))
+    const known = attendees.flatMap((attendee) => (attendee.personId && !attendee.declined ? [attendee.personId] : []))
+    await setSeriesPeople(db, series.id, [...series.people.map((person) => person.id), ...known])
   })
 }
 
-// ─── roster and projects ─────────────────────────────────────────────────────
+/** An invitee nobody in the directory has: a new person with that address, or someone known by another one. Either joins the roster. */
+export async function rosterInviteeAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    const series = await getSeries(db, field(formData, 'id'))
+    const email = field(formData, 'email')
+    const existing = field(formData, 'personId')
+    let personId: string
+    if (existing) {
+      await addPersonEmail(db, existing, email)
+      personId = existing
+    } else {
+      personId = (await createPerson(db, { name: field(formData, 'name') || email, email })).id
+    }
+    await setSeriesPeople(db, series.id, [...series.people.map((person) => person.id), personId])
+  })
+}
 
 export async function addSeriesPeopleAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    const adding = ids(formData, 'personIds')
+    const adding = await pickedPeople(db, formData, 'personIds')
     if (adding.length === 0) throw new ValidationError('Pick a person.')
     const series = await getSeries(db, field(formData, 'id'))
     await setSeriesPeople(db, series.id, [...series.people.map((person) => person.id), ...adding])
@@ -208,4 +241,11 @@ export async function prepNextInSeriesAction(formData: FormData): Promise<Action
   // On to the agenda that was just started.
   if (!result.error) redirect(`/meetings/${meetingId}`)
   return result
+}
+
+/** Give the series' upcoming meetings edited by hand what its roster has and they lack. */
+export async function syncRosterAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await inTransaction(db, (tx) => syncRoster(tx, actor, field(formData, 'id')))
+  })
 }

@@ -63,15 +63,34 @@ export async function resolveProject(
   const wanted = ref.trim().replace(/^#/, '')
   if (wanted === '') throw new ValidationError('Name a project.')
 
-  const rows = await exec
-    .select({ id: projects.id, name: projects.name })
+  const all = await exec
+    .select({ id: projects.id, name: projects.name, parentId: projects.parentId })
     .from(projects)
     .where(eq(projects.contextId, contextId))
+  const rows = all.map(({ id, name }) => ({ id, name }))
 
   if (isUuid(wanted)) {
     const project = rows.find((row) => row.id === wanted)
     if (project) return project
     throw new ValidationError(`No project in this context has the id ${wanted}.`)
+  }
+
+  /* A path, "AC2027/Worship": the last part names the project, and each part
+     before it names the project itself or one above it. */
+  const parts = wanted.split('/').map((part) => part.trim()).filter(Boolean)
+  if (parts.length > 1) {
+    const byId = new Map(all.map((row) => [row.id, row]))
+    const line = (id: string) => {
+      const chain: Array<{ name: string }> = []
+      for (let at = byId.get(id); at; at = at.parentId ? byId.get(at.parentId) : undefined) chain.push(at)
+      return chain
+    }
+    const found = matchName(rows, parts.at(-1)!).filter((row) =>
+      parts.slice(0, -1).every((part) => matchName(line(row.id), part).length > 0),
+    )
+    if (found.length === 1) return found[0]!
+    if (found.length === 0) throw new ValidationError(`No project matches ${wanted}.`)
+    throw new ValidationError(`${wanted} could be ${listNames(found)}. Be more specific.`)
   }
 
   const matches = matchName(rows, wanted)

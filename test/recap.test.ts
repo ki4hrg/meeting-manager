@@ -419,11 +419,11 @@ describe('the summary', () => {
     )
   })
 
-  it('keeps a line summary only while its line is on the agenda', async () => {
+  it('keeps a line summary only while its line is on the agenda, with its public description', async () => {
     const w = await makeWorld()
     const meeting = await createMeeting(db, actor, { contextId: w.parish.id, startsAt: START, personIds: [w.sarah.id] })
     const second = await addLine(db, actor, meeting.id, { text: 'Second', privateNote: 'secret' })
-    const first = await addLine(db, actor, meeting.id, { text: 'First', position: 0 })
+    const first = await addLine(db, actor, meeting.id, { text: 'First', position: 0, description: 'Bring the **map**' })
     const gone = await addLine(db, actor, meeting.id, { text: 'Gone' })
     await noteWith(meeting.id, {
       status: 'done',
@@ -441,8 +441,8 @@ describe('the summary', () => {
 
     const recap = await recapOf(w, meeting.id)
     expect(recap.lines).toEqual([
-      { lineId: first, text: 'First', summary: 'about the first' },
-      { lineId: second, text: 'Second', summary: 'about the second' },
+      { lineId: first, text: 'First', description: 'Bring the **map**', summary: 'about the first' },
+      { lineId: second, text: 'Second', description: null, summary: 'about the second' },
     ])
     expect(renderRecap(recap)).toBe(
       [
@@ -451,11 +451,14 @@ describe('the summary', () => {
         '',
         '## Discussed',
         '- **First**',
+        '  - Bring the **map**',
         '  - about the first',
         '- **Second**',
         '  - about the second',
       ].join('\n'),
     )
+    expect(renderRecapHtml(recap)).toContain('<li>Bring the <strong>map</strong></li>')
+    expect(renderRecapHtml(recap)).not.toContain('secret')
   })
 })
 

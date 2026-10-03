@@ -50,6 +50,7 @@ import {
   updateMeeting,
   type MeetingView,
 } from '../../meetings/meetings'
+import { clearAbsences, joinRoster, recordAbsences } from '../../meetings/roster'
 import { moveMeeting, moveSeries } from '../../meetings/move'
 import { prepMeeting, prepNextInSeries, prepWithPerson } from '../../meetings/prep'
 import {
@@ -110,7 +111,9 @@ const agendaLineArg = z
 
 const agendaSectionArg = z.strictObject({
   title: z.string().min(1),
-  minutes: minutes.optional().describe('Only used when its lines carry none.'),
+  minutes: minutes
+    .optional()
+    .describe("A timebox: the section's length. Its lines with minutes use it up; the rest share what is left."),
   pinned_start: pinnedStart.optional(),
   lines: z.array(agendaLineArg).optional(),
 })
@@ -209,6 +212,7 @@ function lineOut(line: AgendaLine) {
     leader: line.leader ? { id: line.leader.id, name: line.leader.name } : null,
     private_note: line.privateNote,
     ...(line.overrunMinutes ? { overrun_minutes: line.overrunMinutes } : {}),
+    ...(line.shareMinutes !== undefined ? { share_minutes: line.shareMinutes } : {}),
   }
 }
 
@@ -225,6 +229,8 @@ function agendaOut(agenda: Agenda) {
             pinned_start: node.pinnedStart,
             start: node.start,
             ...(node.overrunMinutes ? { overrun_minutes: node.overrunMinutes } : {}),
+            ...(node.usedMinutes !== undefined ? { used_minutes: node.usedMinutes } : {}),
+            ...(node.overBudgetMinutes ? { over_budget_minutes: node.overBudgetMinutes } : {}),
             lines: node.lines.map(lineOut),
           },
     ),
@@ -670,6 +676,16 @@ export const updateMeetingTool = defineTool({
           input.id,
           await projectsFrom(tx, contextId, input.projects),
         )
+      }
+      /* As in the edit form: people named within a series leave the rest of
+         the roster off this meeting alone; a meeting newly in a series takes
+         its roster. */
+      const seriesNow = series === undefined ? (before.series?.id ?? null) : series
+      if (seriesNow && seriesNow === (before.series?.id ?? null)) {
+        if (input.people) await recordAbsences(tx, input.id)
+      } else {
+        await clearAbsences(tx, [input.id])
+        if (seriesNow) await joinRoster(tx, actor, input.id)
       }
       const view = await meetingView(tx, input.id, clock)
       return destination

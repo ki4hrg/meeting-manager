@@ -30,7 +30,7 @@ import { listPeople } from '@/lib/directory/people'
 import { getMeeting, isOver } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
 import { pendingByMeeting } from '@/lib/processing/proposals'
-import { listProjects } from '@/lib/projects/projects'
+import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context'
 import {
   addSectionAction,
@@ -47,7 +47,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   if (!isUuid(id)) notFound()
 
   const context = await requireContext()
-  const { user, today } = await viewer()
+  const { user, self, today } = await viewer()
   const timeZone = user.timeZone
 
   const meeting = await getMeeting(db, id).catch((err) => {
@@ -80,7 +80,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     meeting.parentMeetingId ? getMeeting(db, meeting.parentMeetingId) : null,
     listPeople(db),
     listGroups(db, context.id),
-    listProjects(db, context.id),
+    listProjectChoices(db, context.id),
     listSeries(db, context.id),
     pendingByMeeting(db, context.id),
   ])
@@ -103,7 +103,8 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     series,
   }
 
-  const agendaTools = (
+  // Import, Section and quick-add, aimed at one meeting's own agenda (a session's, on a rollup).
+  const agendaTools = (meetingId: string) => (
     <div className="flex items-center gap-2">
       <FormModal
         action={importOutlineAction}
@@ -114,7 +115,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         submit="Import"
         wide
       >
-        <input type="hidden" name="meetingId" value={meeting.id} />
+        <input type="hidden" name="meetingId" value={meetingId} />
         <Field label="Outline" required>
           <Textarea
             name="text"
@@ -141,12 +142,12 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         size="sm"
         submit="Add"
       >
-        <input type="hidden" name="meetingId" value={meeting.id} />
+        <input type="hidden" name="meetingId" value={meetingId} />
         <Field label="Title" required>
           <Input name="title" required />
         </Field>
       </FormModal>
-      <QuickAdd presets={{ targetMeetingId: meeting.id }} />
+      <QuickAdd presets={{ targetMeetingId: meetingId }} />
     </div>
   )
 
@@ -247,6 +248,12 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
             {meeting.group.name}
           </Chip>
         ) : null}
+        {/* John is at every meeting: first, and never on its list of people. */}
+        {self ? (
+          <Chip href={`/people/${self.id}`} icon="person">
+            Me
+          </Chip>
+        ) : null}
         {meeting.people.map((person) => (
           <Chip key={person.id} href={`/people/${person.id}`} icon="person">
             {person.name}
@@ -277,6 +284,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                   today={today}
                   timeZone={timeZone}
                   people={leaders}
+                  tools={agendaTools(session.id)}
                 />
               ))}
             </div>
@@ -284,7 +292,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         </>
       ) : (
         <>
-          <Section title="Agenda" action={agendaTools}>
+          <Section title="Agenda" action={agendaTools(meeting.id)}>
             <AgendaCard agenda={agenda} today={today} people={leaders} />
           </Section>
           <Suggestions candidates={candidates} meetingId={meeting.id} />

@@ -9,7 +9,8 @@
  *
  * Filing does in the chosen context what the ingest does in a bound folder's:
  * the meeting for its calendar event, else the one under way when it started,
- * else a meeting of its own. Then a run is queued, as for any arriving note.
+ * else a meeting of its own. Or John links it to a meeting he picks there. Then
+ * a run is queued, as for any arriving note.
  */
 
 import { and, count, desc, eq, isNull } from 'drizzle-orm'
@@ -22,9 +23,10 @@ import {
 } from '../../core/types'
 import { notes, type NoteAttendee } from '../../db/schema'
 import { getContext } from '../../directory/contexts'
+import { getMeeting } from '../../meetings/meetings'
 import { getNote } from '../../notes/notes'
 import { queueRun } from '../../processing/run'
-import { isUniqueViolation, knownPeople, lockNote, placeNote } from './ingest'
+import { isUniqueViolation, knownPeople, lockNote, matchMeeting, placeNote } from './ingest'
 
 export type UnfiledNote = {
   id: string
@@ -80,17 +82,50 @@ async function heldNote(exec: Executor, noteId: string) {
   return note
 }
 
+const NO_FILING = { startsAt: null, endsAt: null, calendarEventId: null }
+
+/**
+ * What File would do with a held note in a context: the meeting it would go
+ * on, or null for a new one. Reads only that context, which John has chosen.
+ */
+export async function previewFiling(
+  exec: Executor,
+  noteId: string,
+  contextId: string,
+): Promise<{ meetingId: string; via: 'event' | 'time' } | null> {
+  const note = await heldNote(exec, noteId)
+  return matchMeeting(
+    exec,
+    contextId,
+    note.filing ?? NO_FILING,
+    await knownPeople(
+      exec,
+      note.attendees.map((attendee) => attendee.email),
+    ),
+  )
+}
+
 /**
  * File a held note in a context: on the meeting it records there, or on one
- * made for it. Returns that meeting.
+ * made for it. With `meetingId`, on that meeting instead, which must be in the
+ * context and, if it has sessions, be one of them. Returns the meeting.
  */
 export async function fileHeldNote(
   exec: Executor,
   actor: ActorContext,
   noteId: string,
   contextId: string,
-): Promise<{ meetingId: string; via: 'event' | 'time' | 'new' }> {
+  opts: { meetingId?: string } = {},
+): Promise<{ meetingId: string; via: 'event' | 'time' | 'new' | 'chosen' }> {
   await getContext(exec, contextId)
+  if (opts.meetingId) {
+    const chosen = await getMeeting(exec, opts.meetingId)
+    if (chosen.contextId !== contextId) {
+      throw new ValidationError('That meeting belongs to another context.')
+    }
+    // As for any note: the session, not the meeting it belongs to.
+    if (chosen.sessions.length > 0) throw new ValidationError('Pick one of its sessions.')
+  }
 
   const file = () =>
     inTransaction(exec, async (tx) => {
@@ -100,16 +135,18 @@ export async function fileHeldNote(
       if (externalId) await lockNote(tx, externalId)
       const note = await heldNote(tx, noteId)
 
-      const placed = await placeNote(tx, actor, {
-        contextId,
-        projectIds: [],
-        filing: note.filing ?? { startsAt: null, endsAt: null, calendarEventId: null },
-        personIds: await knownPeople(
-          tx,
-          note.attendees.map((attendee) => attendee.email),
-        ),
-        title: note.title,
-      })
+      const placed = opts.meetingId
+        ? { meetingId: opts.meetingId, via: 'chosen' as const }
+        : await placeNote(tx, actor, {
+            contextId,
+            projectIds: [],
+            filing: note.filing ?? NO_FILING,
+            personIds: await knownPeople(
+              tx,
+              note.attendees.map((attendee) => attendee.email),
+            ),
+            title: note.title,
+          })
       await tx
         .update(notes)
         .set({ meetingId: placed.meetingId, dismissedAt: null, updatedAt: new Date() })

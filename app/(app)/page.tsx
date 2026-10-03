@@ -1,7 +1,10 @@
 import { ItemGrid } from '@/components/items/ItemCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
-import { CardGrid, Section, Tile } from '@/components/ui/Card'
+import { CardGrid, LinkCard, Section, Tile } from '@/components/ui/Card'
+import { Icon } from '@/components/ui/icons'
+import { DateJump } from '@/components/meetings/DateJump'
+import { agendaCounts } from '@/lib/agenda/lines'
 import { countUnfiledNotes } from '@/lib/connect/granola/unfiled'
 import { formatMoment } from '@/lib/core/dates'
 import { db } from '@/lib/db'
@@ -19,7 +22,12 @@ export default async function HomePage() {
   const unfiled = await countUnfiledNotes(db)
   const projects = await listProjects(db, context.id)
   const groups = await listGroups(db, context.id)
-  const next = (await listUpcoming(db, context.id)).entries.slice(0, 3)
+  // Three fill the row; the rest scroll, then More opens the whole list.
+  const next = (await listUpcoming(db, context.id)).entries.slice(0, 12)
+  const agendas = await agendaCounts(
+    db,
+    next.flatMap((entry) => (entry.meeting ? [entry.meeting.id] : [])),
+  )
 
   const mine = await listItems(db, {
     contextId: context.id,
@@ -53,24 +61,36 @@ export default async function HomePage() {
         </CardGrid>
       </div>
 
-      {next.length > 0 ? (
-        <Section title="Next up">
-          <CardGrid>
-            {next.map((entry) => {
-              const when = formatMoment(entry.startsAt, user.timeZone)
-              return entry.meeting ? (
-                <MeetingCard
-                  key={entry.meeting.id}
-                  meeting={{ ...entry.meeting, series: entry.series }}
-                  when={when}
-                />
-              ) : (
-                <EventCard key={entry.event!.eventId} entry={entry} time={when} />
-              )
-            })}
-          </CardGrid>
-        </Section>
-      ) : null}
+      <Section title="Next up" action={<DateJump href="/meetings" param="from" />}>
+        <div className="-mx-4 flex snap-x snap-mandatory scroll-px-4 gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:scroll-px-0 sm:px-0">
+          {next.map((entry) => {
+            const when = formatMoment(entry.startsAt, user.timeZone)
+            return (
+              <div
+                key={entry.meeting?.id ?? entry.event!.eventId}
+                className="w-[85%] shrink-0 snap-start sm:w-[calc(50%-0.5rem)] lg:w-[calc((100%-2rem)/3)]"
+              >
+                {entry.meeting ? (
+                  <MeetingCard
+                    meeting={{ ...entry.meeting, series: entry.series }}
+                    when={when}
+                    agenda={agendas.get(entry.meeting.id) ?? 0}
+                  />
+                ) : (
+                  <EventCard entry={entry} time={when} />
+                )}
+              </div>
+            )
+          })}
+          <LinkCard
+            href="/meetings"
+            className="flex w-32 shrink-0 snap-start flex-col items-center justify-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400"
+          >
+            <Icon name="arrowRight" className="h-5 w-5" />
+            More
+          </LinkCard>
+        </div>
+      </Section>
 
       <Section title="I owe" count={mine.length}>
         <ItemGrid items={mine} today={today} empty="action" />

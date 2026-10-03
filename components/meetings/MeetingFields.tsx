@@ -1,3 +1,4 @@
+import { PartyPicker } from '@/components/processing/PartyPicker'
 import { CheckList } from '@/components/ui/CheckList'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { toLocalInput } from '@/lib/core/dates'
@@ -58,11 +59,12 @@ export function MeetingFields({
       <WhenFields startsAt={meeting?.startsAt} endsAt={meeting?.endsAt} timeZone={timeZone} />
 
       {/* The same pickers as a series' roster and projects. Empty lists draw nothing. */}
-      <CheckList
+      <PartyPicker
         label="People"
         name="personIds"
-        options={choices.people}
-        selected={meeting?.people.map((person) => person.id)}
+        options={choices.people.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+        selected={meeting?.people.map((person) => ({ value: person.id, name: person.name, icon: 'person' }))}
+        allowNew
       />
       <CheckList
         label="Projects"

@@ -501,6 +501,27 @@ describe('what Google actually sends', () => {
     expect(events[0]?.attendees.map((attendee) => attendee.email)).toEqual(['sarah@example.com'])
   })
 
+  it('counts the organizer as an invitee, once, and never John', async () => {
+    const { ctx } = await bound('cal1')
+    const at = { start: { dateTime: '2026-10-15T10:00:00Z' }, end: { dateTime: '2026-10-15T11:00:00Z' } }
+    const events = await listEvents(
+      db,
+      { contextId: ctx.id, ...range },
+      {
+        fetchEvents: async () => [
+          { id: 'e1', ...at, organizer: { email: 'adlene@example.com', displayName: 'Adlene' } },
+          { id: 'e2', ...at, organizer: { email: 'Sarah@example.com' }, attendees: [{ email: 'sarah@example.com' }] },
+          { id: 'e3', ...at, organizer: { email: 'john@example.com', self: true } },
+        ],
+      },
+    )
+    expect(events.map((event) => event.attendees.map((attendee) => attendee.email))).toEqual([
+      ['adlene@example.com'],
+      ['sarah@example.com'],
+      [],
+    ])
+  })
+
   it('does not cache a feed that is missing a calendar, and says which connection failed', async () => {
     const { ctx, conn } = await bound('good', 'bad')
     let fail = true

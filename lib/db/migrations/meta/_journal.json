@@ -43,6 +43,34 @@
       "when": 1790979606325,
       "tag": "0005_oval_the_hand",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790996719789,
+      "tag": "0006_melted_ghost_rider",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790997761317,
+      "tag": "0007_safe_madelyne_pryor",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790999588026,
+      "tag": "0008_worthless_wendell_rand",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791000013176,
+      "tag": "0009_busy_genesis",
+      "breakpoints": true
     }
   ]
 }

@@ -272,9 +272,14 @@ export const projects = pgTable(
     name: text('name').notNull(),
     description: text('description'),
     status: projectStatus('status').notNull().default('active'),
+    /* A project within another, in the same context, any depth, no cycles. */
+    parentId: uuid('parent_id').references((): AnyPgColumn => projects.id, { onDelete: 'set null' }),
     ...timestamps,
   },
-  (t) => [uniqueIndex('projects_name_key').on(t.contextId, sql`lower(${t.name})`)],
+  (t) => [
+    uniqueIndex('projects_name_key').on(t.contextId, sql`lower(${t.name})`),
+    index('projects_parent_idx').on(t.parentId),
+  ],
 )
 
 export const milestones = pgTable(
@@ -286,7 +291,6 @@ export const milestones = pgTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
     dueOn: date('due_on'),
-    doneAt: timestamp('done_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [index('milestones_project_idx').on(t.projectId)],
@@ -338,23 +342,31 @@ export const items = pgTable(
     originMeetingId: uuid('origin_meeting_id').references(() => meetings.id, {
       onDelete: 'set null',
     }),
-    /* "Raise this at": one meeting, or the next occurrence of a series. Such an
-       item is placed on that agenda without being asked for. */
+    /* "Raise this at": one meeting, the next occurrence of a series, or the next
+       meeting that carries a project. Such an item is placed on that agenda
+       without being asked for. */
     targetMeetingId: uuid('target_meeting_id').references(() => meetings.id, {
       onDelete: 'set null',
     }),
     targetSeriesId: uuid('target_series_id').references(() => series.id, {
       onDelete: 'set null',
     }),
+    targetProjectId: uuid('target_project_id').references((): AnyPgColumn => projects.id, {
+      onDelete: 'set null',
+    }),
     ...timestamps,
   },
   (t) => [
-    check('items_one_target', sql`num_nonnulls(${t.targetMeetingId}, ${t.targetSeriesId}) <= 1`),
+    check(
+      'items_one_target',
+      sql`num_nonnulls(${t.targetMeetingId}, ${t.targetSeriesId}, ${t.targetProjectId}) <= 1`,
+    ),
     index('items_context_status_idx').on(t.contextId, t.status),
     index('items_project_idx').on(t.projectId),
     index('items_parent_idx').on(t.parentItemId),
     index('items_target_meeting_idx').on(t.targetMeetingId),
     index('items_target_series_idx').on(t.targetSeriesId),
+    index('items_target_project_idx').on(t.targetProjectId),
     index('items_origin_meeting_idx').on(t.originMeetingId),
   ],
 )
@@ -533,6 +545,21 @@ export const meetingPeople = pgTable(
     primaryKey({ columns: [t.meetingId, t.personId] }),
     index('meeting_people_person_idx').on(t.personId),
   ],
+)
+
+/* Someone on a series' roster left off one of its meetings ("Adlene is out
+   this week"), so a later roster change does not put them back. */
+export const meetingAbsences = pgTable(
+  'meeting_absences',
+  {
+    meetingId: uuid('meeting_id')
+      .notNull()
+      .references(() => meetings.id, { onDelete: 'cascade' }),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.meetingId, t.personId] })],
 )
 
 export const meetingProjects = pgTable(

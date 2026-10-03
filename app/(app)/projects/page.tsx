@@ -1,23 +1,26 @@
 import { FormModal } from '@/components/forms'
 import { CardGrid, CardHeader, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Field, Input, Textarea } from '@/components/ui/Field'
+import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { DueBadge, ProjectStatusBadge } from '@/components/ui/StatusBadge'
 import { formatDay } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { openCounts } from '@/lib/items/items'
-import { listProjects, nextMilestones } from '@/lib/projects/projects'
+import { indented, listProjects, nextMilestones, treeOrder } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
 import { createProjectAction } from '../actions'
 
 export default async function ProjectsPage() {
   const context = await requireContext()
   const { today } = await viewer()
-  const projects = await listProjects(db, context.id)
+  // In tree order: a project's sub-projects follow it, each naming what it sits within.
+  const all = await listProjects(db, context.id)
+  const projects = treeOrder(all)
+  const nameOf = new Map(all.map((project) => [project.id, project.name]))
   const counts = await openCounts(db, context.id)
-  const milestones = await nextMilestones(db, context.id)
+  const milestones = await nextMilestones(db, context.id, today)
 
   return (
     <>
@@ -29,6 +32,18 @@ export default async function ProjectsPage() {
             <Field label="Name" required>
               <Input name="name" required />
             </Field>
+            {projects.length > 0 ? (
+              <Field label="Within">
+                <Select name="parentId" defaultValue="">
+                  <option value="">—</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {indented(project)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
             <Field label="Description">
               <Textarea name="description" rows={3} />
             </Field>
@@ -44,6 +59,12 @@ export default async function ProjectsPage() {
             const next = milestones.get(project.id)
             return (
               <LinkCard key={project.id} href={`/projects/${project.id}`}>
+                {project.parentId && nameOf.has(project.parentId) ? (
+                  <p className="-mt-1 mb-1 flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                    <Icon name="project" className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{nameOf.get(project.parentId)}</span>
+                  </p>
+                ) : null}
                 <CardHeader
                   title={project.name}
                   aside={<ProjectStatusBadge status={project.status} />}

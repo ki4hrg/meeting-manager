@@ -5,8 +5,8 @@ import { ValidationError } from '@/lib/core/types'
 import { isUuid, matchName } from '../../core/match'
 import { createContext, listContexts } from '../../directory/contexts'
 import { addMember, createGroup, listGroups, listMembers } from '../../directory/groups'
-import { createPerson, listPeople } from '../../directory/people'
-import { inferContext, resolveProject } from '../../directory/resolve'
+import { createPerson, listPeople, setPersonEmails, updatePerson } from '../../directory/people'
+import { inferContext, resolvePerson, resolveProject } from '../../directory/resolve'
 import { openCounts } from '../../items/items'
 import {
   addMilestone,
@@ -64,6 +64,7 @@ export const listPeopleTool = defineTool({
         id: p.id,
         name: p.name,
         email: p.email,
+        emails: p.emails,
         ...(p.isSelf ? { is_me: true } : {}),
       })),
     }
@@ -78,12 +79,35 @@ export const createPersonTool = defineTool({
   input: z.object({
     name: z.string().min(1),
     email: z.string().optional(),
+    emails: z.array(z.string()).optional().describe('Every address they use; the first is primary.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
     write(context, 'create_person', input, async (tx) => {
-      const person = await createPerson(tx, { name: input.name, email: input.email })
-      return { person: { id: person.id, name: person.name, email: person.email } }
+      const person = await createPerson(tx, { name: input.name, email: input.email, emails: input.emails })
+      return { person: { id: person.id, name: person.name, email: person.email, emails: person.emails } }
+    }),
+})
+
+export const updatePersonTool = defineTool({
+  name: 'update_person',
+  title: 'Update a person',
+  description:
+    'Rename someone, or set their email addresses (the whole list, primary first). An address ' +
+    'already on someone else is refused with their name.',
+  scope: 'meetings:write',
+  input: z.object({
+    person: z.string().min(1).describe('Person name or id.'),
+    name: z.string().min(1).optional(),
+    emails: z.array(z.string()).optional(),
+    idempotency_key: idempotencyKey,
+  }),
+  handler: async (input, context) =>
+    write(context, 'update_person', input, async (tx) => {
+      const { id } = await resolvePerson(tx, input.person)
+      if (input.emails) await setPersonEmails(tx, id, input.emails)
+      const person = await updatePerson(tx, id, { name: input.name })
+      return { person: { id: person.id, name: person.name, email: person.email, emails: person.emails } }
     }),
 })
 
@@ -168,12 +192,12 @@ export const listProjectsTool = defineTool({
           name: p.name,
           status: p.status,
           description: p.description,
+          parent_id: p.parentId,
           open_items: counts.byProject.get(p.id) ?? 0,
           milestones: (await listMilestones(exec, p.id)).map((m) => ({
             id: m.id,
             title: m.title,
             due_on: m.dueOn,
-            done: m.doneAt !== null,
           })),
         })),
       ),
@@ -184,30 +208,35 @@ export const listProjectsTool = defineTool({
 export const createProjectTool = defineTool({
   name: 'create_project',
   title: 'Create a project',
-  description: 'Add a project to a context.',
+  description: 'Add a project to a context, optionally within another project there.',
   scope: 'meetings:write',
   input: z.object({
     name: z.string().min(1),
     context: contextArg,
     description: z.string().optional(),
+    parent: z.string().optional().describe('The project it sits within: name, path ("AC2027/Worship") or id.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
     write(context, 'create_project', input, async (tx) => {
       const target = await inferContext(tx, { context: input.context })
+      const parent = input.parent ? await resolveProject(tx, target.id, input.parent) : null
       const project = await createProject(tx, {
         contextId: target.id,
         name: input.name,
         description: input.description,
+        parentId: parent?.id ?? null,
       })
-      return { project: { id: project.id, name: project.name, status: project.status } }
+      return { project: { id: project.id, name: project.name, status: project.status, parent_id: project.parentId } }
     }),
 })
 
 export const updateProjectTool = defineTool({
   name: 'update_project',
   title: 'Update a project',
-  description: 'Rename a project, change its description or status, or add a milestone to it.',
+  description:
+    'Rename a project, change its description or status, move it within another project ' +
+    '(parent; null takes it to the top), or add a milestone to it.',
   scope: 'meetings:write',
   input: z.object({
     project: z.string().describe('Project name or id.'),
@@ -215,6 +244,7 @@ export const updateProjectTool = defineTool({
     name: z.string().min(1).optional(),
     description: z.string().nullable().optional(),
     status: z.enum(['active', 'paused', 'done']).optional(),
+    parent: z.string().nullable().optional().describe('The project it sits within, or null for none.'),
     add_milestone: z
       .object({ title: z.string().min(1), due_on: z.string().optional() })
       .optional(),
@@ -225,10 +255,17 @@ export const updateProjectTool = defineTool({
       const target = await inferContext(tx, { context: input.context, project: input.project })
       const { id } = await resolveProject(tx, target.id, input.project)
 
+      const parentId =
+        input.parent === undefined
+          ? undefined
+          : input.parent === null
+            ? null
+            : (await resolveProject(tx, target.id, input.parent)).id
       const project = await updateProject(tx, id, {
         name: input.name,
         description: input.description,
         status: input.status,
+        parentId,
       })
       if (input.add_milestone) {
         await addMilestone(tx, {
@@ -248,7 +285,6 @@ export const updateProjectTool = defineTool({
             id: m.id,
             title: m.title,
             due_on: m.dueOn,
-            done: m.doneAt !== null,
           })),
         },
       }
@@ -260,6 +296,7 @@ export const directoryTools = [
   createContextTool,
   listPeopleTool,
   createPersonTool,
+  updatePersonTool,
   listGroupsTool,
   createGroupTool,
   listProjectsTool,

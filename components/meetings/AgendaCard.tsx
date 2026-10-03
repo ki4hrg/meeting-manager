@@ -9,6 +9,7 @@ import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
 import { Card } from '@/components/ui/Card'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
+import { Markdown } from '@/components/ui/Markdown'
 import { Icon } from '@/components/ui/icons'
 import { Badge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
 import type { Agenda, AgendaLine, AgendaSection } from '@/lib/agenda/lines'
@@ -19,16 +20,19 @@ import { AddLine } from './AddLine'
 /* The left gutter: when the row starts. A pinned start is a pill; one that
    what comes before it runs past is the danger tone. */
 function Start({ row }: { row: { start: string | null; pinnedStart: string | null; overrunMinutes?: number } }) {
-  if (!row.start) return <span className="w-[4.5rem] shrink-0" />
+  if (!row.start) return <span className="w-[5.5rem] shrink-0" />
   const time = formatClock(row.start)
   return (
-    <span className="w-[4.5rem] shrink-0 pt-0.5 text-xs tabular-nums text-gray-500 dark:text-gray-400">
+    <span className="w-[5.5rem] shrink-0 pt-0.5 text-xs tabular-nums text-gray-500 dark:text-gray-400">
       {row.overrunMinutes ? (
         <span title={`+${row.overrunMinutes} min`}>
           <Badge tone="red">{time}</Badge>
         </span>
       ) : row.pinnedStart ? (
-        <Badge tone="blue">{time}</Badge>
+        <Badge tone="blue">
+          <Icon name="pin" className="h-3 w-3" label="Pinned" />
+          {time}
+        </Badge>
       ) : (
         time
       )}
@@ -36,10 +40,27 @@ function Start({ row }: { row: { start: string | null; pinnedStart: string | nul
   )
 }
 
-function Minutes({ minutes }: { minutes: number | null }) {
-  if (!minutes) return null
+/* A row's length. A share of a timebox is computed, so it reads lighter. */
+function Minutes({ minutes, share }: { minutes: number | null; share?: number }) {
+  if (minutes) {
+    return (
+      <span className="shrink-0 text-xs tabular-nums text-gray-500 dark:text-gray-400">{minutes} min</span>
+    )
+  }
+  if (share === undefined) return null
   return (
-    <span className="shrink-0 text-xs tabular-nums text-gray-500 dark:text-gray-400">{minutes} min</span>
+    <span className="shrink-0 text-xs italic tabular-nums text-gray-400 dark:text-gray-500">{share} min</span>
+  )
+}
+
+/* A timebox's header: what its lines use of it, red once they ask for more. */
+function Budget({ section }: { section: AgendaSection }) {
+  if (section.usedMinutes === undefined) return <Minutes minutes={section.minutes} />
+  const text = `${section.usedMinutes} / ${section.minutes} min`
+  return section.overBudgetMinutes ? (
+    <Badge tone="red">{text}</Badge>
+  ) : (
+    <span className="shrink-0 text-xs tabular-nums text-gray-500 dark:text-gray-400">{text}</span>
   )
 }
 
@@ -64,18 +85,28 @@ function Moves({ id, name, up, down }: { id: string; name: string; up: boolean; 
   )
 }
 
-/* The fields shared by a line's form and a section's: a pinned start and minutes. */
-function TimingFields({ row, minutes }: { row: { pinnedStart: string | null; minutes: number | null }; minutes: boolean }) {
+/* The timing shared by a line's form and a section's: its minutes, and for
+   the rare fixed slot, a pin that reveals the time it starts at. */
+function TimingFields({ row }: { row: { pinnedStart: string | null; minutes: number | null } }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <Field label="Starts at">
-        <Input name="pinnedStart" type="time" defaultValue={row.pinnedStart ?? ''} />
+    <div className="grid grid-cols-2 items-end gap-3">
+      <Field label="Minutes">
+        <Input name="minutes" type="number" min={0} inputMode="numeric" defaultValue={row.minutes ?? ''} />
       </Field>
-      {minutes ? (
-        <Field label="Minutes">
-          <Input name="minutes" type="number" min={0} inputMode="numeric" defaultValue={row.minutes ?? ''} />
-        </Field>
-      ) : null}
+      <div className="flex items-center gap-3">
+        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md py-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            name="pinned"
+            defaultChecked={row.pinnedStart !== null}
+            className="peer h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+          />
+          <Icon name="pin" className="h-4 w-4" label="Pin" />
+        </label>
+        <div className="hidden min-w-0 flex-1 [label:has(:checked)+&]:block">
+          <Input name="pinnedStart" type="time" aria-label="Starts at" defaultValue={row.pinnedStart ?? ''} />
+        </div>
+      </div>
     </div>
   )
 }
@@ -136,7 +167,7 @@ function LineRow({
         ) : null}
 
         {line.description ? (
-          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">{line.description}</p>
+          <Markdown source={line.description} className="mt-1 text-sm text-gray-600 dark:text-gray-300" />
         ) : null}
 
         {item && (item.parties.length > 0 || item.dueOn || item.project || !isOpen(item)) ? (
@@ -156,17 +187,17 @@ function LineRow({
         ) : null}
 
         {line.privateNote ? (
-          <p className="mt-1 flex items-start gap-1.5 whitespace-pre-wrap text-xs italic text-gray-500 dark:text-gray-400">
+          <div className="mt-1 flex items-start gap-1.5 text-xs italic text-gray-500 dark:text-gray-400">
             <Icon name="lock" className="mt-0.5 h-3 w-3 shrink-0" label="Private note" />
-            {line.privateNote}
-          </p>
+            <Markdown source={line.privateNote} />
+          </div>
         ) : null}
       </div>
 
       {/* Minutes and actions wrap together, so on a phone they share the row under the text. */}
       <div className="ml-auto flex shrink-0 items-center">
         <span className="mr-3">
-          <Minutes minutes={line.minutes} />
+          <Minutes minutes={line.minutes} share={line.shareMinutes} />
         </span>
         {item && isOpen(item) && item.kind !== 'decision' ? (
           <IconAction
@@ -205,7 +236,7 @@ function LineRow({
           <Field label="Private note">
             <Textarea name="privateNote" rows={3} defaultValue={line.privateNote ?? ''} />
           </Field>
-          <TimingFields row={line} minutes />
+          <TimingFields row={line} />
         </FormModal>
         <IconAction
           action={removeLineAction}
@@ -235,8 +266,6 @@ function SectionBlock({
   up: boolean
   down: boolean
 }) {
-  // A section's own minutes count only while its lines carry none.
-  const ownMinutes = section.lines.every((line) => !line.minutes)
   return (
     <li className="py-2">
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
@@ -246,7 +275,7 @@ function SectionBlock({
         </h3>
         <div className="ml-auto flex shrink-0 items-center">
           <span className="mr-3">
-            <Minutes minutes={section.minutes} />
+            <Budget section={section} />
           </span>
           <span className="w-7 shrink-0" />
           <Moves id={section.id} name={section.title} up={up} down={down} />
@@ -255,7 +284,7 @@ function SectionBlock({
             <Field label="Title" required>
               <Input name="text" defaultValue={section.title} required />
             </Field>
-            <TimingFields row={section} minutes={ownMinutes} />
+            <TimingFields row={{ pinnedStart: section.pinnedStart, minutes: section.ownMinutes }} />
           </FormModal>
           <FormModal
             action={removeLineAction}

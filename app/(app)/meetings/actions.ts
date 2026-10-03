@@ -34,7 +34,8 @@ import {
   prepWithPerson,
   seriesFromEvent,
 } from '@/lib/meetings/prep'
-import { act, field, type ActionResult } from '@/lib/web/action'
+import { act, field, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { clearAbsences, joinRoster, recordAbsences } from '@/lib/meetings/roster'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 async function contextId(): Promise<string> {
@@ -55,6 +56,12 @@ async function thenOpen(
 
 const ids = (formData: FormData, name: string) =>
   formData.getAll(name).map(String).filter(Boolean)
+
+/* When an event card said its event starts, so it is looked for there. */
+function aroundFrom(formData: FormData): Date | undefined {
+  const at = field(formData, 'at')
+  return at ? new Date(at) : undefined
+}
 
 /* A whole number of minutes from a form field, or null when it is empty. */
 function minutesFrom(value: string): number | null {
@@ -82,7 +89,7 @@ export async function createMeetingAction(formData: FormData): Promise<ActionRes
   let id = ''
   return thenOpen(
     async (actor, user) => {
-      const people = ids(formData, 'personIds')
+      const people = await pickedPeople(db, formData, 'personIds')
       const projects = ids(formData, 'projectIds')
       const meeting = await prepMeeting(db, actor, {
         contextId: await contextId(),
@@ -127,14 +134,24 @@ export async function updateMeetingAction(formData: FormData): Promise<ActionRes
   return act(async (actor, user) => {
     const id = field(formData, 'id')
     await inTransaction(db, async (tx) => {
+      const before = await getMeeting(tx, id)
+      const seriesId = field(formData, 'seriesId') || null
       await updateMeeting(tx, actor, id, {
         title: field(formData, 'title'),
         ...timesFrom(formData, user.timeZone),
-        seriesId: field(formData, 'seriesId') || null,
+        seriesId,
         groupId: field(formData, 'groupId') || null,
       })
-      await setMeetingPeople(tx, actor, id, ids(formData, 'personIds'))
+      await setMeetingPeople(tx, actor, id, await pickedPeople(tx, formData, 'personIds'))
       await setMeetingProjects(tx, actor, id, ids(formData, 'projectIds'))
+      /* Within its series, whoever on the roster was taken off is left off
+         this meeting alone. Newly in a series, it takes the roster. */
+      if (seriesId && seriesId === (before.series?.id ?? null)) {
+        await recordAbsences(tx, id)
+      } else {
+        await clearAbsences(tx, [id])
+        if (seriesId) await joinRoster(tx, actor, id)
+      }
     })
   })
 }
@@ -228,7 +245,7 @@ export async function prepEventAction(formData: FormData): Promise<ActionResult>
   return thenOpen(
     async (actor) => {
       const context = await contextId()
-      const event = await findEvent(db, context, field(formData, 'eventId'))
+      const event = await findEvent(db, context, field(formData, 'eventId'), undefined, undefined, aroundFrom(formData))
       id = (await prepFromEvent(db, actor, { contextId: context, event })).id
     },
     () => id,
@@ -240,7 +257,7 @@ export async function attachStubAction(formData: FormData): Promise<ActionResult
   const id = field(formData, 'meetingId')
   return thenOpen(
     async (actor) => {
-      const event = await findEvent(db, await contextId(), field(formData, 'eventId'))
+      const event = await findEvent(db, await contextId(), field(formData, 'eventId'), undefined, undefined, aroundFrom(formData))
       await attachStub(db, actor, id, event)
     },
     () => id,
@@ -283,7 +300,8 @@ export async function updateLineAction(formData: FormData): Promise<ActionResult
       ...(formData.has('leaderPersonId') ? { leaderPersonId: field(formData, 'leaderPersonId') || null } : {}),
       ...(formData.has('privateNote') ? { privateNote: field(formData, 'privateNote') } : {}),
       ...(formData.has('minutes') ? { minutes: minutesFrom(field(formData, 'minutes')) } : {}),
-      pinnedStart: field(formData, 'pinnedStart') || null,
+      // Starts at counts only while the row is pinned.
+      pinnedStart: formData.has('pinned') ? field(formData, 'pinnedStart') || null : null,
     })
   })
 }

@@ -3,11 +3,17 @@
  *
  * One clock walks the agenda in the order it is written. It starts at the
  * meeting's start, on the user's wall clock; a line moves it on by its minutes;
- * a pinned start ('HH:MM') sets it, whatever came before. A section takes as
- * long as its lines, or its own minutes when its lines carry none.
+ * a pinned start ('HH:MM') sets it, whatever came before.
  *
- * Two things can go wrong with a timed agenda and both are reported: what
- * precedes a pinned start runs past it, and the whole runs past the meeting's
+ * A section with minutes of its own is a timebox: that is its length. Its
+ * lines with minutes use them up in order, and those without share what is
+ * left equally (`shareMinutes`, computed, never stored). What follows starts
+ * at the section's end, however its lines ran. A section with no minutes of
+ * its own lasts as long as its lines.
+ *
+ * Three things can go wrong with a timed agenda and all are reported: what
+ * precedes a pinned start runs past it, a section's lines ask for more than
+ * its timebox (`overBudgetMinutes`), and the whole runs past the meeting's
  * end.
  *
  * Pure: no database. `lines.ts` hands it the nodes it has built.
@@ -22,9 +28,21 @@ type Slot = {
   overrunMinutes?: number
 }
 
+type LineSlot = Slot & {
+  /** In a timebox, a line with no minutes of its own gets an equal share of what is left. */
+  shareMinutes?: number
+}
+
+type SectionSlot = Slot & {
+  /** Its lines' own minutes, when it is a timebox: "30 / 45 min". */
+  usedMinutes?: number
+  /** By how much its lines' own minutes exceed its timebox. */
+  overBudgetMinutes?: number
+}
+
 export type SchedulableNode =
-  | (Slot & { type: 'line' })
-  | (Slot & { type: 'section'; lines: Slot[] })
+  | (LineSlot & { type: 'line' })
+  | (SectionSlot & { type: 'section'; lines: LineSlot[] })
 
 export type Schedule = {
   /** Planned minutes, whether or not the meeting has a start to count from. */
@@ -93,17 +111,46 @@ export function scheduleAgenda(
       continue
     }
 
+    delete node.usedMinutes
+    delete node.overBudgetMinutes
     const ofLines = node.lines.reduce((sum, line) => sum + (line.minutes ?? 0), 0)
-    if (ofLines === 0) {
-      for (const line of node.lines) arrive(line)
-      spend(node.minutes ?? 0)
-    } else {
+    const box = node.minutes ?? 0
+    if (box === 0) {
+      // No timebox: as long as its lines.
       for (const line of node.lines) {
+        delete line.shareMinutes
         arrive(line)
         spend(line.minutes ?? 0)
       }
-      node.minutes = ofLines
+      node.minutes = ofLines > 0 ? ofLines : node.minutes
+      continue
     }
+
+    const opensAt = clock
+    const unset = node.lines.filter((line) => line.minutes === null || line.minutes === 0)
+    const left = Math.max(0, box - ofLines)
+    const share = unset.length > 0 ? Math.floor(left / unset.length) : 0
+    let extra = unset.length > 0 ? left - share * unset.length : 0
+    for (const line of node.lines) {
+      delete line.shareMinutes
+      arrive(line)
+      let minutes = line.minutes ?? 0
+      if (unset.includes(line)) {
+        // The odd minutes go to the first lines.
+        minutes = share + (extra > 0 ? 1 : 0)
+        if (extra > 0) extra--
+        line.shareMinutes = minutes
+      }
+      if (clock !== null) clock += minutes
+    }
+    node.usedMinutes = ofLines
+    if (ofLines > box) {
+      node.overBudgetMinutes = ofLines - box
+      overflowMinutes += ofLines - box
+    }
+    // The next row starts at the timebox's end, whatever its lines did.
+    totalMinutes += box
+    if (opensAt !== null) clock = opensAt + box
   }
 
   let end: string | null = null

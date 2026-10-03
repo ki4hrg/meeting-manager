@@ -8,7 +8,13 @@ import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
 import { addMember, createGroup, removeMember, renameGroup } from '@/lib/directory/groups'
-import { createPerson, updatePerson } from '@/lib/directory/people'
+import {
+  addPersonEmail,
+  createPerson,
+  makePrimaryEmail,
+  removePersonEmail,
+  updatePerson,
+} from '@/lib/directory/people'
 import { captureLine, type CapturePresets } from '@/lib/items/capture'
 import {
   ITEM_KINDS,
@@ -36,12 +42,11 @@ import {
   createProject,
   deleteLink,
   deleteMilestone,
-  setMilestoneDone,
   updateProject,
   type ProjectStatus,
 } from '@/lib/projects/projects'
 import { getMeeting } from '@/lib/meetings/meetings'
-import { act, field, partyRef, type ActionResult } from '@/lib/web/action'
+import { act, field, partyRef, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 // ─── contexts ────────────────────────────────────────────────────────────────
@@ -188,7 +193,7 @@ export async function addNoteAction(formData: FormData): Promise<ActionResult> {
   })
 }
 
-/* "Raise at": `meeting:<id>`, `series:<id>`, or nothing to stop aiming it anywhere. */
+/* "Raise at": `meeting:<id>`, `series:<id>`, `project:<id>` (its next meeting), or nothing. */
 export async function setItemTargetAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     const [type, id] = field(formData, 'target').split(':')
@@ -196,7 +201,8 @@ export async function setItemTargetAction(formData: FormData): Promise<ActionRes
     if (!type) target = null
     else if (type === 'meeting' && id) target = { meetingId: id }
     else if (type === 'series' && id) target = { seriesId: id }
-    else throw new ValidationError('Pick a meeting or a series.')
+    else if (type === 'project' && id) target = { projectId: id }
+    else throw new ValidationError('Pick a meeting, a series or a project.')
     await setItemTarget(db, actor, field(formData, 'id'), target)
   })
 }
@@ -211,10 +217,25 @@ export async function createPersonAction(formData: FormData): Promise<ActionResu
 
 export async function updatePersonAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    await updatePerson(db, field(formData, 'id'), {
-      name: field(formData, 'name'),
-      email: field(formData, 'email'),
-    })
+    await updatePerson(db, field(formData, 'id'), { name: field(formData, 'name') })
+  })
+}
+
+export async function addPersonEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await addPersonEmail(db, field(formData, 'personId'), field(formData, 'email'))
+  })
+}
+
+export async function removePersonEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await removePersonEmail(db, field(formData, 'personId'), field(formData, 'email'))
+  })
+}
+
+export async function primaryEmailAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await makePrimaryEmail(db, field(formData, 'personId'), field(formData, 'email'))
   })
 }
 
@@ -234,9 +255,11 @@ export async function renameGroupAction(formData: FormData): Promise<ActionResul
 
 export async function addMemberAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    const personId = field(formData, 'personId')
-    if (!personId) throw new ValidationError('Pick a person.')
-    await addMember(db, field(formData, 'groupId'), personId)
+    await inTransaction(db, async (tx) => {
+      const personIds = await pickedPeople(tx, formData, 'people')
+      if (personIds.length === 0) throw new ValidationError('Pick a person.')
+      for (const personId of personIds) await addMember(tx, field(formData, 'groupId'), personId)
+    })
   })
 }
 
@@ -256,6 +279,7 @@ export async function createProjectAction(formData: FormData): Promise<ActionRes
       contextId: context.id,
       name: field(formData, 'name'),
       description: field(formData, 'description'),
+      parentId: field(formData, 'parentId') || null,
     })
   })
 }
@@ -268,6 +292,7 @@ export async function updateProjectAction(formData: FormData): Promise<ActionRes
       name: field(formData, 'name'),
       description: field(formData, 'description'),
       status,
+      ...(formData.has('parentId') ? { parentId: field(formData, 'parentId') || null } : {}),
     })
   })
 }
@@ -279,12 +304,6 @@ export async function addMilestoneAction(formData: FormData): Promise<ActionResu
       title: field(formData, 'title'),
       dueOn: field(formData, 'dueOn'),
     })
-  })
-}
-
-export async function toggleMilestoneAction(formData: FormData): Promise<ActionResult> {
-  return act(async () => {
-    await setMilestoneDone(db, field(formData, 'id'), field(formData, 'done') === 'true')
   })
 }
 

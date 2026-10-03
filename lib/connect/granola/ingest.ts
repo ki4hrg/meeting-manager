@@ -275,6 +275,16 @@ const OCCURRENCE = /^(.+)_\d{8}(T\d{6}Z)?$/
 
 type Target = { meetingId: string; via: 'event' | 'time' }
 
+/** The meeting a note would be filed on in a context, without filing it: null means a new one. */
+export async function matchMeeting(
+  exec: Executor,
+  contextId: string,
+  filing: NoteFiling,
+  personIds: string[],
+): Promise<Target | null> {
+  return (await findMeeting(exec, contextId, filing, personIds)).target
+}
+
 /**
  * The meeting in this context that the note records, if exactly one can be
  * told. Every query here carries `contextId`: a meeting in another context is

@@ -9,7 +9,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireUser, type AuthUser } from '../auth/guards'
-import { AppError, ValidationError, type ActorContext } from '../core/types'
+import { AppError, ValidationError, type ActorContext, type Executor } from '../core/types'
+import { createPerson } from '../directory/people'
+import { resolvePerson } from '../directory/resolve'
 import type { PartyRef } from '../items/items'
 import { webActor } from './context'
 
@@ -57,4 +59,21 @@ export function partyRef(value: string): PartyRef | null {
   if (type === 'person' && id) return { personId: id }
   if (type === 'group' && id) return { groupId: id }
   throw new ValidationError('Pick a person or a group.')
+}
+
+/**
+ * The people a picker submits under `name`: ids, and `new:<name>` for someone
+ * to add to the directory now. Whatever was typed and not picked (`<name>Text`)
+ * is looked up by name, and refused by name when it finds nobody.
+ */
+export async function pickedPeople(exec: Executor, formData: FormData, name: string): Promise<string[]> {
+  const ids: string[] = []
+  for (const value of formData.getAll(name).map(String).filter(Boolean)) {
+    if (value.startsWith('new:')) ids.push((await createPerson(exec, { name: value.slice(4) })).id)
+    else ids.push(value)
+  }
+  for (const typed of field(formData, `${name}Text`).split(',')) {
+    if (typed.trim()) ids.push((await resolvePerson(exec, typed.trim())).id)
+  }
+  return [...new Set(ids)]
 }

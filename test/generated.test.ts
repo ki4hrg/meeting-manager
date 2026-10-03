@@ -354,7 +354,7 @@ describe('generated blocks', () => {
       expect(blocks.lookahead?.milestones.map((m) => m.id)).toEqual([milestone.id])
     })
 
-    it('excludes done milestones', async () => {
+    it('excludes past milestones', async () => {
       const { parish, retreat } = await makeWorld()
 
       const meetingRows = await db.insert(schema.meetings).values({
@@ -372,28 +372,27 @@ describe('generated blocks', () => {
         projectId: retreat.id,
       })
 
-      // Create an undone milestone that should appear
-      const undoneRows = await db.insert(schema.milestones).values({
+      // An upcoming milestone appears
+      const upcomingRows = await db.insert(schema.milestones).values({
         id: randomUUID(),
         projectId: retreat.id,
-        title: 'Undone milestone',
+        title: 'Upcoming milestone',
         dueOn: '2026-11-15',
       }).returning()
-      if (undoneRows.length !== 1) throw new Error('Expected one undone milestone')
-      const undone = undoneRows[0]!
+      if (upcomingRows.length !== 1) throw new Error('Expected one upcoming milestone')
+      const upcoming = upcomingRows[0]!
 
-      // Create a done milestone that should be excluded
+      // A past milestone is left out by its date alone
       await db.insert(schema.milestones).values({
         id: randomUUID(),
         projectId: retreat.id,
-        title: 'Done milestone',
-        dueOn: '2026-11-10',
-        doneAt: new Date('2026-11-10T10:00:00Z'),
+        title: 'Past milestone',
+        dueOn: '2026-10-01',
       })
 
       const blocks = await computeBlocks(db, meeting.id, { today: '2026-10-05' })
       expect(blocks.lookahead?.milestones).toHaveLength(1)
-      expect(blocks.lookahead?.milestones[0]?.id).toBe(undone.id)
+      expect(blocks.lookahead?.milestones[0]?.id).toBe(upcoming.id)
     })
 
     it('includes next meetings sharing series or projects', async () => {
