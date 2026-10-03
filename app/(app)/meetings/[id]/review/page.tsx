@@ -97,6 +97,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
           choices={choices}
           today={today}
           selfId={self.id}
+          meetingTitle={meeting.title}
         />
       ))}
     </CardGrid>

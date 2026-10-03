@@ -61,8 +61,10 @@ function Title({ proposal }: { proposal: ProposalView }) {
         ? `/items/${made.item.id}`
         : made?.meeting
           ? `/meetings/${made.meeting.id}`
-          : made?.document && proposal.project
-            ? `/projects/${proposal.project.id}`
+          : made?.document
+            ? proposal.project
+              ? `/projects/${proposal.project.id}`
+              : `/meetings/${proposal.meetingId}#documents`
             : null
 
   const tone =
@@ -92,10 +94,13 @@ export function ProposalCard({
   choices,
   today,
   selfId,
+  meetingTitle,
 }: {
   proposal: ProposalView
   choices: ProposalChoices
   today: string
+  /** The meeting it came from: where a document is kept, with its project if it has one. */
+  meetingTitle?: string
   /** John's person row: a party that is him reads "Me". */
   selfId: string
 }) {
@@ -173,6 +178,7 @@ export function ProposalCard({
 
           {(known.length + unknown.length > 0 && !named) ||
           proposal.project ||
+          (payload.type === 'document' && meetingTitle) ||
           (payload.type === 'item' && payload.dueOn) ? (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
               <span className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -213,7 +219,20 @@ export function ProposalCard({
                 })}
               </span>
               <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-                {proposal.project ? <Badge>{proposal.project.name}</Badge> : null}
+                {payload.type === 'document' && meetingTitle ? (
+                  <Badge>
+                    <Icon name="meeting" className="h-3 w-3" label="Kept on" />
+                    <span className="truncate">{meetingTitle}</span>
+                  </Badge>
+                ) : null}
+                {proposal.project ? (
+                  <Badge>
+                    {payload.type === 'document' ? <Icon name="project" className="h-3 w-3" /> : null}
+                    <span className="truncate" title={proposal.project.name}>
+                      {proposal.project.name}
+                    </span>
+                  </Badge>
+                ) : null}
                 {payload.type === 'item' && payload.dueOn ? (
                   <DueBadge label={formatDay(payload.dueOn, today)} dueOn={payload.dueOn} today={today} />
                 ) : null}
