@@ -19,7 +19,8 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { BlockSettings } from '@/lib/db/schema'
-import { allGroupEmails, listGroups } from '@/lib/directory/groups'
+import { allGroupEmails, listGroups, listMembers } from '@/lib/directory/groups'
+import { GroupCluster, MeChip, MemberLink } from '@/components/meetings/Roster'
 import { listPeople } from '@/lib/directory/people'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
 import { calendarLinkOf, unlinkedRecurring } from '@/lib/meetings/prep'
@@ -73,6 +74,12 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
 
   const groups = await listGroups(db, context.id)
   const onRoster = new Set(series.people.map((person) => person.id))
+  // Who each group on the roster brings, less Me and anyone on it by name.
+  const brought = await Promise.all(
+    series.groups.map(async (group) =>
+      (await listMembers(db, group.id)).filter((member) => !member.isSelf && !onRoster.has(member.id)),
+    ),
+  )
   const otherPeople = (await listPeople(db)).filter(
     (person) => !person.isSelf && !onRoster.has(person.id),
   )
@@ -252,26 +259,9 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
             ) : (
               <Card>
                 <div className="flex flex-wrap gap-2">
-                  {/* John is at every meeting: shown first, never removed. */}
-                  {self ? (
-                    <Chip icon="person" href={`/people/${self.id}`}>
-                      Me
-                    </Chip>
-                  ) : null}
-                  {series.groups.map((group) => (
-                    <RemovableChip
-                      key={group.id}
-                      icon="group"
-                      href={`/groups/${group.id}`}
-                      remove={{
-                        action: removeSeriesGroupAction,
-                        fields: { id: series.id, groupId: group.id },
-                        label: `Remove ${group.name}`,
-                      }}
-                    >
-                      {group.name}
-                    </RemovableChip>
-                  ))}
+                  {/* John is at every meeting: shown first, never removed. Then who is on it
+                      by name, then each group with the people it brings. */}
+                  <MeChip href={self ? `/people/${self.id}` : undefined} />
                   {series.people.map((person) => (
                     <RemovableChip
                       key={person.id}
@@ -285,6 +275,28 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                     >
                       {person.name}
                     </RemovableChip>
+                  ))}
+                  {series.groups.map((group, index) => (
+                    <GroupCluster
+                      key={group.id}
+                      chip={
+                        <RemovableChip
+                          icon="group"
+                          href={`/groups/${group.id}`}
+                          remove={{
+                            action: removeSeriesGroupAction,
+                            fields: { id: series.id, groupId: group.id },
+                            label: `Remove ${group.name}`,
+                          }}
+                        >
+                          {group.name}
+                        </RemovableChip>
+                      }
+                    >
+                      {brought[index]!.map((member) => (
+                        <MemberLink key={member.id} person={member} />
+                      ))}
+                    </GroupCluster>
                   ))}
                 </div>
               </Card>

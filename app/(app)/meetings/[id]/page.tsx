@@ -1,4 +1,5 @@
 import { RollCall } from '@/components/meetings/RollCall'
+import { Roster } from '@/components/meetings/Roster'
 import { rollCall, settleIfOver } from '@/lib/meetings/attendance'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
@@ -244,23 +245,9 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
               {meeting.series.name}
             </Chip>
           ) : null}
-          {/* John is at every meeting: first, and never on its list of people. */}
-          {self ? (
-            <Chip href={`/people/${self.id}`} icon="person">
-              Me
-            </Chip>
-          ) : null}
-          {/* A group stands for its members until who was there is settled; then they are named. */}
-          {meeting.groups.map((group) => (
-            <Chip key={group.id} href={`/groups/${group.id}`} icon="group">
-              {group.name}
-            </Chip>
-          ))}
-          {(meeting.attendanceAt ? meeting.attendees : meeting.people).map((person) => (
-            <Chip key={person.id} href={`/people/${person.id}`} icon="person">
-              {person.name}
-            </Chip>
-          ))}
+          {/* John first; then who is on it by name; then each group with who it brings
+              (live until who was there is settled, then as it was). */}
+          <Roster selfId={self?.id} groups={meeting.groups} attendees={meeting.attendees} />
           {meeting.projects.map((project) => (
             <Chip key={project.id} href={`/projects/${project.id}`} icon="project">
               {project.name}
@@ -275,6 +262,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                 action={settleAttendanceAction}
                 meetingId={meeting.id}
                 entries={roll}
+                groups={meeting.groups}
                 people={people
                   .filter((person) => !person.isSelf)
                   .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}

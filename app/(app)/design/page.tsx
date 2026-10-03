@@ -4,6 +4,7 @@ import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
 import { RollCall } from '@/components/meetings/RollCall'
+import { Roster } from '@/components/meetings/Roster'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { UnfiledCard } from '@/components/meetings/UnfiledCard'
 import { WhenInputs } from '@/components/meetings/WhenInputs'
@@ -223,10 +224,24 @@ export default function DesignPage() {
             meetingId="sample"
             entries={[
               { id: 'a', name: 'Sarah Jones', present: true },
-              { id: 'b', name: 'Tom Baker', present: false },
+              { id: 'b', name: 'Tom Baker', present: false, groupId: 'g' },
+              { id: 'd', name: 'Ann Lee', present: true, groupId: 'g' },
             ]}
+            groups={[{ id: 'g', name: 'Finance' }]}
             people={[{ value: 'c', name: 'Bishop Wright', icon: 'person' }]}
           />
+        </Card>
+        <Card className="mt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Roster
+              groups={[{ id: 'g', name: 'Finance' }]}
+              attendees={[
+                { id: 'a', name: 'Sarah Jones', groupId: null },
+                { id: 'd', name: 'Ann Lee', groupId: 'g' },
+                { id: 'e', name: 'Raj Patel', groupId: 'g' },
+              ]}
+            />
+          </div>
         </Card>
       </Section>
 
