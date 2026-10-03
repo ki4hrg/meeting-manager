@@ -242,6 +242,7 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
                       .map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
                   ]}
                   allowNew
+                  me
                 />
               </FormModal>
             }

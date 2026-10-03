@@ -40,6 +40,7 @@ export function LogMeeting({
           ...people.map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
           ...groups.map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
         ]}
+        me
       />
       <Field label="Notes" required>
         <Textarea name="notes" rows={10} required placeholder={'D: \nQ: \nA: \nT: '} />

@@ -53,6 +53,7 @@ export default async function SeriesListPage() {
                 ...groups.map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
               ]}
               allowNew
+              me
             />
             <CheckList label="Projects" name="projectIds" options={projects} />
           </FormModal>

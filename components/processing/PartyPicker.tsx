@@ -22,6 +22,9 @@ export type PartyOption = {
  * With `allowNew`, a name that matches nobody is offered as someone to add
  * (`new:<name>`). Backspace in an empty box takes the last pick off; ⌘Enter,
  * or Esc once something is picked, submits the form it is in.
+ *
+ * With `me`, a fixed "Me" chip leads the box: John is at every meeting, so he
+ * is never picked, but a roster without him reads as missing him.
  */
 export function PartyPicker({
   label,
@@ -30,6 +33,7 @@ export function PartyPicker({
   selected = [],
   required = false,
   allowNew = false,
+  me = false,
 }: {
   label: string
   name: string
@@ -37,6 +41,7 @@ export function PartyPicker({
   selected?: PartyOption[]
   required?: boolean
   allowNew?: boolean
+  me?: boolean
 }) {
   const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -108,6 +113,12 @@ export function PartyPicker({
         className="mt-1 flex flex-wrap items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2 py-1.5 shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
         onClick={() => inputRef.current?.focus()}
       >
+        {me ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+            <Icon name="person" className="h-3.5 w-3.5 shrink-0" />
+            Me
+          </span>
+        ) : null}
         {chosen.map((option) => (
           <span
             key={option.value}
