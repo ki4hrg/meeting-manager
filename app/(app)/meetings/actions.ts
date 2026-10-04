@@ -13,7 +13,8 @@ import {
   restoreLine,
   updateLine,
 } from '@/lib/agenda/lines'
-import { fromLocalInput } from '@/lib/core/dates'
+import { requireUser } from '@/lib/auth/guards'
+import { formatTime, fromLocalInput, isDay } from '@/lib/core/dates'
 import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listContexts } from '@/lib/directory/contexts'
@@ -35,6 +36,7 @@ import {
   prepWithGroup,
   prepWithPerson,
   seriesFromEvent,
+  unpreppedOn,
 } from '@/lib/meetings/prep'
 import { settleAttendance } from '@/lib/meetings/attendance'
 import { addToRoster } from '@/lib/meetings/series'
@@ -267,6 +269,26 @@ export async function prepEventAction(formData: FormData): Promise<ActionResult>
     },
     () => id,
   )
+}
+
+export type DayEvent = { eventId: string; title: string; at: string; time: string }
+
+/** The selected context's calendar events on a day with no meeting yet, for the New meeting form. */
+export async function eventsOnDayAction(day: string): Promise<DayEvent[]> {
+  const user = await requireUser()
+  const context = await currentContext()
+  if (!context || !isDay(day)) return []
+  try {
+    return (await unpreppedOn(db, context.id, day, user.timeZone)).map((event) => ({
+      eventId: event.eventId,
+      title: event.title,
+      at: event.startsAt.toISOString(),
+      time: formatTime(event.startsAt, user.timeZone),
+    }))
+  } catch {
+    // The calendar could not be read: the form still makes a meeting by hand.
+    return []
+  }
 }
 
 /** Give a stub its date from a calendar event, instead of making a second meeting. */

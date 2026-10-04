@@ -80,6 +80,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
               <MeetingFields
                 choices={{ people: others, groups, projects: live, series }}
                 timeZone={timeZone}
+                offerEvents
               />
             </FormModal>
           </>

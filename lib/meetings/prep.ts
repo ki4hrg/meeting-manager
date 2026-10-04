@@ -11,6 +11,7 @@ import { applySkeleton } from '../agenda/lines'
 import { placeAutomatic, placeRaiseWith } from '../agenda/candidates'
 import { eventsHere, listEventsIn, type CalendarEvent } from '../calendar/feed'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { addDays, fromLocalInput } from '../core/dates'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
 import { groups, meetings, projects, series } from '../db/schema'
 import { onShelf } from '../db/shelf'
@@ -413,6 +414,38 @@ export async function findEvent(
   const event = events.find((candidate) => candidate.eventId === eventId)
   if (!event) throw new ValidationError('That event is no longer on the calendar.')
   return event
+}
+
+/**
+ * The calendar events of a day (on the user's clock) in a context that have no
+ * meeting yet, in order: what a meeting being made by hand on that day may
+ * really be. `events` stands in for the calendars, for tests.
+ */
+export async function unpreppedOn(
+  exec: Executor,
+  contextId: string,
+  day: string,
+  timeZone: string | null,
+  opts: { events?: CalendarEvent[] } = {},
+): Promise<CalendarEvent[]> {
+  const from = fromLocalInput(`${day}T00:00`, timeZone)
+  const to = fromLocalInput(`${addDays(day, 1)}T00:00`, timeZone)
+  const events = opts.events
+    ? await eventsHere(exec, contextId, opts.events.map((event) => ({ event, contextId })))
+    : await listEventsIn(exec, { contextId, from, to })
+  const onDay = events.filter((event) => !event.allDay && event.startsAt >= from && event.startsAt < to)
+  if (onDay.length === 0) return []
+  const prepped = new Set(
+    (
+      await exec
+        .select({ eventId: meetings.calendarEventId })
+        .from(meetings)
+        .where(inArray(meetings.calendarEventId, onDay.map((event) => event.eventId)))
+    ).map((row) => row.eventId),
+  )
+  return onDay
+    .filter((event) => !prepped.has(event.eventId))
+    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
 }
 
 /**
