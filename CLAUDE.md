@@ -47,6 +47,7 @@ These apply to every screen.
 - `app/(app)/actions.ts` — server actions for items, the directory and projects. `app/(app)/meetings/actions.ts`, `app/(app)/meetings/processing-actions.ts` (log, review, notes), `app/(app)/series/actions.ts` and `app/(app)/settings/actions.ts` hold their own areas'.
 - `components/forms.tsx` — `ActionForm`, `FormModal`, `ActionButton`, `IconAction`. `components/items/` — `ItemCard`, `ItemGrid`, `PartyLine`. `components/meetings/` — the agenda card, a session's agenda, suggestions, blocks, meeting, event and unfiled-note cards, and the start/end fields. `components/series/` — the skeleton editor. `components/processing/` — the Log modal, proposal cards, the party picker, run state. `components/documents/` — the document card.
 - `test/` — Vitest against a real Postgres (Testcontainers; Docker must be running).
+- `e2e/` — Playwright in a browser: `serve.ts` starts a fresh database, seeds the world in `seed.ts` (names in `world.ts`) and runs `next dev` on port 3100 with its own `.next-e2e`. The main journeys, and every main page at phone width in light and dark. A new screen goes in `phone.spec.ts`'s list; a new journey gets a spec.
 
 ## Commands
 
@@ -55,6 +56,7 @@ pnpm dev            # needs DATABASE_URL and SESSION_SECRET in .env.local
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm e2e            # Playwright; Docker for Postgres, Chromium installed (playwright install chromium)
 pnpm db:generate    # after changing lib/db/schema.ts
 pnpm db:migrate
 ```

@@ -27,6 +27,12 @@ John's order: everything that is not Todoist first, then phase 4. He wants the t
 
 - No Google Calendar locally: the event list on the New meeting form was checked with a stubbed list, and hub events and the cross-context Prep with tests only.
 
+**Gaps closed after (2026-10-04)**
+
+- **A failed run is retried by itself** (`processQueued` in `lib/processing/run.ts`): five minutes after its first failure, thirty after its second; after three attempts (`MAX_ATTEMPTS`) it waits for Retry, which starts the count again. A run abandoned while running is taken up on the same count and marked failed when it has none left, instead of forever.
+- **Review badges everywhere meetings are listed**: the person page joins the hubs; `pendingOnCards` counts a session's waiting proposals on its meeting's card, page and recap. Review lists still name each session alone.
+- **Browser tests** (`e2e/`, `pnpm e2e`, a CI job the image waits on): home across contexts and opening a row in its own context, quick-add, review and accept from home, Log to review, prep with a person, the time zone, pausing sub-projects, and ten pages at phone width in light and dark with no sideways scroll and no page errors. Three runs in a row clean locally.
+
 **Next: phase 4.** The Todoist sync, Fold into with Combine at review, and `get_hub`; see the spec.
 
 ## Refinements after item 9 (2026-10-03)
@@ -179,9 +185,9 @@ Everything below was pushed to `main` on 2026-10-01 and deployed. John confirmed
 
 **Known gaps**
 
-- A failed run is retried only by hand (Retry on the review screen, or `process_meeting`). A run stuck in `running` is re-queued after 15 minutes with no cap on attempts.
+- *(Closed 2026-10-04: failed and abandoned runs are retried by themselves, three attempts in all.)*
 - A pending proposal whose line was later removed from the note lingers.
-- Pending badges are not shown on the project, person and group hubs or on home.
+- *(Closed 2026-10-04: review badges on every hub, and Review on home.)*
 - `kick` runs the job even with `WORKER=off`; only the MCP tools guard against that.
 - The series page does not name which occurrences stayed after a move.
 - Scratch databases `mm_move`, `mm_screens`, `mm_granola` in `mm-dev-db`, and `.next-move`, `.next-screens`, `.next-granola` in the repo (ignored by git), can be dropped.
@@ -266,7 +272,7 @@ The phase 1 rules still stand (one `items` table in four kinds; a decision is it
 - **`Response.redirect` wants an absolute URL** in a Route Handler.
 - The phase 1 notes still apply: React resets a form after its action; `showModal()` focuses the close button; no `setState` directly in an effect; Docker must be running for `pnpm test`; set `PUBLIC_BASE_URL` when the dev server is not on port 3000.
 - **Password managers:** `Input` and `Textarea` opt out of autofill unless a field sets `autoComplete` itself. A raw `<input>` needs the same attributes by hand (see `QuickAdd`).
-- **Browser checks:** still no Playwright in this repo; the walks used the one in `../Meeter/node_modules`. Adding it here with a small e2e suite is overdue.
+- **Browser checks:** `pnpm e2e` (see `e2e/`). For a one-off look at a screen, a script against `pnpm dev` with the Playwright in `node_modules` is still quickest.
 
 ## Local setup
 

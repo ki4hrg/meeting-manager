@@ -10,3 +10,6 @@ next-env.d.ts
 .DS_Store
 .claude/*
 !.claude/settings.json
+e2e/.auth/
+test-results/
+playwright-report/
