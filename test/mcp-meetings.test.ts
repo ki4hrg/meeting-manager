@@ -364,7 +364,7 @@ describe('context isolation', () => {
     expect(await refusal('edit_agenda', { id, op: 'add_line', item_id: theirs.id })).toContain(
       'different context',
     )
-    expect(await refusal('edit_agenda', { id, op: 'dismiss_item', item_id: theirs.id })).toContain(
+    expect(await refusal('edit_agenda', { id, op: 'restore_item', item_id: theirs.id })).toContain(
       'another context',
     )
     expect(
@@ -549,7 +549,7 @@ describe('set_agenda', () => {
 })
 
 describe('edit_agenda', () => {
-  it('adds, updates, moves, removes, places, dismisses and restores', async () => {
+  it('adds, updates, moves, removes and places', async () => {
     const venue = await capture({
       text: 'Book the venue',
       kind: 'action',
@@ -645,22 +645,16 @@ describe('edit_agenda', () => {
     view = await edit({ op: 'place_item', item_id: venue.id })
     expect(shape(view)).toEqual(['Any other business', { Welcome: ['Prayer', 'Book the venue'] }])
 
-    // dismiss_item is for what is not on the agenda.
+    // There is no "not this time": a suggestion is placed, dropped or left alone.
     expect(await refusal('edit_agenda', { id, op: 'dismiss_item', item_id: venue.id })).toContain(
-      'remove_line',
+      'not valid for edit_agenda',
     )
 
-    // remove_line on an item line dismisses it; restore_item and dismiss_item undo and redo that.
+    // remove_line on a suggested item's line puts it back among the suggestions.
     view = await edit({ op: 'remove_line', line_id: lineOf(view, 'Book the venue').id })
     expect(shape(view)).toEqual(['Any other business', { Welcome: ['Prayer'] }])
-    expect(view.candidates.suggested).toEqual([])
-    expect(view.candidates.dismissed).toEqual(suggestion.items)
-    view = await edit({ op: 'restore_item', item_id: venue.id })
     expect(view.candidates.suggested).toEqual([suggestion])
     expect(view.candidates.dismissed).toEqual([])
-    view = await edit({ op: 'dismiss_item', item_id: venue.id })
-    expect(view.candidates.suggested).toEqual([])
-    expect(view.candidates.dismissed).toEqual(suggestion.items)
 
     // Removing a section takes its lines.
     view = await edit({ op: 'remove_line', line_id: opening })
@@ -809,7 +803,10 @@ describe('moving between contexts', () => {
     })
     expect(shape(moved)).toEqual(['Typed'])
     expect(lineOf(moved, 'Typed').private_note).toBe('mine')
-    expect(moved.candidates.to_place.map((item) => item.id)).toEqual([dioceseItem.id])
+    expect(moved.candidates.to_place).toEqual([])
+    expect(moved.candidates.suggested.flatMap((group) => group.items.map((item) => item.id))).toEqual([
+      dioceseItem.id,
+    ])
     const offered = [
       ...moved.candidates.suggested,
       ...moved.candidates.more,

@@ -196,6 +196,15 @@ export const mcpWriteReceipts = pgTable(
   ],
 )
 
+/* What one click took away, kept for the Undo on its toast. A day is plenty;
+   older entries are cleared as new ones are written. */
+export const undoEntries = pgTable('undo_entries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  kind: text('kind').notNull(),
+  data: jsonb('data').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 // ─── contexts and the directory ──────────────────────────────────────────────
 
 /* A hard boundary: projects, groups and items carry a context and nothing

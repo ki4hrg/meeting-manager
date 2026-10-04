@@ -25,6 +25,7 @@ import {
   convertItem,
   deleteItem,
   dropItem,
+  undropItem,
   getItem,
   isOpen,
   parkItem,
@@ -130,6 +131,12 @@ export async function itemStatusAction(formData: FormData): Promise<ActionResult
     else if (op === 'drop') await dropItem(db, actor, id)
     else if (op === 'reopen') await reopenItem(db, actor, id)
     else throw new ValidationError('Unknown change.')
+  })
+}
+
+export async function undropItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await undropItem(db, actor, field(formData, 'id'))
   })
 }
 

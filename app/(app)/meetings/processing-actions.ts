@@ -8,7 +8,7 @@ import { normalise } from '@/lib/core/match'
 import { AppError, ValidationError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { ProposalPayload, ProposedParty } from '@/lib/db/schema'
-import { dismissHeldNote, fileHeldNote } from '@/lib/connect/granola/unfiled'
+import { dismissHeldNote, fileHeldNote, undismissHeldNote } from '@/lib/connect/granola/unfiled'
 import { createPerson } from '@/lib/directory/people'
 import { resolveParty, resolvePerson } from '@/lib/directory/resolve'
 import { ITEM_KINDS } from '@/lib/items/items'
@@ -185,6 +185,12 @@ export async function fileNoteAction(formData: FormData): Promise<ActionResult> 
 export async function dismissNoteAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     await dismissHeldNote(db, actor, field(formData, 'noteId'))
+  })
+}
+
+export async function undismissNoteAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await undismissHeldNote(db, actor, field(formData, 'noteId'))
   })
 }
 

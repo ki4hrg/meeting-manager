@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { dismissCandidate, placeItem, restoreCandidate } from '@/lib/agenda/candidates'
+import { placeItem, restoreCandidate } from '@/lib/agenda/candidates'
 import {
   addLine,
   addSection,
@@ -10,6 +10,7 @@ import {
   moveToSession,
   nudgeLine,
   removeLine,
+  restoreLine,
   updateLine,
 } from '@/lib/agenda/lines'
 import { fromLocalInput } from '@/lib/core/dates'
@@ -318,8 +319,12 @@ export async function nudgeLineAction(formData: FormData): Promise<ActionResult>
 }
 
 export async function removeLineAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => ({ undoId: await removeLine(db, actor, field(formData, 'id')) }))
+}
+
+export async function restoreLineAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await removeLine(db, actor, field(formData, 'id'))
+    await restoreLine(db, actor, field(formData, 'undoId'))
   })
 }
 
@@ -356,12 +361,6 @@ export async function placeItemsAction(formData: FormData): Promise<ActionResult
         await placeItem(tx, actor, meetingId, itemId)
       }
     })
-  })
-}
-
-export async function dismissCandidateAction(formData: FormData): Promise<ActionResult> {
-  return act(async (actor) => {
-    await dismissCandidate(db, actor, field(formData, 'meetingId'), field(formData, 'itemId'))
   })
 }
 

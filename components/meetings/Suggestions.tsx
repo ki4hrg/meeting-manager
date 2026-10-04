@@ -1,10 +1,6 @@
 import Link from 'next/link'
-import {
-  dismissCandidateAction,
-  placeItemAction,
-  placeItemsAction,
-  restoreCandidateAction,
-} from '@/app/(app)/meetings/actions'
+import { itemStatusAction, undropItemAction } from '@/app/(app)/actions'
+import { placeItemAction, placeItemsAction, restoreCandidateAction } from '@/app/(app)/meetings/actions'
 import { IconAction } from '@/components/forms'
 import { Card } from '@/components/ui/Card'
 import { Icon } from '@/components/ui/icons'
@@ -61,10 +57,12 @@ function Groups({ groups, meetingId }: { groups: CandidateGroup[]; meetingId: st
                   label={`Place ${item.text}`}
                 />
                 <IconAction
-                  action={dismissCandidateAction}
-                  fields={{ meetingId, itemId: item.id }}
+                  action={itemStatusAction}
+                  fields={{ id: item.id, op: 'drop' }}
                   icon="close"
-                  label={`Not this time: ${item.text}`}
+                  label={`Drop ${item.text}`}
+                  done="Dropped"
+                  undo={{ action: undropItemAction, fields: { id: item.id } }}
                 />
               </ItemRow>
             ))}
@@ -77,8 +75,9 @@ function Groups({ groups, meetingId }: { groups: CandidateGroup[]; meetingId: st
 
 /**
  * What could go on this agenda, closed until asked for: the suggestions, one
- * click each to place or turn away; under them the person-only items of a
- * larger meeting, and what was turned away, which can come back.
+ * click each to place or drop (left alone, one waits here for the next
+ * meeting); under them the person-only items of a larger meeting, and what was
+ * aimed here but taken off the agenda, which can come back.
  */
 export function Suggestions({ candidates, meetingId }: { candidates: Candidates; meetingId: string }) {
   const suggested = count(candidates.suggested)

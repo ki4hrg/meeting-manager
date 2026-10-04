@@ -4,10 +4,11 @@
  * This is where a leak would happen, so the rules are deliberately narrow:
  *
  *   - Only open items in the meeting's own context are ever looked at.
- *   - Placed without asking: items aimed at this meeting, at its series (the
- *     next occurrence), or at the next meeting for a project (the next one not
- *     over that carries it or a project within it), and, in a 1:1, what John
- *     wants to raise with the other person.
+ *   - Placed without asking: only items aimed at a meeting, which is this one,
+ *     its series (the next occurrence), or the next meeting for a project (the
+ *     next one not over that carries it or a project within it). Anything
+ *     tagged with a person, group or project is at most suggested, even in a
+ *     1:1, so it stays there, meeting after meeting, until it is placed.
  *   - A meeting with sessions has no agenda of its own to fill: nothing is
  *     placed on it, and what is aimed at it goes to its next session, the
  *     first one that is not over.
@@ -16,6 +17,9 @@
  *     A person match alone is not enough in a larger meeting; those sit under
  *     "more" and are never placed for him, as do the items of a project the
  *     meeting's projects sit within.
+ *   - An item aimed at another meeting, series or project is on its way there
+ *     and is not offered here at all. An aim at a meeting that is over (or
+ *     gone) is spent, and the item is matched as if it had none.
  *   - John is at every meeting, so nothing is a candidate through him.
  *
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
@@ -185,12 +189,6 @@ export async function getCandidates(
   /* A meeting with a group is the group's, however few have joined it so far:
      never a 1:1, and what is for one member alone waits under "more". */
   const solo = attendeeIds.size === 1 && meetingGroupIds.size === 0 ? [...attendeeIds][0]! : null
-  /* A one-off calendar event with one invitee may be about anything (a site
-     visit, a hold): what is for that person waits as a suggestion there. */
-  const chosenSolo =
-    meeting.seriesId !== null || meeting.startsAt === null || meeting.calendarEventId === null
-      ? solo
-      : null
   const next = await isNextOccurrence(exec, meeting, now)
   /* What is aimed at the whole of a multi-day meeting comes here when this is
      its next session; the meeting itself, having sessions, takes none of it. */
@@ -211,6 +209,21 @@ export async function getCandidates(
     }
   }
 
+  // Meetings items are aimed at: one that is over, put away or gone no longer holds its item.
+  const aimedAt = [...new Set(open.flatMap((item) => (item.targetMeetingId ? [item.targetMeetingId] : [])))]
+  const live = new Set(
+    aimedAt.length === 0
+      ? []
+      : (
+          await exec
+            .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt })
+            .from(meetings)
+            .where(and(inArray(meetings.id, aimedAt), onShelf(meetings)))
+        )
+          .filter((one) => !isOver(one, now))
+          .map((one) => one.id),
+  )
+
   const toPlace: ItemView[] = []
   const dismissed: ItemView[] = []
   const suggested = new Map<string, CandidateGroup>()
@@ -228,11 +241,13 @@ export async function getCandidates(
       (parentAim !== null && item.targetMeetingId === parentAim) ||
       (next && item.targetSeriesId !== null && item.targetSeriesId === meeting.seriesId) ||
       (item.targetProjectId !== null && projectAims.get(item.targetProjectId) === meeting.id)
-    const raiseWithSolo =
-      chosenSolo !== null &&
-      item.parties.some(
-        (party) => party.type === 'person' && party.id === chosenSolo && party.role === 'with',
-      )
+    // On its way to somewhere else: not offered here, under any reason.
+    const aimedElsewhere =
+      !aimedHere &&
+      ((item.targetMeetingId !== null && live.has(item.targetMeetingId)) ||
+        item.targetSeriesId !== null ||
+        item.targetProjectId !== null)
+    if (aimedElsewhere) continue
     const viaProject = item.project !== null && projectIds.has(item.project.id)
     const viaChild = item.project !== null && !viaProject && below.has(item.project.id)
     const viaParent = item.project !== null && !viaProject && !viaChild && above.has(item.project.id)
@@ -240,13 +255,13 @@ export async function getCandidates(
     const viaGroup = item.parties.find((party) => party.type === 'group' && meetingGroupIds.has(party.id))
 
     if (dismissedIds.has(item.id)) {
-      if (aimedHere || raiseWithSolo || viaProject || viaChild || viaGroup || attendee || viaParent) {
+      if (aimedHere || viaProject || viaChild || viaGroup || attendee || viaParent) {
         dismissed.push(item)
       }
       continue
     }
 
-    if (aimedHere || raiseWithSolo) {
+    if (aimedHere) {
       // Its sessions take these; the meeting over them places nothing.
       if (!rollup) toPlace.push(item)
     } else if (viaProject || viaChild) {
@@ -307,6 +322,34 @@ export async function placeAutomatic(
       toPlace.map((item) => item.id),
     )
     return toPlace.length
+  })
+}
+
+/**
+ * "Prep a meeting with…" asks for the batch: everything waiting to be raised
+ * with that person, placed at once. What was taken off the agenda stays off.
+ */
+export async function placeRaiseWith(
+  exec: Executor,
+  _actor: ActorContext,
+  meetingId: string,
+  personId: string,
+  now: Date = new Date(),
+): Promise<number> {
+  return inTransaction(exec, async (tx) => {
+    const { suggested } = await getCandidates(tx, meetingId, now)
+    const batch = suggested
+      .flatMap((group) => group.items)
+      .filter((item) =>
+        item.parties.some((party) => party.type === 'person' && party.id === personId && party.role === 'with'),
+      )
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    await appendItemLines(
+      tx,
+      meetingId,
+      batch.map((item) => item.id),
+    )
+    return batch.length
   })
 }
 

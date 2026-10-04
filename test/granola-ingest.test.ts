@@ -23,6 +23,7 @@ import { granolaActor, ingestNoteById, type IngestOutcome } from '../lib/connect
 import {
   countUnfiledNotes,
   dismissHeldNote,
+  undismissHeldNote,
   fileHeldNote,
   listUnfiledNotes,
   previewFiling,
@@ -469,6 +470,10 @@ describe('the Inbox', () => {
     granola.script.notes[id] = { ...granola.script.notes[id]!, summary_markdown: 'Edited.' }
     await ingest(id)
     expect(await countUnfiledNotes(db)).toBe(0)
+
+    // Undo brings it back to the Inbox.
+    await undismissHeldNote(db, actor, held.noteId)
+    expect(await countUnfiledNotes(db)).toBe(1)
   })
 
   it('refuses to dismiss or file a note that is already filed', async () => {

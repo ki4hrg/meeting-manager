@@ -12,13 +12,16 @@ import {
   moveLine,
   nudgeLine,
   removeLine,
+  restoreLine,
   applySkeleton,
   importOutline,
 } from '../lib/agenda/lines'
-import { createItem, updateItem } from '../lib/items/items'
+import { createItem, getItem, updateItem } from '../lib/items/items'
+import { createSeries } from '../lib/meetings/series'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
-import { meetings, meetingDismissals } from '../lib/db/schema'
+import { itemEvents, meetings, meetingDismissals } from '../lib/db/schema'
+import { eq } from 'drizzle-orm'
 
 resetBetweenTests()
 
@@ -182,12 +185,17 @@ describe('agenda operations', () => {
     )
   })
 
-  it('removing item line records dismissal', async () => {
+  it('removing the line of an item aimed at the series records a dismissal', async () => {
     const { parish } = await makeWorld()
 
-    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
+    const series = await createSeries(db, { contextId: parish.id, name: 'Weekly' })
+    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting', seriesId: series.id }).returning()
 
-    const item = await createItem(db, actor, { contextId: parish.id, text: 'An action' })
+    const item = await createItem(db, actor, {
+      contextId: parish.id,
+      text: 'An action',
+      target: { seriesId: series.id },
+    })
 
     const line = await addLine(db, actor, meeting[0]!.id, { itemId: item.id })
 
@@ -199,12 +207,94 @@ describe('agenda operations', () => {
     expect(thisDismissal).toBeDefined()
   })
 
-  it('re-adding item clears dismissal', async () => {
+  it('removing the line of any other item records nothing: it is suggested again', async () => {
     const { parish } = await makeWorld()
 
     const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
+    const item = await createItem(db, actor, { contextId: parish.id, text: 'An action' })
+    const line = await addLine(db, actor, meeting[0]!.id, { itemId: item.id })
 
-    const item = await createItem(db, actor, { contextId: parish.id, text: 'An item' })
+    await removeLine(db, actor, line)
+
+    expect(await db.select().from(meetingDismissals)).toEqual([])
+  })
+
+  it('restores a removed line where it was, with everything on it, once', async () => {
+    const { parish, john } = await makeWorld()
+    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
+    const id = meeting[0]!.id
+    await addLine(db, actor, id, { text: 'First' })
+    const middle = await addLine(db, actor, id, { text: 'Middle' })
+    await addLine(db, actor, id, { text: 'Last' })
+    await updateLine(db, actor, middle, {
+      description: 'For everyone',
+      leaderPersonId: john.id,
+      privateNote: 'mine',
+      minutes: 10,
+      pinnedStart: '09:30',
+    })
+    const before = await getAgenda(db, id)
+
+    const undoId = await removeLine(db, actor, middle)
+    expect((await getAgenda(db, id)).nodes).toHaveLength(2)
+    await restoreLine(db, actor, undoId)
+    expect(await getAgenda(db, id)).toEqual(before)
+    await expect(restoreLine(db, actor, undoId)).rejects.toThrow('no longer be undone')
+  })
+
+  it('restoring an item line takes back what removing it did to the item', async () => {
+    const { parish } = await makeWorld()
+    const series = await createSeries(db, { contextId: parish.id, name: 'Weekly' })
+    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting', seriesId: series.id }).returning()
+    const id = meeting[0]!.id
+    const here = await createItem(db, actor, { contextId: parish.id, text: 'Here', target: { meetingId: id } })
+    const next = await createItem(db, actor, { contextId: parish.id, text: 'Next', target: { seriesId: series.id } })
+    const hereLine = await addLine(db, actor, id, { itemId: here.id })
+    const nextLine = await addLine(db, actor, id, { itemId: next.id })
+    const history = async () =>
+      (await db.select().from(itemEvents).where(eq(itemEvents.itemId, here.id))).map((event) => event.type)
+    const was = await history()
+
+    await restoreLine(db, actor, await removeLine(db, actor, hereLine))
+    expect((await getItem(db, here.id)).targetMeetingId).toBe(id)
+    expect(await history()).toEqual(was)
+
+    await restoreLine(db, actor, await removeLine(db, actor, nextLine))
+    expect(await db.select().from(meetingDismissals)).toEqual([])
+    expect((await getAgenda(db, id)).nodes.map((node) => node.type === 'line' && node.item?.id)).toEqual([
+      here.id,
+      next.id,
+    ])
+  })
+
+  it('removing the line of an item aimed at this meeting alone clears its aim', async () => {
+    const { parish } = await makeWorld()
+
+    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
+    const item = await createItem(db, actor, {
+      contextId: parish.id,
+      text: 'An action',
+      target: { meetingId: meeting[0]!.id },
+    })
+    const line = await addLine(db, actor, meeting[0]!.id, { itemId: item.id })
+
+    await removeLine(db, actor, line)
+
+    expect(await db.select().from(meetingDismissals)).toEqual([])
+    expect((await getItem(db, item.id)).targetMeetingId).toBeNull()
+  })
+
+  it('re-adding item clears dismissal', async () => {
+    const { parish } = await makeWorld()
+
+    const series = await createSeries(db, { contextId: parish.id, name: 'Weekly' })
+    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting', seriesId: series.id }).returning()
+
+    const item = await createItem(db, actor, {
+      contextId: parish.id,
+      text: 'An item',
+      target: { seriesId: series.id },
+    })
 
     const line1 = await addLine(db, actor, meeting[0]!.id, { itemId: item.id })
 
@@ -267,14 +357,19 @@ describe('agenda operations', () => {
     }
   })
 
-  it('removing section records dismissals for item lines', async () => {
+  it('removing a section records dismissals for the items aimed at the series among its lines', async () => {
     const { parish } = await makeWorld()
 
-    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
+    const series = await createSeries(db, { contextId: parish.id, name: 'Weekly' })
+    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting', seriesId: series.id }).returning()
 
     const section = await addSection(db, actor, meeting[0]!.id, { title: 'Section' })
 
-    const item1 = await createItem(db, actor, { contextId: parish.id, text: 'Item 1' })
+    const item1 = await createItem(db, actor, {
+      contextId: parish.id,
+      text: 'Item 1',
+      target: { seriesId: series.id },
+    })
     const item2 = await createItem(db, actor, { contextId: parish.id, text: 'Item 2' })
 
     await addLine(db, actor, meeting[0]!.id, { sectionId: section, itemId: item1.id })
@@ -285,7 +380,7 @@ describe('agenda operations', () => {
 
     const dismissals = await db.select().from(meetingDismissals)
     expect(dismissals.filter((d) => d.itemId === item1.id).length).toBe(1)
-    expect(dismissals.filter((d) => d.itemId === item2.id).length).toBe(1)
+    expect(dismissals.filter((d) => d.itemId === item2.id).length).toBe(0)
   })
 
   it('applySkeleton appends sections', async () => {

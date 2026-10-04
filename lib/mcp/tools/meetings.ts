@@ -10,7 +10,6 @@
 import { z } from 'zod'
 import { ValidationError, type Executor, type Tx } from '@/lib/core/types'
 import {
-  dismissCandidate,
   getCandidates,
   placeItem,
   restoreCandidate,
@@ -497,8 +496,8 @@ export const getMeetingTool = defineTool({
     'section with lines or a loose line; a line is free text or a live item (item_id), with ' +
     'minutes, its computed start on the account clock and my private note. candidates are open ' +
     'items not on the agenda: to_place (aimed here, placed by prep), suggested (through a ' +
-    'project, the group or a 1:1), more (matched by an attendee alone in a larger meeting; ' +
-    'never raise these unasked) and dismissed.',
+    'project, the group or the other person in a 1:1; never placed on their own), more (matched by an attendee alone in a larger meeting; ' +
+    'never raise these unasked) and dismissed (aimed here but taken off the agenda).',
   scope: 'meetings:read',
   input: z.object({ id: meetingId }),
   annotations: { readOnlyHint: true },
@@ -889,7 +888,6 @@ const EDIT_OPS = [
   'move_line',
   'remove_line',
   'place_item',
-  'dismiss_item',
   'restore_item',
 ] as const
 
@@ -918,7 +916,6 @@ const EDIT_TAKES: Record<EditOp, { needs: EditField[]; allows: readonly EditFiel
     needs: ['item_id'],
     allows: ['section_id', 'position', 'minutes', 'description', 'leader', 'private_note', 'pinned_start'],
   },
-  dismiss_item: { needs: ['item_id'], allows: [] },
   restore_item: { needs: ['item_id'], allows: [] },
 }
 
@@ -932,9 +929,11 @@ export const editAgendaTool = defineTool({
     'pinned_start of line_id (a section takes text, minutes and pinned_start); null clears. ' +
     'move_line: line_id to position (0 is first; omitted is last) in section_id (null is the ' +
     'top level; omitted keeps where it is). remove_line: line_id; a section goes with its ' +
-    'lines, and an item taken off is dismissed for this meeting. place_item: put item_id on ' +
-    'the agenda, as from a suggestion. dismiss_item: "not this time" for an item that is not ' +
-    'on the agenda. restore_item: take that back. Line and section ids come from get_meeting. ' +
+    'lines; an item taken off that was aimed at this meeting alone loses its aim, one aimed ' +
+    'at its series or project waits for the next meeting, and anything else goes back to the ' +
+    'suggestions. place_item: put item_id on the agenda, as from a suggestion. ' +
+    'restore_item: let an item taken off come back. A suggestion not wanted is left alone, ' +
+    'or dropped with update_item. Line and section ids come from get_meeting. ' +
     'Returns what get_meeting returns.',
   scope: 'meetings:write',
   input: z.object({
@@ -1063,14 +1062,6 @@ export const editAgendaTool = defineTool({
           })
         }
         if (hasLineFields) await updateLine(tx, actor, row.id, lineFields)
-      } else if (op === 'dismiss_item') {
-        await itemHere(input.item_id!)
-        if (await lineOfItem(input.item_id!)) {
-          throw new ValidationError(
-            'That item is on the agenda. Take its line off with remove_line, which also dismisses it.',
-          )
-        }
-        await dismissCandidate(tx, actor, id, input.item_id!)
       } else {
         await itemHere(input.item_id!)
         await restoreCandidate(tx, actor, id, input.item_id!)

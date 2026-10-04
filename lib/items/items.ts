@@ -13,7 +13,7 @@
  *   - Every step is logged to item_events, in the same commit as the step.
  */
 
-import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm'
 import { parseDay } from '../core/dates'
 import {
   NotFoundError,
@@ -888,11 +888,53 @@ export async function dropItem(exec: Executor, actor: ActorContext, id: string):
     }
     if (!isOpen(item)) throw new ValidationError('This item is already closed.')
 
+    // What `undropItem` puts back.
+    const [row] = await tx
+      .select({ status: items.status, parkedAt: items.parkedAt, laterOn: items.laterOn })
+      .from(items)
+      .where(eq(items.id, id))
     await tx
       .update(items)
       .set({ status: 'dropped', closedAt: new Date(), updatedAt: new Date(), ...NOT_PARKED })
       .where(eq(items.id, id))
-    await logEvent(tx, actor, id, 'dropped')
+    await logEvent(tx, actor, id, 'dropped', {
+      before: { status: row!.status, parkedAt: row!.parkedAt?.toISOString() ?? null, laterOn: row!.laterOn },
+    })
+    return getItem(tx, id)
+  })
+}
+
+/**
+ * Undo a drop: the item stands exactly as it did, parking included, and the
+ * drop leaves its history. Only while the drop is the last thing that
+ * happened to it; after that, it is reopened from its own page.
+ */
+export async function undropItem(exec: Executor, _actor: ActorContext, id: string): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    const [last] = await tx
+      .select()
+      .from(itemEvents)
+      .where(eq(itemEvents.itemId, id))
+      .orderBy(desc(itemEvents.createdAt))
+      .limit(1)
+    if (item.status !== 'dropped' || last?.type !== 'dropped') {
+      throw new ValidationError('This item has changed since it was dropped. Reopen it from its own page.')
+    }
+
+    const before = (last.data as { before?: { status: ItemStatus; parkedAt: string | null; laterOn: string | null } })
+      .before
+    await tx
+      .update(items)
+      .set({
+        status: before?.status ?? 'open',
+        parkedAt: before?.parkedAt ? new Date(before.parkedAt) : null,
+        laterOn: before?.laterOn ?? null,
+        closedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(items.id, id))
+    await tx.delete(itemEvents).where(eq(itemEvents.id, last.id))
     return getItem(tx, id)
   })
 }

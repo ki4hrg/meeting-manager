@@ -3,15 +3,16 @@
  *
  * An agenda is a two-level structure: top-level rows and rows that sit under
  * a section. A line is free text or a reference to a live item. An item can
- * be on an agenda only once. Removing a line that references an item records
- * a dismissal so automatic placement does not put it straight back.
+ * be on an agenda only once. Removing an item's line never buries it: see
+ * `removeLine`.
  *
  * `position` orders siblings: the top-level rows together, a section's lines
  * together. Every write that changes an order renumbers the list it touched
  * from zero, so positions never collide or leave gaps.
  */
 
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { getCandidates } from './candidates'
 import {
   NotFoundError,
   ValidationError,
@@ -19,8 +20,8 @@ import {
   type ActorContext,
   type Executor,
 } from '../core/types'
-import { agendaLines, itemEvents, items, meetingDismissals, meetings, people } from '../db/schema'
-import { listItems, type ItemView } from '../items/items'
+import { agendaLines, itemEvents, items, meetingDismissals, meetings, people, undoEntries } from '../db/schema'
+import { getItem, listItems, setItemTarget, type ItemView } from '../items/items'
 import { parseOutline } from './outline'
 import { parseClock, scheduleAgenda } from './schedule'
 
@@ -564,29 +565,131 @@ export async function nudgeLine(
 }
 
 /**
- * Take a row off the agenda. An item line leaves a dismissal behind, so the
- * automatic placement does not put it straight back; removing a section does
+ * Take a row off the agenda. An item aimed at this meeting alone loses its
+ * aim; one aimed at its series or project leaves a dismissal behind, so the
+ * automatic placement waits for the next meeting rather than putting it
+ * straight back. Anything else is suggested again. Removing a section does
  * the same for every item line in it.
+ *
+ * Returns the id `restoreLine` takes to put it all back.
  */
-export async function removeLine(exec: Executor, _actor: ActorContext, lineId: string): Promise<void> {
-  await inTransaction(exec, async (tx) => {
+export async function removeLine(exec: Executor, actor: ActorContext, lineId: string): Promise<string> {
+  return inTransaction(exec, async (tx) => {
     const row = await loadRow(tx, lineId)
     const gone = row.isSection
       ? await tx.select().from(agendaLines).where(eq(agendaLines.sectionId, lineId))
       : [row]
-
-    const itemIds = gone.flatMap((line) => (line.itemId ? [line.itemId] : []))
-    if (itemIds.length > 0) {
-      await tx
-        .insert(meetingDismissals)
-        .values(itemIds.map((itemId) => ({ meetingId: row.meetingId, itemId })))
-        .onConflictDoNothing()
-    }
+    const taken = row.isSection ? [row, ...gone] : [row]
 
     // A section's lines go with it (the foreign key cascades).
     await tx.delete(agendaLines).where(eq(agendaLines.id, lineId))
+
+    const itemIds = new Set(gone.flatMap((line) => (line.itemId ? [line.itemId] : [])))
+    const comeBack =
+      itemIds.size > 0 ? (await getCandidates(tx, row.meetingId)).toPlace.filter((item) => itemIds.has(item.id)) : []
+    /* Aimed at this meeting alone: the aim is spent, and the item goes back to
+       being suggested wherever its people and project are, rather than waiting
+       on a meeting that will soon be over. */
+    const unaimed = comeBack.filter((one) => one.targetMeetingId === row.meetingId).map((one) => one.id)
+    for (const itemId of unaimed) await setItemTarget(tx, actor, itemId, null)
+    // Aimed at a series or a project: kept off this one, placed on the next.
+    const later = comeBack.filter((one) => one.targetMeetingId !== row.meetingId)
+    const dismissed =
+      later.length > 0
+        ? await tx
+            .insert(meetingDismissals)
+            .values(later.map((item) => ({ meetingId: row.meetingId, itemId: item.id })))
+            .onConflictDoNothing()
+            .returning({ itemId: meetingDismissals.itemId })
+        : []
     const left = (await siblings(tx, row.meetingId, row.sectionId)).map((sibling) => sibling.id)
     await renumber(tx, left, row.sectionId)
+
+    await tx.delete(undoEntries).where(sql`${undoEntries.createdAt} < now() - interval '1 day'`)
+    const snapshot: RemovedLines = {
+      meetingId: row.meetingId,
+      rows: taken,
+      unaimed,
+      dismissed: dismissed.map((one) => one.itemId),
+    }
+    const [entry] = await tx
+      .insert(undoEntries)
+      .values({ kind: 'agenda_line', data: snapshot })
+      .returning({ id: undoEntries.id })
+    return entry!.id
+  })
+}
+
+/* What `removeLine` took, as the undo entry keeps it. Dates come back as strings. */
+type RemovedLines = {
+  meetingId: string
+  /** The row first; for a section, its lines after it. */
+  rows: Row[]
+  unaimed: string[]
+  dismissed: string[]
+}
+
+/**
+ * Undo `removeLine`: the row goes back where it was, with everything on it,
+ * and what taking it off did to its items is reversed. An item placed again
+ * since keeps the line it has now.
+ */
+export async function restoreLine(exec: Executor, _actor: ActorContext, undoId: string): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const [entry] = await tx.select().from(undoEntries).where(eq(undoEntries.id, undoId)).limit(1)
+    if (!entry || entry.kind !== 'agenda_line') throw new ValidationError('That can no longer be undone.')
+    const { meetingId, rows, unaimed, dismissed } = entry.data as RemovedLines
+    await loadMeeting(tx, meetingId)
+
+    const onAgenda = new Set(
+      (
+        await tx
+          .select({ itemId: agendaLines.itemId })
+          .from(agendaLines)
+          .where(eq(agendaLines.meetingId, meetingId))
+      ).map((line) => line.itemId),
+    )
+    const [top, ...under] = rows
+    // Its section may have gone in the meantime: it comes back at the top level.
+    const section = top!.sectionId
+      ? (await tx.select({ id: agendaLines.id }).from(agendaLines).where(eq(agendaLines.id, top!.sectionId)))[0]
+      : undefined
+    const sectionId = section ? top!.sectionId : null
+    const back = (line: Row, inSection: string | null) => ({
+      ...line,
+      sectionId: inSection,
+      createdAt: new Date(line.createdAt),
+      updatedAt: new Date(),
+    })
+
+    if (!(top!.itemId && onAgenda.has(top!.itemId))) {
+      await tx.insert(agendaLines).values(back(top!, sectionId))
+      const others = (await siblings(tx, meetingId, sectionId)).map((one) => one.id).filter((id) => id !== top!.id)
+      others.splice(Math.min(top!.position, others.length), 0, top!.id)
+      await renumber(tx, others, sectionId)
+      const lines = under.filter((line) => !(line.itemId && onAgenda.has(line.itemId)))
+      if (lines.length > 0) await tx.insert(agendaLines).values(lines.map((line) => back(line, top!.id)))
+    }
+
+    for (const itemId of unaimed) {
+      const item = await getItem(tx, itemId)
+      if (item.targetMeetingId || item.targetSeriesId || item.targetProjectId) continue
+      await tx.update(items).set({ targetMeetingId: meetingId, updatedAt: new Date() }).where(eq(items.id, itemId))
+      // The "no longer aimed" entry goes, if nothing has happened to it since.
+      const [last] = await tx
+        .select({ id: itemEvents.id, type: itemEvents.type })
+        .from(itemEvents)
+        .where(eq(itemEvents.itemId, itemId))
+        .orderBy(desc(itemEvents.createdAt))
+        .limit(1)
+      if (last?.type === 'targeted') await tx.delete(itemEvents).where(eq(itemEvents.id, last.id))
+    }
+    if (dismissed.length > 0) {
+      await tx
+        .delete(meetingDismissals)
+        .where(and(eq(meetingDismissals.meetingId, meetingId), inArray(meetingDismissals.itemId, dismissed)))
+    }
+    await tx.delete(undoEntries).where(eq(undoEntries.id, undoId))
   })
 }
 

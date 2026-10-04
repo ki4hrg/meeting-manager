@@ -7,8 +7,8 @@
  * (`syncRoster`) for one edited by hand, which only gains what it lacks. A
  * meeting remembers who was left off it alone (`meeting_absences`), so a
  * change to the roster never puts them back. Each meeting that changes has
- * its automatic placement run again, so what a new person is owed is placed
- * as it would have been at prep.
+ * its automatic placement run again, so a project it now carries brings what
+ * is aimed at that project's next meeting, as it would have at prep.
  */
 
 import { and, eq, inArray } from 'drizzle-orm'
