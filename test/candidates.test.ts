@@ -161,7 +161,7 @@ describe('candidates', () => {
   })
 
   describe('toPlace: with-person items in 1:1', () => {
-    it('places with-person items in exactly 1:1 meetings', async () => {
+    it('suggests with-person items in a 1:1, and never places them', async () => {
       const { parish, sarah } = await makeWorld()
 
       const meetingRows = await db.insert(schema.meetings).values({
@@ -185,7 +185,9 @@ describe('candidates', () => {
       })
 
       const candidates = await getCandidates(db, meeting.id)
-      expect(candidates.toPlace.map((i) => i.id)).toEqual([item.id])
+      expect(candidates.toPlace).toEqual([])
+      expect(candidates.suggested.flatMap((group) => group.items.map((i) => i.id))).toEqual([item.id])
+      expect(await placeAutomatic(db, actor, meeting.id)).toBe(0)
     })
 
     it('does not place person-only items in group meetings', async () => {

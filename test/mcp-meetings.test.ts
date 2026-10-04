@@ -809,7 +809,10 @@ describe('moving between contexts', () => {
     })
     expect(shape(moved)).toEqual(['Typed'])
     expect(lineOf(moved, 'Typed').private_note).toBe('mine')
-    expect(moved.candidates.to_place.map((item) => item.id)).toEqual([dioceseItem.id])
+    expect(moved.candidates.to_place).toEqual([])
+    expect(moved.candidates.suggested.flatMap((group) => group.items.map((item) => item.id))).toEqual([
+      dioceseItem.id,
+    ])
     const offered = [
       ...moved.candidates.suggested,
       ...moved.candidates.more,

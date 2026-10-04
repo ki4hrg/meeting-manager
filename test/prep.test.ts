@@ -148,7 +148,7 @@ describe('a meeting with a group', () => {
 })
 
 describe('the routine 1:1', () => {
-  it('lays down the skeleton, places person items, and uses the roster when the event names nobody', async () => {
+  it('lays down the skeleton, places what is aimed at the series, and uses the roster when the event names nobody', async () => {
     const w = await makeWorld()
     const recurring = event({ eventId: 'evt-oct7', seriesId: 'rec-1', title: 'Sarah 1:1' })
     const series = await seriesFromEvent(db, { contextId: w.parish.id, event: recurring })
@@ -178,9 +178,10 @@ describe('the routine 1:1', () => {
 
     const agenda = await getAgenda(db, meeting.id)
     expect(agenda.nodes[0]).toMatchObject({ type: 'section', title: 'Check-in' })
-    expect(itemTexts(agenda)).toEqual(
-      expect.arrayContaining(['How are things', 'raise with sarah', 'for the series']),
-    )
+    expect(itemTexts(agenda)).toEqual(['How are things', 'for the series'])
+    // What is for her alone waits as a suggestion.
+    const { suggested } = await getCandidates(db, meeting.id, NOW)
+    expect(suggested.flatMap((group) => group.items.map((item) => item.text))).toEqual(['raise with sarah'])
   })
 
   it('a series made from one occurrence adopts the occurrences already prepped', async () => {

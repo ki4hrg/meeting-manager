@@ -60,14 +60,13 @@ A single `items` table. Only `context` and `text` are required.
 
 *(review: bounded to stop flooding and leaks)*
 
-**Placed automatically:**
-- items targeting this meeting or its series;
-- `with`-person items when the meeting is a 1:1 John made one: exactly two attendees (John and one other), and a stub, in a series, or made by hand. *(2026-10-03)* A one-off calendar event that happens to have one invitee (a hold, a site visit) only suggests them, and a meeting with a group is never a 1:1: what is for one member alone sits under "more" there, however few have joined so far.
+**Placed automatically:** only items aimed at a meeting: this one, its series (the next occurrence), or a project's next meeting. *(2026-10-04)* Nothing is placed for its person, group or project alone, a 1:1 included: an item to raise with someone that isn't ripe yet stays a suggestion at each of their meetings until John places it. "Prep a meeting with…" is the exception, since asking for it is asking for the batch.
 
 **Suggested** (collapsed list grouped by person, group and project; one click to place; "not this time" dismisses for this meeting):
 - items whose project is one of the meeting's projects;
 - items whose `with` or `owner` group is the meeting's group;
-- items owned by an attendee, or `with` an attendee, that also carry one of the meeting's projects or groups.
+- items owned by an attendee, or `with` an attendee, that also carry one of the meeting's projects or groups;
+- in a 1:1 (exactly two attendees, John and one other, and no group), anything owned by or `with` the other person. A meeting with a group is never a 1:1: what is for one member alone sits under "more" there, however few have joined so far.
 
 **Not suggested:** person-only items in larger meetings (reachable under "more"), and anything matched only through John himself.
 

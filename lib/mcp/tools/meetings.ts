@@ -497,7 +497,7 @@ export const getMeetingTool = defineTool({
     'section with lines or a loose line; a line is free text or a live item (item_id), with ' +
     'minutes, its computed start on the account clock and my private note. candidates are open ' +
     'items not on the agenda: to_place (aimed here, placed by prep), suggested (through a ' +
-    'project, the group or a 1:1), more (matched by an attendee alone in a larger meeting; ' +
+    'project, the group or the other person in a 1:1; never placed on their own), more (matched by an attendee alone in a larger meeting; ' +
     'never raise these unasked) and dismissed.',
   scope: 'meetings:read',
   input: z.object({ id: meetingId }),

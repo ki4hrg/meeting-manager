@@ -8,7 +8,7 @@
  */
 
 import { applySkeleton } from '../agenda/lines'
-import { placeAutomatic } from '../agenda/candidates'
+import { placeAutomatic, placeRaiseWith } from '../agenda/candidates'
 import { eventsHere, listEventsIn, type CalendarEvent } from '../calendar/feed'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
@@ -49,7 +49,7 @@ export async function prepMeeting(
 /**
  * "Prep a meeting with…": an undated stub holding everything saved up for one
  * person. Asking twice returns the same stub, topped up with what was captured
- * since.
+ * since. Asking is what places the batch; opening the stub only suggests it.
  */
 export async function prepWithPerson(
   exec: Executor,
@@ -67,11 +67,13 @@ export async function prepWithPerson(
     topLevelOnly: true,
   })
   const existing = stubs.find((stub) => stub.people.length === 1 && !stub.series)
-  if (existing) {
-    await placeAutomatic(exec, actor, existing.id, now)
-    return existing
-  }
-  return prepMeeting(exec, actor, { contextId: input.contextId, personIds: [input.personId] }, now)
+  return inTransaction(exec, async (tx) => {
+    const stub =
+      existing ?? (await prepMeeting(tx, actor, { contextId: input.contextId, personIds: [input.personId] }, now))
+    if (existing) await placeAutomatic(tx, actor, stub.id, now)
+    await placeRaiseWith(tx, actor, stub.id, input.personId, now)
+    return stub
+  })
 }
 
 /**

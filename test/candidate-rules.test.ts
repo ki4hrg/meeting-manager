@@ -136,7 +136,7 @@ describe('a larger meeting', () => {
     expect(grouped(solo.suggested)).toEqual([priv.id])
   })
 
-  it('a calendar event with one invitee suggests what is for her; a 1:1 John made places it', async () => {
+  it('a calendar event with one invitee suggests what is for her; prepping a meeting with her places it', async () => {
     const w = await makeWorld()
     const forSarah = await createItem(db, actor, {
       contextId: w.parish.id,
@@ -307,15 +307,15 @@ describe('dismissal', () => {
       text: 'retreat venue',
       projectId: w.retreat.id,
     })
-    const placed = await createItem(db, actor, {
-      contextId: w.parish.id,
-      text: 'raise with sarah',
-      parties: [{ personId: w.sarah.id, role: 'with' }],
-    })
     const meeting = await createMeeting(db, actor, {
       contextId: w.parish.id,
       personIds: [w.sarah.id],
       projectIds: [w.retreat.id],
+    })
+    const placed = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'raise with sarah',
+      target: { meetingId: meeting.id },
     })
 
     await dismissCandidate(db, actor, meeting.id, suggestion.id)
@@ -369,7 +369,7 @@ describe('a roster change', () => {
   // Far enough ahead that the meetings are not over whenever the suite runs.
   const at = (day: string) => new Date(`2030-01-${day}T15:00:00Z`)
 
-  it('reaches the series’ upcoming meetings, and an item for the person added is placed', async () => {
+  it('reaches the series’ upcoming meetings, and what is for the person added is suggested, not placed', async () => {
     const w = await makeWorld()
     const adlene = await createPerson(db, { name: 'Adlene' })
     const series = await createSeries(db, { contextId: w.parish.id, name: 'Adlene/John Check-In' })
@@ -392,12 +392,44 @@ describe('a roster change', () => {
     for (const meeting of [first, second]) {
       expect((await getMeeting(db, meeting.id)).people.map((person) => person.id)).toEqual([adlene.id])
     }
-    const placed = (await getAgenda(db, first.id)).nodes.flatMap((node) =>
-      node.type === 'line' && node.item ? [node.item.id] : [],
-    )
-    expect(placed).toEqual([owedToHer.id])
-    // What she owes is one click away in her 1:1, as at prep.
-    expect(grouped((await getCandidates(db, first.id, NOW)).suggested)).toEqual([topic.id])
+    for (const meeting of [first, second]) {
+      expect(await getAgenda(db, meeting.id)).toMatchObject({ nodes: [] })
+      // What she owes and what John wants to raise with her are one click away in her 1:1.
+      expect(grouped((await getCandidates(db, meeting.id, NOW)).suggested)).toEqual(ids([topic, owedToHer]))
+    }
+  })
+
+  it('an item to raise that is not ripe yet waits as a suggestion at each meeting until placed', async () => {
+    const w = await makeWorld()
+    const series = await createSeries(db, { contextId: w.parish.id, name: 'Sarah check-in', personIds: [w.sarah.id] })
+    const first = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('07') })
+    const second = await prepMeeting(db, actor, { contextId: w.parish.id, seriesId: series.id, startsAt: at('14') })
+    const later = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'the long conversation',
+      parties: [{ personId: w.sarah.id, role: 'with' }],
+    })
+    const aimed = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'this week',
+      target: { seriesId: series.id },
+    })
+
+    // Aimed at the series: placed on its next meeting, by opening it.
+    expect(await placeAutomatic(db, actor, first.id, NOW)).toBe(1)
+    const itemsOn = async (meetingId: string) =>
+      (await getAgenda(db, meetingId)).nodes.flatMap((node) => (node.type === 'line' && node.item ? [node.item.id] : []))
+    expect(await itemsOn(first.id)).toEqual([aimed.id])
+
+    // Not this time: it is suggested again at the next one.
+    await dismissCandidate(db, actor, first.id, later.id)
+    expect(grouped((await getCandidates(db, first.id, NOW)).suggested)).toEqual([])
+    expect(await placeAutomatic(db, actor, second.id, NOW)).toBe(0)
+    expect(grouped((await getCandidates(db, second.id, NOW)).suggested)).toEqual([later.id])
+
+    // Placed by hand when it is ripe.
+    await placeItem(db, actor, second.id, later.id)
+    expect(await itemsOn(second.id)).toEqual([later.id])
   })
 
   it('leaves a meeting edited by hand until asked, and never puts back someone left off it', async () => {
@@ -491,7 +523,7 @@ describe('a multi-day meeting', () => {
   it('what is aimed at the whole meeting goes to its next session, and the meeting places nothing itself', async () => {
     const { w, retreat, done, first, second } = await retreatWithSessions()
     const aimed = await createItem(db, actor, { contextId: w.parish.id, text: 'for the retreat', target: { meetingId: retreat.id } })
-    // A 1:1-shaped roster would place this on a meeting of its own.
+    // Offered on each session with her, never placed.
     const withSarah = await createItem(db, actor, {
       contextId: w.parish.id,
       text: 'ask sarah',
@@ -500,9 +532,12 @@ describe('a multi-day meeting', () => {
 
     expect(ids((await getCandidates(db, retreat.id, NOW)).toPlace)).toEqual([])
     expect(await placeAutomatic(db, actor, retreat.id, NOW)).toBe(0)
-    expect(ids((await getCandidates(db, done.id, NOW)).toPlace)).toEqual([withSarah.id])
-    expect(ids((await getCandidates(db, first.id, NOW)).toPlace)).toEqual([aimed.id, withSarah.id].sort())
-    expect(ids((await getCandidates(db, second.id, NOW)).toPlace)).toEqual([withSarah.id])
+    expect(ids((await getCandidates(db, done.id, NOW)).toPlace)).toEqual([])
+    expect(ids((await getCandidates(db, first.id, NOW)).toPlace)).toEqual([aimed.id])
+    expect(ids((await getCandidates(db, second.id, NOW)).toPlace)).toEqual([])
+    for (const one of [done, first, second]) {
+      expect(grouped((await getCandidates(db, one.id, NOW)).suggested)).toContain(withSarah.id)
+    }
   })
 
   it('follow-ups of the whole meeting are drawn from its sessions’ agendas, and nothing else', async () => {
