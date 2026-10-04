@@ -334,7 +334,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                       name="target"
                       value={targetValue}
                       label="Raise at"
-                      className="!w-auto max-w-[14rem] !py-1 !text-sm"
+                      className="!w-auto max-w-[14rem] !py-1 sm:!text-sm"
                     >
                       <option value="">—</option>
                       {meetings.length > 0 ? (
