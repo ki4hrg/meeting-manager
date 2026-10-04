@@ -12,14 +12,21 @@ import {
 
 type ToastVariant = "success" | "error" | "info";
 
+/** A button on the toast, such as Undo. Pressing it closes the toast. */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 interface ToastItem {
   id: number;
   message: string;
   variant: ToastVariant;
+  action?: ToastAction;
 }
 
 interface ToastApi {
-  success: (message: string) => void;
+  success: (message: string, action?: ToastAction) => void;
   error: (message: string) => void;
   info: (message: string) => void;
 }
@@ -27,6 +34,8 @@ interface ToastApi {
 const ToastContext = createContext<ToastApi | undefined>(undefined);
 
 const AUTO_DISMISS_MS = 5000;
+// Long enough to notice the slip and reach for Undo.
+const ACTION_DISMISS_MS = 8000;
 
 const VARIANT_STYLES: Record<ToastVariant, string> = {
   success:
@@ -57,10 +66,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const push = useCallback(
-    (message: string, variant: ToastVariant) => {
+    (message: string, variant: ToastVariant, action?: ToastAction) => {
       const id = nextId.current++;
-      setToasts((prev) => [...prev, { id, message, variant }]);
-      const timer = setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
+      setToasts((prev) => [...prev, { id, message, variant, action }]);
+      const timer = setTimeout(() => dismiss(id), action ? ACTION_DISMISS_MS : AUTO_DISMISS_MS);
       timers.current.set(id, timer);
     },
     [dismiss],
@@ -77,7 +86,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const api = useMemo<ToastApi>(
     () => ({
-      success: (m) => push(m, "success"),
+      success: (m, action) => push(m, "success", action),
       error: (m) => push(m, "error"),
       info: (m) => push(m, "info"),
     }),
@@ -100,6 +109,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             className={`pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg ${VARIANT_STYLES[t.variant]}`}
           >
             <span className="flex-1">{t.message}</span>
+            {t.action ? (
+              <button
+                type="button"
+                onClick={() => {
+                  dismiss(t.id);
+                  t.action!.run();
+                }}
+                className="shrink-0 font-semibold underline-offset-2 hover:underline"
+              >
+                {t.action.label}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => dismiss(t.id)}

@@ -3,9 +3,8 @@
  *
  * An agenda is a two-level structure: top-level rows and rows that sit under
  * a section. A line is free text or a reference to a live item. An item can
- * be on an agenda only once. Removing a line for an item aimed at the meeting
- * records a dismissal so automatic placement does not put it straight back;
- * any other item goes back to the suggestions.
+ * be on an agenda only once. Removing an item's line never buries it: see
+ * `removeLine`.
  *
  * `position` orders siblings: the top-level rows together, a section's lines
  * together. Every write that changes an order renumbers the list it touched
@@ -22,7 +21,7 @@ import {
   type Executor,
 } from '../core/types'
 import { agendaLines, itemEvents, items, meetingDismissals, meetings, people } from '../db/schema'
-import { listItems, type ItemView } from '../items/items'
+import { listItems, setItemTarget, type ItemView } from '../items/items'
 import { parseOutline } from './outline'
 import { parseClock, scheduleAgenda } from './schedule'
 
@@ -566,12 +565,13 @@ export async function nudgeLine(
 }
 
 /**
- * Take a row off the agenda. An item aimed at the meeting leaves a dismissal
- * behind, so the automatic placement does not put it straight back; anything
- * else is suggested again. Removing a section does the same for every item
- * line in it.
+ * Take a row off the agenda. An item aimed at this meeting alone loses its
+ * aim; one aimed at its series or project leaves a dismissal behind, so the
+ * automatic placement waits for the next meeting rather than putting it
+ * straight back. Anything else is suggested again. Removing a section does
+ * the same for every item line in it.
  */
-export async function removeLine(exec: Executor, _actor: ActorContext, lineId: string): Promise<void> {
+export async function removeLine(exec: Executor, actor: ActorContext, lineId: string): Promise<void> {
   await inTransaction(exec, async (tx) => {
     const row = await loadRow(tx, lineId)
     const gone = row.isSection
@@ -584,10 +584,18 @@ export async function removeLine(exec: Executor, _actor: ActorContext, lineId: s
     const itemIds = new Set(gone.flatMap((line) => (line.itemId ? [line.itemId] : [])))
     const comeBack =
       itemIds.size > 0 ? (await getCandidates(tx, row.meetingId)).toPlace.filter((item) => itemIds.has(item.id)) : []
-    if (comeBack.length > 0) {
+    /* Aimed at this meeting alone: the aim is spent, and the item goes back to
+       being suggested wherever its people and project are, rather than waiting
+       on a meeting that will soon be over. */
+    for (const item of comeBack.filter((one) => one.targetMeetingId === row.meetingId)) {
+      await setItemTarget(tx, actor, item.id, null)
+    }
+    // Aimed at a series or a project: kept off this one, placed on the next.
+    const later = comeBack.filter((one) => one.targetMeetingId !== row.meetingId)
+    if (later.length > 0) {
       await tx
         .insert(meetingDismissals)
-        .values(comeBack.map((item) => ({ meetingId: row.meetingId, itemId: item.id })))
+        .values(later.map((item) => ({ meetingId: row.meetingId, itemId: item.id })))
         .onConflictDoNothing()
     }
     const left = (await siblings(tx, row.meetingId, row.sectionId)).map((sibling) => sibling.id)

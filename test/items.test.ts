@@ -17,9 +17,12 @@ import {
   reopenItem,
   setItemParties,
   supersedeDecision,
+  undropItem,
   unparkItem,
   updateItem,
 } from '../lib/items/items'
+import { itemEvents } from '../lib/db/schema'
+import { eq } from 'drizzle-orm'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 
@@ -138,6 +141,27 @@ describe('lifecycle', () => {
     await expect(dropItem(db, actor, action.id)).rejects.toThrow('already closed')
     expect(await reopenItem(db, actor, action.id)).toMatchObject({ status: 'open', closedAt: null })
     expect((await dropItem(db, actor, action.id)).status).toBe('dropped')
+  })
+
+  it('undoes a drop as if it never happened, but only while nothing has happened since', async () => {
+    const { parish } = await makeWorld()
+    const later = await createItem(db, actor, { contextId: parish.id, text: 'Someday' })
+    await parkItem(db, actor, later.id, { until: '2026-11-01' })
+    const history = async () =>
+      (await db.select().from(itemEvents).where(eq(itemEvents.itemId, later.id))).map((event) => event.type).sort()
+    const before = await history()
+
+    await dropItem(db, actor, later.id)
+    expect(await undropItem(db, actor, later.id)).toMatchObject({ status: 'open', closedAt: null, laterOn: '2026-11-01' })
+    expect((await getItem(db, later.id)).parkedAt).not.toBeNull()
+    expect(await history()).toEqual(before)
+
+    // Once something else has happened, it is reopened from its page instead.
+    await dropItem(db, actor, later.id)
+    await addNote(db, actor, later.id, 'gone for good')
+    await expect(undropItem(db, actor, later.id)).rejects.toThrow('changed since it was dropped')
+    await reopenItem(db, actor, later.id)
+    await expect(undropItem(db, actor, later.id)).rejects.toThrow('changed since it was dropped')
   })
 
   it('deletes a closed item that stands alone, and refuses an open one or one in a thread', async () => {

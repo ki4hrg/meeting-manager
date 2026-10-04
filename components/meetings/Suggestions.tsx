@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { itemStatusAction } from '@/app/(app)/actions'
+import { itemStatusAction, undropItemAction } from '@/app/(app)/actions'
 import { placeItemAction, placeItemsAction, restoreCandidateAction } from '@/app/(app)/meetings/actions'
 import { IconAction } from '@/components/forms'
 import { Card } from '@/components/ui/Card'
@@ -61,6 +61,8 @@ function Groups({ groups, meetingId }: { groups: CandidateGroup[]; meetingId: st
                   fields={{ id: item.id, op: 'drop' }}
                   icon="close"
                   label={`Drop ${item.text}`}
+                  done="Dropped"
+                  undo={{ action: undropItemAction, fields: { id: item.id } }}
                 />
               </ItemRow>
             ))}

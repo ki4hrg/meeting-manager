@@ -148,18 +148,34 @@ export function FormModal({
   )
 }
 
+/** An action that takes another back, offered on the toast that says it was done. */
+export type Undo = { action: Action; fields: Record<string, string> }
+
+function formOf(fields: Record<string, string>): FormData {
+  const data = new FormData()
+  for (const [name, value] of Object.entries(fields)) data.set(name, value)
+  return data
+}
+
 /* Runs an action with fixed fields. A refusal surfaces as a toast. */
-function useAction(action: Action, fields: Record<string, string>, done?: string) {
+function useAction(action: Action, fields: Record<string, string>, done?: string, undo?: Undo) {
   const toast = useToast()
   const [pending, startTransition] = useTransition()
 
   function run() {
-    const data = new FormData()
-    for (const [name, value] of Object.entries(fields)) data.set(name, value)
     startTransition(async () => {
-      const result = await action(data)
+      const result = await action(formOf(fields))
       if (result?.error) toast.error(result.error)
-      else if (done) toast.success(done)
+      else if (done && undo) {
+        toast.success(done, {
+          label: 'Undo',
+          run: () =>
+            startTransition(async () => {
+              const back = await undo.action(formOf(undo.fields))
+              if (back?.error) toast.error(back.error)
+            }),
+        })
+      } else if (done) toast.success(done)
     })
   }
   return { pending, run }
@@ -170,14 +186,17 @@ export function IconAction({
   action,
   fields,
   done,
+  undo,
   ...props
 }: Omit<IconButtonProps, 'onClick' | 'type'> & {
   action: Action
   fields: Record<string, string>
   /** Said in a toast when there is nothing on screen to show it worked. */
   done?: string
+  /** Offered as Undo on that toast. Needs `done`. */
+  undo?: Undo
 }) {
-  const { pending, run } = useAction(action, fields, done)
+  const { pending, run } = useAction(action, fields, done, undo)
   return <IconButton {...props} disabled={pending || props.disabled} onClick={run} />
 }
 

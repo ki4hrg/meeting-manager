@@ -929,8 +929,9 @@ export const editAgendaTool = defineTool({
     'pinned_start of line_id (a section takes text, minutes and pinned_start); null clears. ' +
     'move_line: line_id to position (0 is first; omitted is last) in section_id (null is the ' +
     'top level; omitted keeps where it is). remove_line: line_id; a section goes with its ' +
-    'lines; an item aimed here that is taken off stays off this meeting, anything else goes ' +
-    'back to the suggestions. place_item: put item_id on the agenda, as from a suggestion. ' +
+    'lines; an item taken off that was aimed at this meeting alone loses its aim, one aimed ' +
+    'at its series or project waits for the next meeting, and anything else goes back to the ' +
+    'suggestions. place_item: put item_id on the agenda, as from a suggestion. ' +
     'restore_item: let an item taken off come back. A suggestion not wanted is left alone, ' +
     'or dropped with update_item. Line and section ids come from get_meeting. ' +
     'Returns what get_meeting returns.',

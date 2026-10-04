@@ -72,7 +72,7 @@ A single `items` table. Only `context` and `text` are required.
 
 **Leak rule:** "Follow-ups due" and the recap draw only from items placed on the agenda or originating in this meeting, never from the raw candidate pull.
 
-State lives in `agenda_lines` (placed) and `meeting_dismissals`. A dismissal is left only when an item aimed at the meeting is taken off its agenda, so it isn't placed straight back; it can be restored. Any other item taken off goes back to the suggestions.
+State lives in `agenda_lines` (placed) and `meeting_dismissals`. Taking an item off an agenda never buries it: one aimed at that meeting alone loses its aim and is suggested wherever its people and project are; one aimed at a series or a project's next meeting leaves a dismissal, so it is placed on the next meeting instead (and can be restored to this one); anything else goes back to the suggestions. Dropping a suggestion shows a toast with Undo, which puts the item back as it was.
 
 The bishop case: capture "ask @bishop about X" over several weeks. The bishop's person page shows the batch. "Prep a meeting with…" creates an undated stub and places all of it.
 
@@ -290,7 +290,7 @@ Deploy per the global notes: image built in Actions and pushed to GHCR, compose 
   - Phase 2: sporadic (six items across two projects tagged to one person are all placed when a meeting is prepped; the stub later attaches to its calendar event without a duplicate); routine 1:1 (person items pre-placed).
   - Phase 3: drop-in from a Granola note with no calendar event; unrecorded drop-in via Log a meeting; committee meeting with a timed brief and recap.
 - Step budget: routine prep and drop-in review each take no more than three actions.
-- Candidate tests: a ten-person staff meeting places nothing person-only; a private 1:1 item never appears in a group agenda or recap; an item aimed at a meeting and taken off its agenda stays off.
+- Candidate tests: a ten-person staff meeting places nothing person-only; a private 1:1 item never appears in a group agenda or recap; an item taken off an agenda is never buried.
 - Context isolation: nothing from one context appears in another's agenda, hub or recap.
 - Thread tests: topic to question to answer to linked decision to spawned action on one page; "report to" puts an answer on another group's next agenda; the lunch-menu note becomes one question owned by three.
 - Processing tests: a `D:` line yields identical wording; re-delivery after review proposes nothing already handled; two notes on one meeting; a session note asks which session. Extraction quality is checked against fixture transcripts with expected output, run separately from Vitest.
