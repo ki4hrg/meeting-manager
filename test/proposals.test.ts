@@ -33,6 +33,7 @@ import {
   getProposal,
   listProposals,
   pendingByMeeting,
+  pendingOnCards,
   rejectProposal,
   undoProposal,
   unresolvedIn,
@@ -230,6 +231,21 @@ describe('listProposals', () => {
     expect([...parish]).toEqual([[meeting.id, 2]])
     expect(parish.has(quiet.id)).toBe(false)
     expect([...(await pendingByMeeting(db, w.diocese.id))]).toEqual([[elsewhere.id, 1]])
+  })
+
+  it("counts a session's waiting proposals on its meeting's card too", async () => {
+    const { w } = await setup()
+    const retreat = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Retreat' })
+    const dayOne = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Day one', parentMeetingId: retreat.id })
+    const dayTwo = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Day two', parentMeetingId: retreat.id })
+    await propose(dayOne.id, [{ payload: item('a') }, { payload: item('b') }])
+    await propose(dayTwo.id, [{ payload: item('c') }])
+
+    const cards = await pendingOnCards(db, w.parish.id)
+    expect(cards.get(retreat.id)).toBe(3)
+    expect(cards.get(dayOne.id)).toBe(2)
+    // The review list still names each session alone.
+    expect((await pendingByMeeting(db, w.parish.id)).has(retreat.id)).toBe(false)
   })
 })
 

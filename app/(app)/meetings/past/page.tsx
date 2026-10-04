@@ -17,7 +17,7 @@ import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { listPast } from '@/lib/meetings/prep'
-import { pendingByMeeting } from '@/lib/processing/proposals'
+import { pendingByMeeting, pendingOnCards } from '@/lib/processing/proposals'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
 
@@ -37,9 +37,10 @@ export default async function PastMeetingsPage({ searchParams }: { searchParams:
   const beforeDay = typeof query.before === 'string' && DAY.test(query.before) && query.before <= today ? query.before : null
   const before = beforeDay ? fromLocalInput(`${beforeDay}T00:00`, timeZone) : undefined
 
-  const [{ entries, from }, pending, people, groups, projects] = await Promise.all([
+  const [{ entries, from }, pending, onCards, people, groups, projects] = await Promise.all([
     listPast(db, context.id, { before, days: STEP }),
     pendingByMeeting(db, context.id),
+    pendingOnCards(db, context.id),
     listPeople(db),
     listGroups(db, context.id),
     listProjectChoices(db, context.id),
@@ -92,7 +93,7 @@ export default async function PastMeetingsPage({ searchParams }: { searchParams:
         {entries.length === 0 ? (
           <EmptyState icon="meeting" />
         ) : (
-          <DayList entries={entries} today={today} timeZone={timeZone} pending={pending} />
+          <DayList entries={entries} today={today} timeZone={timeZone} pending={onCards} />
         )}
         <div className="mt-4 flex justify-center">
           <ButtonLink

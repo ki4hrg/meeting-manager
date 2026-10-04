@@ -20,7 +20,7 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { settleIfOver } from '@/lib/meetings/attendance'
 import { getMeeting } from '@/lib/meetings/meetings'
-import { pendingByMeeting } from '@/lib/processing/proposals'
+import { pendingOnCards } from '@/lib/processing/proposals'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import { openMeetingAction } from '../../actions'
 
@@ -91,7 +91,7 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
 
   const [recap, pending] = await Promise.all([
     getRecap(db, id, { today, timeZone: user.timeZone, selfId: self.id }),
-    pendingByMeeting(db, context.id),
+    pendingOnCards(db, context.id),
   ])
   const text = renderRecap(recap)
   const html = renderRecapHtml(recap)

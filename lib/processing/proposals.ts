@@ -18,7 +18,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { and, asc, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm'
 import { isDay } from '../core/dates'
 import { isUuid, normalise } from '../core/match'
 import {
@@ -665,6 +665,24 @@ export async function pendingByMeeting(exec: Executor, contextId: string): Promi
     .where(and(eq(meetings.contextId, contextId), eq(proposals.status, 'pending')))
     .groupBy(proposals.meetingId)
   return new Map(rows.map((row) => [row.meetingId, row.n]))
+}
+
+/**
+ * `pendingByMeeting` for a list of meeting cards: a meeting with sessions also
+ * counts what its sessions have waiting, since the sessions are not listed.
+ */
+export async function pendingOnCards(exec: Executor, contextId: string): Promise<Map<string, number>> {
+  const pending = await pendingByMeeting(exec, contextId)
+  if (pending.size === 0) return pending
+  const sessions = await exec
+    .select({ id: meetings.id, parentId: meetings.parentMeetingId })
+    .from(meetings)
+    .where(and(inArray(meetings.id, [...pending.keys()]), isNotNull(meetings.parentMeetingId)))
+  const cards = new Map(pending)
+  for (const session of sessions) {
+    cards.set(session.parentId!, (cards.get(session.parentId!) ?? 0) + pending.get(session.id)!)
+  }
+  return cards
 }
 
 // ─── adding ──────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import { agendaCounts } from '@/lib/agenda/lines'
 import { formatMoment } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { hubPast, hubUpcoming, type Hub } from '@/lib/meetings/hub'
-import { pendingByMeeting } from '@/lib/processing/proposals'
+import { pendingOnCards } from '@/lib/processing/proposals'
 import { DayList } from './DayList'
 import { MeetingCard } from './MeetingCard'
 
@@ -65,7 +65,7 @@ export async function HubMeetings({
   const [{ entries, later, stubs }, held, pending] = await Promise.all([
     hubUpcoming(db, contextId, hub, { days }),
     hubPast(db, contextId, hub, { limit: past }),
-    pendingByMeeting(db, contextId),
+    pendingOnCards(db, contextId),
   ])
   const ahead = entries.filter((entry) => !skip || entry.meeting?.id !== skip)
   const agendas = await agendaCounts(
