@@ -1,6 +1,24 @@
 # Handoff
 
-Updated 2026-10-03. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+Updated 2026-10-04. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+
+## Decisions before phase 4 (John, 2026-10-04)
+
+Settled in an interview; written into the spec where each item lives. Nothing built yet.
+
+**Order:** everything that is not Todoist first, then phase 4.
+
+1. **Time zone on Settings.** A picker prefilled from the browser, saved to `users.time_zone`; the process `TZ` stays as the fallback.
+2. **Today replaces home** (item 6). Across every live context: next meetings; overdue and due today; I owe and Waiting on within 14 days; pending review (proposals waiting and unfiled notes). Each row shows its context and opening it switches there. Quick-add files into the selected context, shown beside the box.
+3. **Hub reach** (item 7). Project, series and group hubs show their meetings and the calendar events mapped to them, with Prep, More and Earlier.
+4. **New meeting form offers the day's events** (item 8); picking one preps from the event.
+5. **Pausing or finishing a parent project offers to do the same to its sub-projects** (item 11), with a tick box.
+
+Then phase 4:
+
+- **Todoist project for a sub-project:** its own binding, else the nearest bound ancestor's, else the context's. No automatic sub-project mirroring.
+- **Fold into only** (no Steps), with **Combine** on the review screen. A folded item's task is completed in Todoist and its text joins the surviving task's description.
+- **`get_hub`** over MCP: a hub's contents in one call.
 
 ## Refinements after item 9 (2026-10-03)
 
