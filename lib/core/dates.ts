@@ -32,6 +32,17 @@ export function addDays(day: string, days: number): string {
   return date.toISOString().slice(0, 10)
 }
 
+/** An IANA zone this runtime knows ("America/Chicago"). */
+export function isTimeZone(value: string): boolean {
+  if (value.trim() === '') return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Today in the given zone; null means the instance's own. */
 export function todayIn(timeZone: string | null | undefined, now: Date = new Date()): string {
   // en-CA formats as YYYY-MM-DD.

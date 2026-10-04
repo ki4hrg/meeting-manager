@@ -1,6 +1,7 @@
 /* The one account: created by /setup, which closes once it exists. */
 
-import { and, count, isNull, sql } from 'drizzle-orm'
+import { and, count, eq, isNull, sql } from 'drizzle-orm'
+import { isTimeZone } from '../core/dates'
 import { ValidationError, inTransaction, type Executor } from '../core/types'
 import { db } from '../db'
 import { users } from '../db/schema'
@@ -68,4 +69,18 @@ export async function createFirstUser(
       timeZone: user!.timeZone,
     }
   })
+}
+
+/**
+ * John's time zone, which decides "today", every day shown and every date sent
+ * out. Null goes back to the instance's own (the process TZ).
+ */
+export async function setTimeZone(
+  exec: Executor,
+  userId: string,
+  timeZone: string | null,
+): Promise<void> {
+  const zone = timeZone?.trim() || null
+  if (zone !== null && !isTimeZone(zone)) throw new ValidationError(`${zone} is not a time zone.`)
+  await exec.update(users).set({ timeZone: zone }).where(eq(users.id, userId))
 }

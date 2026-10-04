@@ -2,13 +2,27 @@ import { describe, expect, it } from 'vitest'
 import { verifyPassword } from '../lib/auth/password'
 import { safeNext } from '../lib/auth/redirects'
 import { createSession, resolveSession, revokeSession } from '../lib/auth/sessions'
-import { createFirstUser, findUserByEmail, needsSetup } from '../lib/auth/users'
+import { createFirstUser, findUserByEmail, needsSetup, setTimeZone } from '../lib/auth/users'
 import { ValidationError } from '../lib/core/types'
 import { db, resetBetweenTests } from './helpers/db'
 
 resetBetweenTests()
 
 const account = { email: 'John@Example.test', displayName: 'John', password: 'correct horse battery' }
+
+describe('time zone', () => {
+  it('saves a known zone, refuses an unknown one, and clears back to the default', async () => {
+    const user = await createFirstUser(account, db)
+    await setTimeZone(db, user.id, 'America/Denver')
+    expect((await findUserByEmail(account.email, db))?.timeZone).toBe('America/Denver')
+
+    await expect(setTimeZone(db, user.id, 'Mars/Olympus')).rejects.toBeInstanceOf(ValidationError)
+    expect((await findUserByEmail(account.email, db))?.timeZone).toBe('America/Denver')
+
+    await setTimeZone(db, user.id, '')
+    expect((await findUserByEmail(account.email, db))?.timeZone).toBeNull()
+  })
+})
 
 describe('setup', () => {
   it('creates the account once and then refuses', async () => {

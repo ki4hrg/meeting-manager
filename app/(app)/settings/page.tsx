@@ -22,6 +22,7 @@ import { Deleted } from './Deleted'
 import { Granola } from './Granola'
 import { Notice } from './Notice'
 import { PlaceOptions, placeOf, placesFor, type PlaceGroup } from './places'
+import { TimeZonePicker } from './TimeZone'
 
 /* One account: who it is, whether Google still honours it, and which
    context, project, series or group each of its calendars feeds. */
@@ -184,6 +185,13 @@ export default async function SettingsPage({
         error={one(error)}
         success={one(connected) === 'google' ? 'Google Calendar connected' : undefined}
       />
+      <Section title="Time zone">
+        <TimeZonePicker
+          saved={user.timeZone}
+          fallback={Intl.DateTimeFormat().resolvedOptions().timeZone}
+          zones={[...Intl.supportedValuesOf('timeZone'), 'UTC']}
+        />
+      </Section>
       <GoogleCalendar />
       <Granola />
       <Deleted timeZone={user.timeZone} />

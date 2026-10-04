@@ -14,6 +14,7 @@ import {
   disconnectGranola,
   unbindFolder,
 } from '@/lib/connect/granola/connection'
+import { setTimeZone } from '@/lib/auth/users'
 import { db } from '@/lib/db'
 import { GRANOLA_RECONCILE, kick } from '@/lib/jobs'
 import { act, field, type ActionResult } from '@/lib/web/action'
@@ -47,6 +48,15 @@ export async function setCalendarContextAction(formData: FormData): Promise<Acti
       )
       if (bound) await unbindCalendar(db, bound.id)
     }
+    clearFeedCache()
+  })
+}
+
+/* "Today", every date shown and every date sent out follow it; the feed
+   caches times laid out on the old clock. */
+export async function setTimeZoneAction(formData: FormData): Promise<ActionResult> {
+  return act(async (_actor, user) => {
+    await setTimeZone(db, user.id, field(formData, 'timeZone') || null)
     clearFeedCache()
   })
 }
