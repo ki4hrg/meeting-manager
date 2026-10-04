@@ -42,7 +42,8 @@ These apply to every screen.
 - `lib/agenda/recap.ts` — the recap, computed on demand under the leak rules.
 - `lib/jobs/` — the scheduler and its jobs (`process-notes`, `granola-reconcile`), started from `instrumentation.ts`.
 - `lib/connect/` — connections to outside services and their bindings; `lib/connect/granola/` — Granola's client, webhook, ingest and reconcile, and `unfiled.ts` (notes held in the Inbox until filed into a context); `lib/calendar/feed.ts` — the read-only Google Calendar feed.
-- `lib/web/` — `context.ts` (the viewer and the selected context), `action.ts` (`act()`, the wrapper every server action uses).
+- `lib/web/` — `context.ts` (the viewer and the selected context), `action.ts` (`act()`, the wrapper every server action uses), `open.ts` (`openHref`: a link that selects another context on the way, through `app/api/open`).
+- `lib/today.ts` — home, which is Today: what needs attention in every live context. The one place rows from several contexts are listed together; each keeps its context (`ContextBadge`) and opens there.
 - `app/(app)/actions.ts` — server actions for items, the directory and projects. `app/(app)/meetings/actions.ts`, `app/(app)/meetings/processing-actions.ts` (log, review, notes), `app/(app)/series/actions.ts` and `app/(app)/settings/actions.ts` hold their own areas'.
 - `components/forms.tsx` — `ActionForm`, `FormModal`, `ActionButton`, `IconAction`. `components/items/` — `ItemCard`, `ItemGrid`, `PartyLine`. `components/meetings/` — the agenda card, a session's agenda, suggestions, blocks, meeting, event and unfiled-note cards, and the start/end fields. `components/series/` — the skeleton editor. `components/processing/` — the Log modal, proposal cards, the party picker, run state. `components/documents/` — the document card.
 - `test/` — Vitest against a real Postgres (Testcontainers; Docker must be running).
@@ -68,7 +69,7 @@ Local database: `docker run -d --name mm-dev-db -e POSTGRES_USER=mm -e POSTGRES_
 - Server actions go through `act()` in `lib/web/action.ts`: it authenticates, turns an `AppError` into a message for the form, and revalidates. A server action is a public endpoint; the layout does not guard it.
 - Forms submit through `ActionForm`/`FormModal`, which keep what was typed when the action refuses.
 - Pages get the user, John's person row and "today" from `viewer()`, and the selected context (the `mm_context` cookie) from `requireContext()`, both in `lib/web/context.ts`.
-- Every item query takes a `contextId`. Nothing is listed across contexts.
+- Every item query takes a `contextId`. Nothing is listed across contexts, except on home (`lib/today.ts`), which only reads and marks each row's context.
 - John is never a row in `meeting_people` or `series_people`; he is at every meeting. A 1:1 is a meeting with one row.
 - An agenda's candidates and generated blocks come only from `lib/agenda/candidates.ts` and `generated.ts`. A change to either needs a case in `test/candidate-rules.test.ts`.
 - A meeting row is created only by `lib/meetings/prep.ts`, `lib/meetings/log.ts` or by hand. Nothing creates meetings from the calendar on its own; a Granola note with no meeting to match makes one through `meetingFromNote` in `prep.ts`.

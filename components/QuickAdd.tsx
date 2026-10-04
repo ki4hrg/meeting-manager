@@ -9,7 +9,7 @@ import { FormError } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 import { Spinner } from '@/components/ui/Spinner'
-import { KIND, KindIcon, type ItemKind } from '@/components/ui/StatusBadge'
+import { ContextBadge, KIND, KindIcon, type ItemKind } from '@/components/ui/StatusBadge'
 import { matchName, normalise, tokenFor } from '@/lib/core/match'
 import type { CapturePresets } from '@/lib/items/capture'
 
@@ -38,8 +38,11 @@ export function QuickAdd({
   variant = 'button',
   label = 'Add',
   primary = false,
+  context,
 }: {
   presets?: CapturePresets
+  /** The selected context's name, shown where several exist: it is where the line goes. */
+  context?: string
   /** `bar` is the icon in the top bar, which also answers to the N key. */
   variant?: 'bar' | 'button'
   label?: string
@@ -195,6 +198,11 @@ export function QuickAdd({
           }}
           className="flex flex-col gap-3"
         >
+          {context ? (
+            <div className="flex">
+              <ContextBadge name={context} />
+            </div>
+          ) : null}
           <div className="flex items-center gap-2">
             <KindIcon kind={kind} className="h-6 w-6" />
             <input

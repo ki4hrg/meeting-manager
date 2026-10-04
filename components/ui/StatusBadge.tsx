@@ -44,6 +44,16 @@ export function Badge({ tone = 'gray', children }: { tone?: Tone; children: Reac
   )
 }
 
+/** Which context a row is from, where rows from several are listed together. */
+export function ContextBadge({ name }: { name: string }) {
+  return (
+    <Badge>
+      <Icon name="context" className="h-3 w-3 shrink-0" label="Context" />
+      <span className="truncate">{name}</span>
+    </Badge>
+  )
+}
+
 // ─── item kinds ──────────────────────────────────────────────────────────────
 
 export type ItemKind = 'topic' | 'question' | 'action' | 'decision'

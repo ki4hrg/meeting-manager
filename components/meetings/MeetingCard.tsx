@@ -2,9 +2,10 @@ import { CardGrid, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { Icon } from '@/components/ui/icons'
-import { Badge } from '@/components/ui/StatusBadge'
+import { Badge, ContextBadge } from '@/components/ui/StatusBadge'
 import { formatMoment } from '@/lib/core/dates'
 import { isOver } from '@/lib/meetings/meetings'
+import { switches } from '@/lib/web/open'
 
 type Listed = {
   id: string
@@ -90,15 +91,21 @@ export function MeetingCard({
   pending,
   to,
   agenda,
+  href = to === 'review' ? `/meetings/${meeting.id}/review` : `/meetings/${meeting.id}`,
+  context,
 }: {
   meeting: Listed
   when: string | null
   pending?: number
   to?: 'review'
   agenda?: number
+  /** Where it opens, when not its page in the selected context (`openHref`). */
+  href?: string
+  /** Its context's name, where meetings from several are listed together. */
+  context?: string
 }) {
   return (
-    <LinkCard href={to === 'review' ? `/meetings/${meeting.id}/review` : `/meetings/${meeting.id}`}>
+    <LinkCard href={href} plain={switches(href)}>
       <div className="flex items-start gap-3">
         <When label={when} />
         <div className="min-w-0 flex-1">
@@ -106,6 +113,11 @@ export function MeetingCard({
             {meeting.title}
           </p>
           <Roster people={meeting.people} group={meeting.group} />
+          {context ? (
+            <p className="mt-1 flex">
+              <ContextBadge name={context} />
+            </p>
+          ) : null}
         </div>
         <PendingBadge count={pending} />
         {agenda !== undefined ? <AgendaMark rows={agenda} /> : null}

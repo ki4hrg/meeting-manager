@@ -65,7 +65,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             />
           ) : null
         }
-        quickAdd={context ? <QuickAdd variant="bar" /> : null}
+        quickAdd={
+          context ? (
+            <QuickAdd variant="bar" context={contexts.length > 1 ? context.name : undefined} />
+          ) : null
+        }
       >
         {children}
       </AppShell>
