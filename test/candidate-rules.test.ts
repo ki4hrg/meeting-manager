@@ -248,6 +248,24 @@ describe('what is never a candidate', () => {
     }
   })
 
+  it('what came out of a meeting is not offered back to it, but is at the next one', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id] })
+    const outcome = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'send the minutes',
+      parties: [{ personId: w.sarah.id, role: 'owner' }],
+      originMeetingId: meeting.id,
+    })
+    const there = await getCandidates(db, meeting.id, NOW)
+    expect(offered(there)).toEqual([])
+    expect(grouped(there.more)).toEqual([])
+
+    const next = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id] })
+    expect(offered(await getCandidates(db, next.id, NOW))).toEqual([outcome.id])
+  })
+
   it('an item with no target is not placed on a meeting with no series', async () => {
     const w = await makeWorld()
     await createItem(db, actor, { contextId: w.parish.id, text: 'loose' })

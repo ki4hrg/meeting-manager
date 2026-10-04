@@ -93,19 +93,20 @@ export async function captureAction(formData: FormData): Promise<ActionResult> {
       throw new ValidationError('That could not be added. Reload the page and try again.')
     }
 
-    /* A follow-up goes where its parent is; anything else goes to the context
-       selected in the bar. */
+    /* A follow-up goes where its parent is, and one added on a meeting where
+       the meeting is; anything else goes to the context selected in the bar. */
+    const meetingId = presets.originMeetingId ?? presets.targetMeetingId
     const contextId = presets.parentItemId
       ? (await getItem(db, presets.parentItemId)).contextId
-      : presets.targetMeetingId
-        ? (await getMeeting(db, presets.targetMeetingId)).contextId
+      : meetingId
+        ? (await getMeeting(db, meetingId)).contextId
         : (await currentContext())?.id
     if (!contextId) throw new ValidationError('Create a context first.')
 
     await inTransaction(db, async (tx) => {
       const item = await captureLine(tx, actor, { contextId, line: field(formData, 'line'), presets })
       // Added from a meeting's page: on its agenda at once, whenever the meeting is.
-      if (presets.targetMeetingId && isOpen(item)) {
+      if (presets.targetMeetingId && !presets.originMeetingId && isOpen(item)) {
         await placeItem(tx, actor, presets.targetMeetingId, item.id)
       }
     })

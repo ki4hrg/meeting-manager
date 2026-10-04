@@ -14,6 +14,7 @@ import { Suggestions } from '@/components/meetings/Suggestions'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, CardGrid, Section } from '@/components/ui/Card'
 import { DocumentCard } from '@/components/documents/DocumentCard'
+import { ItemGrid } from '@/components/items/ItemCard'
 import { Chip } from '@/components/ui/Chip'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
@@ -32,6 +33,7 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
+import { listItems } from '@/lib/items/items'
 import { getMeeting, isOver } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
 import { pendingByMeeting } from '@/lib/processing/proposals'
@@ -83,7 +85,8 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     !rollup && !meeting.attendanceAt && meeting.startsAt !== null && meeting.startsAt <= new Date() && !isOver(meeting)
   const roll = underWay ? await rollCall(db, id) : []
 
-  const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, pending, documents] = await Promise.all([
+  const covered = [meeting.id, ...meeting.sessions.map((one) => one.id)]
+  const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, pending, documents, outcomes] = await Promise.all([
     getAgenda(db, id, { timeZone }),
     Promise.all(meeting.sessions.map((session) => getAgenda(db, session.id, { timeZone }))),
     getCandidates(db, id),
@@ -95,8 +98,13 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     listSeries(db, context.id),
     pendingByMeeting(db, context.id),
     // What its notes drafted, its sessions' with it.
-    listDocuments(db, { contextId: context.id, meetingIds: [meeting.id, ...meeting.sessions.map((one) => one.id)] }),
+    listDocuments(db, { contextId: context.id, meetingIds: covered }),
+    // What came out of it, its sessions' with it.
+    Promise.all(covered.map((one) => listItems(db, { contextId: context.id, originMeetingId: one }))),
   ])
+  const outcome = outcomes.flat()
+  // Once it has started there can be something to show for it.
+  const started = meeting.startsAt !== null && meeting.startsAt <= new Date()
 
   const sessions = rollup
     ? meeting.sessions.map((session, index) => ({ ...session, agenda: sessionAgendas[index]! }))
@@ -312,6 +320,16 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
             <Suggestions candidates={candidates} meetingId={meeting.id} />
           </>
         )}
+
+        {started || outcome.length > 0 ? (
+          <Section
+            title="Outcomes"
+            count={outcome.length}
+            action={<QuickAdd presets={{ kind: 'action', originMeetingId: meeting.id }} />}
+          >
+            <ItemGrid items={outcome} today={today} empty="action" />
+          </Section>
+        ) : null}
 
         {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
         {documents.length > 0 ? (

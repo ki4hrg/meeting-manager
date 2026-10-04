@@ -140,6 +140,40 @@ describe('captureLine', () => {
     )
   })
 
+  it('records an outcome as coming out of its meeting, not raised there', async () => {
+    const { parish, diocese, sarah } = await makeWorld()
+    const meeting = await createMeeting(db, actor, { contextId: parish.id, title: 'Staff' })
+    const action = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'send the minutes @sarah',
+      presets: { kind: 'action', originMeetingId: meeting.id },
+    })
+    expect(action).toMatchObject({ kind: 'action', originMeetingId: meeting.id, targetMeetingId: null })
+    expect(action.parties).toMatchObject([{ id: sarah.id, role: 'owner' }])
+
+    const decision = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'D: lunch is at noon',
+      presets: { kind: 'action', originMeetingId: meeting.id },
+    })
+    expect(decision).toMatchObject({ kind: 'decision', originMeetingId: meeting.id })
+
+    // Still raised at a series when one is named.
+    const checkIn = await createSeries(db, { contextId: parish.id, name: 'Sarah/John Check-In', personIds: [sarah.id] })
+    const later = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'Q: who books the hall? >check-in',
+      presets: { originMeetingId: meeting.id },
+    })
+    expect(later).toMatchObject({ originMeetingId: meeting.id, targetSeriesId: checkIn.id })
+
+    // A meeting in another context is refused.
+    const elsewhere = await createMeeting(db, actor, { contextId: diocese.id, title: 'Council' })
+    await expect(
+      captureLine(db, actor, { contextId: parish.id, line: 'x', presets: { originMeetingId: elsewhere.id } }),
+    ).rejects.toThrow('another context')
+  })
+
   it('takes one @ for a person, a project or a series, people first', async () => {
     const { parish, sarah, retreat } = await makeWorld()
     const checkIn = await createSeries(db, { contextId: parish.id, name: 'Sarah/John Check-In', personIds: [sarah.id] })
