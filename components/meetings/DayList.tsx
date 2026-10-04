@@ -11,6 +11,7 @@ export function DayList({
   timeZone,
   pending,
   agendas,
+  actIn,
 }: {
   entries: UpcomingEntry[]
   today: string
@@ -18,6 +19,8 @@ export function DayList({
   pending: Map<string, number>
   /** Rows on each meeting's agenda, to mark which are prepped. */
   agendas?: Map<string, number>
+  /** The context event cards act in, where it may not be the selected one (a hub's). */
+  actIn?: string
 }) {
   const days = new Map<string, UpcomingEntry[]>()
   for (const entry of entries) {
@@ -46,7 +49,7 @@ export function DayList({
                   agenda={agendas ? (agendas.get(entry.meeting.id) ?? 0) : undefined}
                 />
               ) : (
-                <EventCard key={entry.event!.eventId} entry={entry} time={time} />
+                <EventCard key={entry.event!.eventId} entry={entry} time={time} actIn={actIn} />
               )
             })}
           </CardGrid>

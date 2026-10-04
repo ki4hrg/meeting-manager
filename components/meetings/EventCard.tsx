@@ -16,15 +16,18 @@ export function EventCard({
   entry,
   time,
   context,
+  actIn,
 }: {
   entry: UpcomingEntry
   time: string
+  /** The context its actions act in, where that may not be the selected one (a hub's). */
+  actIn?: string
   /** The event's context, where events from several are listed together: its
       actions then act there rather than in the selected one. */
   context?: { id: string; name: string }
 }) {
   const event = entry.event!
-  const where: Record<string, string> = context ? { contextId: context.id } : {}
+  const where: Record<string, string> = context ? { contextId: context.id } : actIn ? { contextId: actIn } : {}
   const people = event.attendees
     .filter((attendee) => attendee.personId && !attendee.declined)
     .map((attendee) => ({ name: attendee.name ?? attendee.email }))

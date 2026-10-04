@@ -5,7 +5,7 @@ import { DocumentCard } from '@/components/documents/DocumentCard'
 import { FormModal, IconAction } from '@/components/forms'
 import { iconButtonClasses } from '@/components/ui/IconButton'
 import { ItemGrid } from '@/components/items/ItemCard'
-import { MeetingGrid } from '@/components/meetings/MeetingCard'
+import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, CardGrid, CardHeader, LinkCard, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -20,7 +20,6 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listDocuments } from '@/lib/documents/documents'
 import { isOpen, listItems, type ItemView } from '@/lib/items/items'
-import { listMeetings } from '@/lib/meetings/meetings'
 import {
   PROJECT_STATUSES,
   ancestorIds,
@@ -105,7 +104,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
     .sort((a, b) => a.name.localeCompare(b.name))
   const nextOf = await nextMilestones(db, project.contextId, today)
   const below = descendantIds(family, [id])
-  const rolled = children.length > 0 && (await searchParams).all === '1'
+  const query = await searchParams
+  const rolled = children.length > 0 && query.all === '1'
   const scope = rolled ? [id, ...below] : [id]
 
   const all = (
@@ -113,12 +113,6 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   )
     .flat()
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-  const seen = new Set<string>()
-  const meetings = (
-    await Promise.all(scope.map((projectId) => listMeetings(db, { contextId: project.contextId, projectId })))
-  )
-    .flat()
-    .filter((meeting) => !seen.has(meeting.id) && Boolean(seen.add(meeting.id)))
   const documents = await listDocuments(db, { contextId: project.contextId, projectId: id })
   // Aimed at this project's next meeting, waiting for it, whatever project they are on.
   const forNext = (await listItems(db, { contextId: project.contextId, open: true })).filter(
@@ -402,9 +396,14 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           <ItemGrid items={decisions} today={today} empty="decision" showProject={rolled} />
         </Section>
 
-        <Section title="Meetings">
-          <MeetingGrid meetings={meetings} timeZone={user.timeZone} recent={9} />
-        </Section>
+        <HubMeetings
+          hub={{ kind: 'project', ids: scope }}
+          contextId={project.contextId}
+          path={`/projects/${id}`}
+          query={query}
+          timeZone={user.timeZone}
+          today={today}
+        />
 
         {closed.length > 0 ? (
           <Section title="Closed">

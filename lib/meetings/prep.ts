@@ -191,6 +191,37 @@ export async function eventScope(
   return { [`${scope.kind}Id`]: row.id }
 }
 
+/**
+ * Where an event's meeting would go if it were prepped: its context, series,
+ * and the groups and projects it would take. Prep uses it, and so do the hubs,
+ * to show an event before it is prepped where its meeting would be listed.
+ */
+export async function eventTakes(exec: Executor, contextId: string, event: CalendarEvent) {
+  /* An occurrence of a recurring event belongs to its series, wherever that
+     is: the series may have been moved out of the calendar's context. Failing
+     that, a calendar bound to a series puts every event on it in that series. */
+  const recurring = event.seriesId ? await findSeriesByCalendar(exec, event.seriesId) : null
+  const scoped = await eventScope(exec, event, recurring?.contextId ?? contextId)
+  const series = recurring ?? (scoped.seriesId ? await getSeries(exec, scoped.seriesId) : null)
+  const home = series?.contextId ?? contextId
+  /* A list address on the invite brings its group, and so does a calendar
+     bound to one, alongside the series' own. */
+  const extra = [
+    ...(await groupsByEmail(exec, home, unmatchedEmails(event))),
+    ...(scoped.groupId ? [scoped.groupId] : []),
+  ]
+  return {
+    home,
+    series,
+    scoped,
+    extra,
+    groupIds: [...new Set([...(series?.groups.map((g) => g.id) ?? []), ...extra])],
+    projectIds: [
+      ...new Set([...(series?.projects.map((p) => p.id) ?? []), ...(scoped.projectId ? [scoped.projectId] : [])]),
+    ],
+  }
+}
+
 /** The meeting for a calendar event: the one it already has, or a new one. */
 export async function prepFromEvent(
   exec: Executor,
@@ -205,20 +236,8 @@ export async function prepFromEvent(
     return existing
   }
 
-  /* An occurrence of a recurring event belongs to its series, wherever that
-     is: the series may have been moved out of the calendar's context. Failing
-     that, a calendar bound to a series puts every event on it in that series. */
-  const recurring = event.seriesId ? await findSeriesByCalendar(exec, event.seriesId) : null
-  const scoped = await eventScope(exec, event, recurring?.contextId ?? contextId)
-  const series = recurring ?? (scoped.seriesId ? await getSeries(exec, scoped.seriesId) : null)
+  const { home, series, scoped, extra } = await eventTakes(exec, contextId, event)
   const people = matchedPeople(event)
-  const home = series?.contextId ?? contextId
-  /* A list address on the invite brings its group, and so does a calendar
-     bound to one, alongside the series' own. */
-  const extra = [
-    ...(await groupsByEmail(exec, home, unmatchedEmails(event))),
-    ...(scoped.groupId ? [scoped.groupId] : []),
-  ]
   return prepMeeting(
     exec,
     actor,
