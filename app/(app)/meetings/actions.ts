@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { dismissCandidate, placeItem, restoreCandidate } from '@/lib/agenda/candidates'
+import { placeItem, restoreCandidate } from '@/lib/agenda/candidates'
 import {
   addLine,
   addSection,
@@ -356,12 +356,6 @@ export async function placeItemsAction(formData: FormData): Promise<ActionResult
         await placeItem(tx, actor, meetingId, itemId)
       }
     })
-  })
-}
-
-export async function dismissCandidateAction(formData: FormData): Promise<ActionResult> {
-  return act(async (actor) => {
-    await dismissCandidate(db, actor, field(formData, 'meetingId'), field(formData, 'itemId'))
   })
 }
 

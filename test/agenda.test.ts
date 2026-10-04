@@ -182,12 +182,16 @@ describe('agenda operations', () => {
     )
   })
 
-  it('removing item line records dismissal', async () => {
+  it('removing the line of an item aimed here records a dismissal', async () => {
     const { parish } = await makeWorld()
 
     const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
 
-    const item = await createItem(db, actor, { contextId: parish.id, text: 'An action' })
+    const item = await createItem(db, actor, {
+      contextId: parish.id,
+      text: 'An action',
+      target: { meetingId: meeting[0]!.id },
+    })
 
     const line = await addLine(db, actor, meeting[0]!.id, { itemId: item.id })
 
@@ -199,12 +203,28 @@ describe('agenda operations', () => {
     expect(thisDismissal).toBeDefined()
   })
 
+  it('removing the line of any other item records nothing: it is suggested again', async () => {
+    const { parish } = await makeWorld()
+
+    const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
+    const item = await createItem(db, actor, { contextId: parish.id, text: 'An action' })
+    const line = await addLine(db, actor, meeting[0]!.id, { itemId: item.id })
+
+    await removeLine(db, actor, line)
+
+    expect(await db.select().from(meetingDismissals)).toEqual([])
+  })
+
   it('re-adding item clears dismissal', async () => {
     const { parish } = await makeWorld()
 
     const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
 
-    const item = await createItem(db, actor, { contextId: parish.id, text: 'An item' })
+    const item = await createItem(db, actor, {
+      contextId: parish.id,
+      text: 'An item',
+      target: { meetingId: meeting[0]!.id },
+    })
 
     const line1 = await addLine(db, actor, meeting[0]!.id, { itemId: item.id })
 
@@ -267,14 +287,18 @@ describe('agenda operations', () => {
     }
   })
 
-  it('removing section records dismissals for item lines', async () => {
+  it('removing a section records dismissals for the items aimed here among its lines', async () => {
     const { parish } = await makeWorld()
 
     const meeting = await db.insert(meetings).values({ contextId: parish.id, title: 'Meeting' }).returning()
 
     const section = await addSection(db, actor, meeting[0]!.id, { title: 'Section' })
 
-    const item1 = await createItem(db, actor, { contextId: parish.id, text: 'Item 1' })
+    const item1 = await createItem(db, actor, {
+      contextId: parish.id,
+      text: 'Item 1',
+      target: { meetingId: meeting[0]!.id },
+    })
     const item2 = await createItem(db, actor, { contextId: parish.id, text: 'Item 2' })
 
     await addLine(db, actor, meeting[0]!.id, { sectionId: section, itemId: item1.id })
@@ -285,7 +309,7 @@ describe('agenda operations', () => {
 
     const dismissals = await db.select().from(meetingDismissals)
     expect(dismissals.filter((d) => d.itemId === item1.id).length).toBe(1)
-    expect(dismissals.filter((d) => d.itemId === item2.id).length).toBe(1)
+    expect(dismissals.filter((d) => d.itemId === item2.id).length).toBe(0)
   })
 
   it('applySkeleton appends sections', async () => {

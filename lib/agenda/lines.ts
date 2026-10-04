@@ -3,8 +3,9 @@
  *
  * An agenda is a two-level structure: top-level rows and rows that sit under
  * a section. A line is free text or a reference to a live item. An item can
- * be on an agenda only once. Removing a line that references an item records
- * a dismissal so automatic placement does not put it straight back.
+ * be on an agenda only once. Removing a line for an item aimed at the meeting
+ * records a dismissal so automatic placement does not put it straight back;
+ * any other item goes back to the suggestions.
  *
  * `position` orders siblings: the top-level rows together, a section's lines
  * together. Every write that changes an order renumbers the list it touched
@@ -12,6 +13,7 @@
  */
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { getCandidates } from './candidates'
 import {
   NotFoundError,
   ValidationError,
@@ -564,9 +566,10 @@ export async function nudgeLine(
 }
 
 /**
- * Take a row off the agenda. An item line leaves a dismissal behind, so the
- * automatic placement does not put it straight back; removing a section does
- * the same for every item line in it.
+ * Take a row off the agenda. An item aimed at the meeting leaves a dismissal
+ * behind, so the automatic placement does not put it straight back; anything
+ * else is suggested again. Removing a section does the same for every item
+ * line in it.
  */
 export async function removeLine(exec: Executor, _actor: ActorContext, lineId: string): Promise<void> {
   await inTransaction(exec, async (tx) => {
@@ -575,16 +578,18 @@ export async function removeLine(exec: Executor, _actor: ActorContext, lineId: s
       ? await tx.select().from(agendaLines).where(eq(agendaLines.sectionId, lineId))
       : [row]
 
-    const itemIds = gone.flatMap((line) => (line.itemId ? [line.itemId] : []))
-    if (itemIds.length > 0) {
-      await tx
-        .insert(meetingDismissals)
-        .values(itemIds.map((itemId) => ({ meetingId: row.meetingId, itemId })))
-        .onConflictDoNothing()
-    }
-
     // A section's lines go with it (the foreign key cascades).
     await tx.delete(agendaLines).where(eq(agendaLines.id, lineId))
+
+    const itemIds = new Set(gone.flatMap((line) => (line.itemId ? [line.itemId] : [])))
+    const comeBack =
+      itemIds.size > 0 ? (await getCandidates(tx, row.meetingId)).toPlace.filter((item) => itemIds.has(item.id)) : []
+    if (comeBack.length > 0) {
+      await tx
+        .insert(meetingDismissals)
+        .values(comeBack.map((item) => ({ meetingId: row.meetingId, itemId: item.id })))
+        .onConflictDoNothing()
+    }
     const left = (await siblings(tx, row.meetingId, row.sectionId)).map((sibling) => sibling.id)
     await renumber(tx, left, row.sectionId)
   })

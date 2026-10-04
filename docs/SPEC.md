@@ -62,7 +62,7 @@ A single `items` table. Only `context` and `text` are required.
 
 **Placed automatically:** only items aimed at a meeting: this one, its series (the next occurrence), or a project's next meeting. *(2026-10-04)* Nothing is placed for its person, group or project alone, a 1:1 included: an item to raise with someone that isn't ripe yet stays a suggestion at each of their meetings until John places it. "Prep a meeting with…" is the exception, since asking for it is asking for the batch.
 
-**Suggested** (collapsed list grouped by person, group and project; one click to place; "not this time" dismisses for this meeting):
+**Suggested** (collapsed list grouped by person, group and project; one click to place or to drop the item; *(2026-10-04)* there is no "not this time": one left alone is simply suggested again next time):
 - items whose project is one of the meeting's projects;
 - items whose `with` or `owner` group is the meeting's group;
 - items owned by an attendee, or `with` an attendee, that also carry one of the meeting's projects or groups;
@@ -72,7 +72,7 @@ A single `items` table. Only `context` and `text` are required.
 
 **Leak rule:** "Follow-ups due" and the recap draw only from items placed on the agenda or originating in this meeting, never from the raw candidate pull.
 
-State lives in `agenda_lines` (placed) and `meeting_dismissals`.
+State lives in `agenda_lines` (placed) and `meeting_dismissals`. A dismissal is left only when an item aimed at the meeting is taken off its agenda, so it isn't placed straight back; it can be restored. Any other item taken off goes back to the suggestions.
 
 The bishop case: capture "ask @bishop about X" over several weeks. The bishop's person page shows the batch. "Prep a meeting with…" creates an undated stub and places all of it.
 
@@ -290,7 +290,7 @@ Deploy per the global notes: image built in Actions and pushed to GHCR, compose 
   - Phase 2: sporadic (six items across two projects tagged to one person are all placed when a meeting is prepped; the stub later attaches to its calendar event without a duplicate); routine 1:1 (person items pre-placed).
   - Phase 3: drop-in from a Granola note with no calendar event; unrecorded drop-in via Log a meeting; committee meeting with a timed brief and recap.
 - Step budget: routine prep and drop-in review each take no more than three actions.
-- Candidate tests: a ten-person staff meeting places nothing person-only; a private 1:1 item never appears in a group agenda or recap; a dismissed suggestion stays dismissed.
+- Candidate tests: a ten-person staff meeting places nothing person-only; a private 1:1 item never appears in a group agenda or recap; an item aimed at a meeting and taken off its agenda stays off.
 - Context isolation: nothing from one context appears in another's agenda, hub or recap.
 - Thread tests: topic to question to answer to linked decision to spawned action on one page; "report to" puts an answer on another group's next agenda; the lunch-menu note becomes one question owned by three.
 - Processing tests: a `D:` line yields identical wording; re-delivery after review proposes nothing already handled; two notes on one meeting; a session note asks which session. Extraction quality is checked against fixture transcripts with expected output, run separately from Vitest.
