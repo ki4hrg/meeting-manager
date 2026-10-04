@@ -120,6 +120,13 @@
       "when": 1791084091163,
       "tag": "0016_undo_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791118889800,
+      "tag": "0017_binding_scope",
+      "breakpoints": true
     }
   ]
 }

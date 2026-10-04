@@ -26,6 +26,7 @@ import {
 } from '../core/types'
 import {
   agendaLines,
+  bindings,
   documents,
   itemEvents,
   items,
@@ -274,6 +275,8 @@ export async function moveSeries(
       .set({ contextId, updatedAt: new Date() })
       .where(eq(series.id, seriesId))
     await tx.delete(seriesGroups).where(eq(seriesGroups.seriesId, seriesId))
+    // A calendar or folder that feeds the series follows it.
+    await tx.update(bindings).set({ contextId }).where(eq(bindings.seriesId, seriesId))
 
     const views = async (ids: string[]) => {
       const list: MeetingView[] = []

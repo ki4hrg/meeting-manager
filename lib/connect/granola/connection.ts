@@ -15,7 +15,8 @@
  * that binding is the only thing that says which context a note belongs to. A
  * note in no folder at all, or in no bound one, is held for the Inbox
  * (`unfiled.ts`) until John files it. A binding may also name one of
- * that context's projects, which the meetings its notes are filed on take.
+ * that context's projects, series or groups, which the meetings its notes are
+ * filed on take.
  */
 
 import { and, eq, sql } from 'drizzle-orm'
@@ -23,15 +24,17 @@ import { NotFoundError, ValidationError, type Executor } from '../../core/types'
 import { bindings, connections } from '../../db/schema'
 import { getContext } from '../../directory/contexts'
 import { recheckHeldNotes } from '../../notes/notes'
-import { getProject } from '../../projects/projects'
 import { absoluteUrl } from '../../oauth/config'
 import {
   ConnectionError,
+  assertScopeIn,
   clearConnectionError,
   recordConnectionError,
   sealCredentials,
+  scopeColumns,
   unsealCredentials,
   type Binding,
+  type BindingScope,
 } from '../connections'
 import {
   GranolaApiError,
@@ -250,8 +253,9 @@ export async function disconnectGranola(exec: Executor, connectionId: string): P
 // ─── folders ─────────────────────────────────────────────────────────────────
 
 /**
- * Feed a folder into a context, or into one project of it. A folder feeds one
- * place, so binding it again moves it: notes already filed stay where they are.
+ * Feed a folder into a context, or into one project, series or group of it. A
+ * folder feeds one place, so binding it again moves it: notes already filed
+ * stay where they are.
  */
 export async function bindFolder(
   exec: Executor,
@@ -260,17 +264,15 @@ export async function bindFolder(
     folderId: string
     name: string
     contextId: string
-    projectId?: string | null
+    scope?: BindingScope
   },
 ): Promise<Binding> {
   const folderId = input.folderId.trim()
   if (folderId === '') throw new ValidationError('Pick a folder.')
   await granolaKey(exec, input.connectionId)
   await getContext(exec, input.contextId)
-  const projectId = input.projectId || null
-  if (projectId && (await getProject(exec, projectId)).contextId !== input.contextId) {
-    throw new ValidationError('That project is in another context.')
-  }
+  const scope = input.scope ?? null
+  await assertScopeIn(exec, input.contextId, scope)
 
   const name = input.name.trim() || folderId
   /* One statement on the unique key, so a folder is never bound twice. */
@@ -282,11 +284,11 @@ export async function bindFolder(
       externalId: folderId,
       name,
       contextId: input.contextId,
-      projectId,
+      ...scopeColumns(scope),
     })
     .onConflictDoUpdate({
       target: [bindings.connectionId, bindings.kind, bindings.externalId],
-      set: { contextId: input.contextId, name, projectId },
+      set: { contextId: input.contextId, name, ...scopeColumns(scope) },
     })
     .returning()
   // A note held for the Inbox from this folder is filed on the next pass.

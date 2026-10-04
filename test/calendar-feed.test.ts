@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { clearFeedCache, listEvents, listEventsIn, matchPeople } from '../lib/calendar/feed'
-import { bindCalendar, getConnection, saveGoogleConnection } from '../lib/connect/connections'
+import { bindCalendar, getConnection, listBindings, saveGoogleConnection } from '../lib/connect/connections'
 import { users } from '../lib/db/schema'
 import { createContext } from '../lib/directory/contexts'
 import { createPerson } from '../lib/directory/people'
@@ -639,6 +639,75 @@ describe('where an event belongs', () => {
     const there = await inContext(church.id)
     expect(here.filter((id) => there.includes(id))).toEqual([])
     expect([...here, ...there].sort()).toEqual(['choir', 'shared', 'standup', 'vestry', 'weekly-14'])
+  })
+
+  it('gives a meeting prepped from a calendar bound to a series, a group or a project that scope', async () => {
+    const { work, church, deps, eventOf } = await twoContexts()
+    const now = new Date('2026-10-05T15:00:00Z')
+    const conn = (await listBindings(db))[0]!.connectionId
+    const { createGroup } = await import('../lib/directory/groups')
+    const { createProject } = await import('../lib/projects/projects')
+    const vestry = await createSeries(db, { contextId: church.id, name: 'Vestry' })
+    const choir = await createGroup(db, { contextId: church.id, name: 'Choir' })
+    const roof = await createProject(db, { contextId: church.id, name: 'Roof' })
+
+    // Bound to a series: every event on it is prepped into the series.
+    await bindCalendar(db, { connectionId: conn, calendarId: 'church-cal', name: 'Church', contextId: church.id, scope: { kind: 'series', id: vestry.id } })
+    clearFeedCache()
+    const { listUpcoming } = await import('../lib/meetings/prep')
+    const upcoming = await listUpcoming(db, church.id, { now, days: 30, events: [await eventOf(church.id, 'choir')] })
+    expect(upcoming.entries.find((entry) => entry.event?.eventId === 'choir')?.series?.id).toBe(vestry.id)
+    const inSeries = await prepFromEvent(db, actor, { contextId: church.id, event: await eventOf(church.id, 'choir') }, now)
+    expect(inSeries.series?.id).toBe(vestry.id)
+
+    // Bound to a group, the group joins; bound to a project, the project does.
+    await bindCalendar(db, { connectionId: conn, calendarId: 'church-cal', name: 'Church', contextId: church.id, scope: { kind: 'group', id: choir.id } })
+    clearFeedCache()
+    const grouped = await prepFromEvent(db, actor, { contextId: church.id, event: await eventOf(church.id, 'shared') }, now)
+    expect(grouped.groups.map((group) => group.id)).toEqual([choir.id])
+    expect(grouped.series).toBeNull()
+
+    await bindCalendar(db, { connectionId: conn, calendarId: 'church-cal', name: 'Church', contextId: church.id, scope: { kind: 'project', id: roof.id } })
+    clearFeedCache()
+    const event = await eventOf(church.id, 'choir')
+    expect(event.scope).toEqual({ kind: 'project', id: roof.id })
+    expect((await listEventsIn(db, { contextId: work.id, ...range }, deps)).every((one) => !one.scope)).toBe(true)
+
+    // A scope from another context is refused.
+    await expect(
+      bindCalendar(db, { connectionId: conn, calendarId: 'work-cal', name: 'Work', contextId: work.id, scope: { kind: 'group', id: choir.id } }),
+    ).rejects.toThrow('another context')
+  })
+
+  it('takes a project from a project-bound calendar onto the prepped meeting', async () => {
+    const { church, eventOf } = await twoContexts()
+    const now = new Date('2026-10-05T15:00:00Z')
+    const conn = (await listBindings(db))[0]!.connectionId
+    const { createProject } = await import('../lib/projects/projects')
+    const roof = await createProject(db, { contextId: church.id, name: 'Roof' })
+    await bindCalendar(db, { connectionId: conn, calendarId: 'church-cal', name: 'Church', contextId: church.id, scope: { kind: 'project', id: roof.id } })
+    clearFeedCache()
+    const prepped = await prepFromEvent(db, actor, { contextId: church.id, event: await eventOf(church.id, 'choir') }, now)
+    expect(prepped.projects.map((project) => project.id)).toEqual([roof.id])
+  })
+
+  it('moves a calendar bound to a series with the series, and will not delete a bound series', async () => {
+    const { work, church, inContext } = await twoContexts()
+    const conn = (await listBindings(db))[0]!.connectionId
+    const { moveSeries } = await import('../lib/meetings/move')
+    const { archive, previewDelete } = await import('../lib/archive/archive')
+    const vestry = await createSeries(db, { contextId: church.id, name: 'Vestry' })
+    await bindCalendar(db, { connectionId: conn, calendarId: 'church-cal', name: 'Church', contextId: church.id, scope: { kind: 'series', id: vestry.id } })
+
+    await moveSeries(db, actor, vestry.id, work.id)
+    const moved = (await listBindings(db)).find((one) => one.externalId === 'church-cal')!
+    expect(moved).toMatchObject({ contextId: work.id, seriesId: vestry.id })
+    clearFeedCache()
+    expect(await inContext(work.id)).toContain('choir')
+    expect(await inContext(church.id)).toEqual([])
+
+    await archive(db, 'series', vestry.id)
+    expect((await previewDelete(db, 'series', vestry.id)).blockers).toContain('Bound to 1 calendar')
   })
 
   it('puts an event away with its archived meeting, and shows nothing from an archived context', async () => {

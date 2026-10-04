@@ -139,6 +139,21 @@ export type DeletePreview = {
   takes: string[]
 }
 
+/* The calendars and Granola folders that feed a project, series or group. */
+async function boundTo(
+  exec: Executor,
+  column: typeof bindings.projectId | typeof bindings.seriesId | typeof bindings.groupId,
+  id: string,
+): Promise<string[]> {
+  const rows = await exec.select({ kind: bindings.kind }).from(bindings).where(eq(column, id))
+  const calendars = rows.filter((row) => row.kind === 'calendar').length
+  const folders = rows.length - calendars
+  return [
+    ...(calendars ? [`Bound to ${plural(calendars, 'calendar')}`] : []),
+    ...(folders ? [`Bound to ${plural(folders, 'Granola folder')}`] : []),
+  ]
+}
+
 export async function previewDelete(exec: Executor, kind: ArchiveKind, id: string): Promise<DeletePreview> {
   const blockers: string[] = []
   const takes: string[] = []
@@ -195,6 +210,7 @@ export async function previewDelete(exec: Executor, kind: ArchiveKind, id: strin
         .where(and(eq(meetingGroups.groupId, id), notDeleted(meetings), NOT_OVER)),
     )
     if (upcoming) blockers.push(`At ${plural(upcoming, 'meeting')} still to come`)
+    blockers.push(...(await boundTo(exec, bindings.groupId, id)))
   }
 
   if (kind === 'project') {
@@ -218,10 +234,7 @@ export async function previewDelete(exec: Executor, kind: ArchiveKind, id: strin
         .where(and(eq(items.projectId, id), inArray(items.status, OPEN_STATUSES), notDeleted(items))),
     )
     if (openItems) blockers.push(`${plural(openItems, 'open item')}`)
-    const folders = await count(
-      exec.select({ n: N }).from(bindings).where(eq(bindings.projectId, id)),
-    )
-    if (folders) blockers.push(`Bound to ${plural(folders, 'Granola folder')}`)
+    blockers.push(...(await boundTo(exec, bindings.projectId, id)))
     const closed = await count(
       exec.select({ n: N }).from(items).where(and(eq(items.projectId, id), notDeleted(items))),
     )
@@ -241,6 +254,7 @@ export async function previewDelete(exec: Executor, kind: ArchiveKind, id: strin
       exec.select({ n: N }).from(meetings).where(and(eq(meetings.seriesId, id), notDeleted(meetings))),
     )
     if (past && !upcoming) takes.push(`The series on ${plural(past, 'past meeting')}, which stay`)
+    blockers.push(...(await boundTo(exec, bindings.seriesId, id)))
   }
 
   if (kind === 'meeting') {

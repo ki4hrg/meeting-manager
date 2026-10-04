@@ -79,7 +79,7 @@ The bishop case: capture "ask @bishop about X" over several weeks. The bishop's 
 ### Meetings are light and created lazily
 
 - Google Calendar is a read-only feed. A meeting row exists only when John preps it, a note arrives for it, or he logs it by hand.
-- `series` holds a roster, default projects, group, a standing agenda skeleton and generated-block defaults. A calendar recurring event maps to a series; a calendar maps to a context.
+- `series` holds a roster, default projects, group, a standing agenda skeleton and generated-block defaults. A calendar recurring event maps to a series; a calendar maps to a context, or to a project, series or group in it.
 - `parent_meeting_id` (one level) keeps multi-day sessions. *(2026-10-02)* A meeting with sessions keeps its own start and end, so it lists as the whole event; its agenda is the rollup of its sessions': its page shows each session's agenda in turn (no agenda or suggestions of its own), the brief and agenda copy are the sessions one after another, follow-ups and the recap draw on all its sessions, and an item aimed at it goes to its next session that is not over.
 - *(2026-10-02)* A meeting's time is a start and an end, not a start and a length; the end may be days later.
 - **Stub to calendar** *(review)*: an undated stub can be attached to a calendar event, and the tool suggests it when a new event's people match. Attendee matching uses the series roster as well as invitees, since in-person 1:1s often have none.
@@ -87,11 +87,11 @@ The bishop case: capture "ask @bishop about X" over several weeks. The bishop's 
   - A Granola note with no calendar match creates a meeting itself. If people or context are unknown, the review screen asks for them first, then runs matching against their open items.
   - **Log a meeting:** pick people, paste or type notes, and run the same processing. Covers unrecorded conversations and is the fallback if Granola fails.
   - *(2026-10-02)* A note in no folder at all, outside mapped Granola folders, or in folders mapped to two contexts, is filed on the meeting already made for its calendar event if there is one, wherever it is; otherwise it is held in the **Inbox**, in no context and unprocessed, until John files it into a context (which then matches or makes its meeting there as a mapped folder would) or dismisses it. Any auto-created meeting can be discarded.
-  - A folder maps to a context, or to one project in it; a note from a project's folder puts that project on its meeting. A subfolder follows the nearest mapped folder above it.
+  - A folder maps to a context, or to one project, series or group in it; a note from a project's or group's folder puts that project or group on its meeting, and a meeting made for a note from a series' folder joins that series (unless its calendar event already maps to a series). A subfolder follows the nearest mapped folder above it. *(2026-10-04)* A calendar maps the same way: an event prepped from a calendar mapped to a project, series or group takes it, a series' calendar putting every event on it in the series. A mapping to a series follows the series when it is moved; a series, group or project something is mapped to cannot be deleted.
 
 ### Tables (about 30)
 
-`contexts`, `people`, `person_emails`, `groups`, `group_members`, `projects`, `milestones`, `project_links`, `documents`, `series`, `series_people`, `meetings`, `meeting_people`, `meeting_projects`, `meeting_dismissals`, `agenda_lines`, `items`, `item_parties`, `item_events`, `item_todoist_links`, `notes`, `processing_runs`, `proposals`, `connections`, `bindings` (calendar/folder/Todoist project per context or project), `integration_events`, plus `users`, `sessions`, the OAuth tables and `mcp_write_receipts`.
+`contexts`, `people`, `person_emails`, `groups`, `group_members`, `projects`, `milestones`, `project_links`, `documents`, `series`, `series_people`, `meetings`, `meeting_people`, `meeting_projects`, `meeting_dismissals`, `agenda_lines`, `items`, `item_parties`, `item_events`, `item_todoist_links`, `notes`, `processing_runs`, `proposals`, `connections`, `bindings` (calendar/folder/Todoist project per context, or per project, series or group in it), `integration_events`, plus `users`, `sessions`, the OAuth tables and `mcp_write_receipts`.
 
 ## Workflow
 
