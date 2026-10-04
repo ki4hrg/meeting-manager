@@ -26,7 +26,7 @@ import type { CalendarEvent } from '../lib/calendar/feed'
 import { prepFromEvent, prepMeeting, prepWithPerson } from '../lib/meetings/prep'
 import { joinRoster, outOfStep, recordAbsences, syncRoster } from '../lib/meetings/roster'
 import { createSeries, setSeriesPeople } from '../lib/meetings/series'
-import { addMilestone, createProject, nextMilestones, updateProject } from '../lib/projects/projects'
+import { addMilestone, createProject, getProject, nextMilestones, updateProject } from '../lib/projects/projects'
 import { resolveProject } from '../lib/directory/resolve'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
@@ -1055,6 +1055,26 @@ describe('projects within projects', () => {
     expect((await resolveProject(db, w.parish.id, 'AC2027/Worship')).id).toBe(worship.id)
     expect((await resolveProject(db, w.parish.id, '2027/Worship')).id).toBe(worship.id)
     await expect(resolveProject(db, w.parish.id, '2026/Worship')).rejects.toThrow(/No project/)
+  })
+
+  it("leaves a parent's sub-projects alone when its status changes, unless asked to take them along", async () => {
+    const { standing, year, lastYear, worship } = await conference()
+    const status = async (id: string) => (await getProject(db, id)).status
+
+    await updateProject(db, year.id, { status: 'paused' })
+    expect(await status(year.id)).toBe('paused')
+    expect(await status(worship.id)).toBe('active')
+
+    // Asked: every project under it, at any depth, and nothing beside or above it.
+    await updateProject(db, standing.id, { status: 'done', subProjects: true })
+    expect(await status(year.id)).toBe('done')
+    expect(await status(worship.id)).toBe('done')
+    expect(await status(lastYear.id)).toBe('done')
+
+    await updateProject(db, year.id, { status: 'active', subProjects: true })
+    expect(await status(worship.id)).toBe('active')
+    expect(await status(lastYear.id)).toBe('done')
+    expect(await status(standing.id)).toBe('done')
   })
 })
 

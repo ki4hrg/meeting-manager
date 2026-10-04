@@ -6,6 +6,7 @@ import { FormModal, IconAction } from '@/components/forms'
 import { iconButtonClasses } from '@/components/ui/IconButton'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
+import { StatusField } from '@/components/projects/StatusField'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, CardGrid, CardHeader, LinkCard, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -13,7 +14,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { Markdown } from '@/components/ui/Markdown'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { DueBadge, PROJECT_STATUS, ProjectStatusBadge } from '@/components/ui/StatusBadge'
+import { DueBadge, ProjectStatusBadge } from '@/components/ui/StatusBadge'
 import { formatDay, todayIn } from '@/lib/core/dates'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
@@ -21,7 +22,6 @@ import { db } from '@/lib/db'
 import { listDocuments } from '@/lib/documents/documents'
 import { isOpen, listItems, type ItemView } from '@/lib/items/items'
 import {
-  PROJECT_STATUSES,
   ancestorIds,
   descendantIds,
   getProject,
@@ -145,15 +145,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
               <Field label="Name" required>
                 <Input name="name" defaultValue={project.name} required />
               </Field>
-              <Field label="Status">
-                <Select name="status" defaultValue={project.status}>
-                  {PROJECT_STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {PROJECT_STATUS[status].label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              <StatusField current={project.status} below={below.size} />
               <Field label="Within">
                 <Select name="parentId" defaultValue={project.parentId ?? ''}>
                   <option value="">—</option>
