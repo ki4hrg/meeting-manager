@@ -14,18 +14,11 @@ import {
   type GranolaAccount,
 } from '@/lib/connect/granola/connection'
 import { db } from '@/lib/db'
-import type { Context } from '@/lib/directory/contexts'
-import { listProjects } from '@/lib/projects/projects'
 import { allContexts } from '@/lib/web/context'
 import { connectGranolaAction, disconnectGranolaAction, setFolderContextAction } from './actions'
+import { PlaceOptions, placeLabel, placeOf, placesFor, type PlaceGroup } from './places'
 
 type Row = { id: string; name: string; depth: number; inherited: string | null }
-
-/* Where a folder feeds: a context, or one of its projects. */
-type Place = { value: string; label: string }
-
-const placeOf = (binding: Binding) =>
-  binding.projectId ? `${binding.contextId}:${binding.projectId}` : binding.contextId
 
 /* Folders as a tree, parents before their children, each child knowing the
    place it takes from the nearest bound folder above it. */
@@ -59,7 +52,7 @@ function folderRows(
 }
 
 /* One account: who it is, whether notes arrive as they are made, and which
-   context or project each of its folders feeds. */
+   context, project, series or group each of its folders feeds. */
 async function Account({
   account,
   bindings,
@@ -67,7 +60,7 @@ async function Account({
 }: {
   account: GranolaAccount
   bindings: Binding[]
-  places: Place[]
+  places: PlaceGroup[]
 }) {
   /* Asked of Granola on every load, so it can fail; the page must not. The
      folders already bound are still listed, from what was stored. */
@@ -91,7 +84,7 @@ async function Account({
   const rows = folderRows(
     folders,
     boundTo,
-    (value) => places.find((place) => place.value === value)?.label ?? null,
+    (value) => placeLabel(places, value),
   )
 
   return (
@@ -157,11 +150,7 @@ async function Account({
                 >
                   {/* Unbound, a folder follows the one above it. */}
                   <option value="">{folder.inherited ? `↳ ${folder.inherited}` : '—'}</option>
-                  {places.map((one) => (
-                    <option key={one.value} value={one.value}>
-                      {one.label}
-                    </option>
-                  ))}
+                  <PlaceOptions groups={places} />
                 </ActionSelect>
               </li>
             )
@@ -170,22 +159,6 @@ async function Account({
       ) : null}
     </Card>
   )
-}
-
-/* Each context, then its projects under it. A finished project is offered
-   only while a folder still feeds it. */
-async function placesFor(contexts: Context[], bindings: Binding[]): Promise<Place[]> {
-  const bound = new Set(bindings.flatMap((binding) => binding.projectId ?? []))
-  const projects = await Promise.all(contexts.map((context) => listProjects(db, context.id)))
-  return contexts.flatMap((context, i) => [
-    { value: context.id, label: context.name },
-    ...projects[i]!
-      .filter((project) => project.status !== 'done' || bound.has(project.id))
-      .map((project) => ({
-        value: `${context.id}:${project.id}`,
-        label: `${context.name} › ${project.name}`,
-      })),
-  ])
 }
 
 export async function Granola() {

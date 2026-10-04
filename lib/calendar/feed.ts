@@ -11,7 +11,9 @@ import {
   clearConnectionError,
   listBindings,
   recordConnectionError,
+  scopeOf,
   withAccessToken,
+  type BindingScope,
 } from '../connect/connections'
 import { fetchGoogleCalendarEvents, type GoogleCalendarEvent } from '../connect/google/calendar'
 import { fromLocalInput } from '../core/dates'
@@ -32,6 +34,8 @@ export interface CalendarEvent {
   attendees: { personId?: string; email: string; name: string | null; declined: boolean }[]
   location: string | null
   htmlLink: string | null
+  /** The project, series or group its calendar is bound to, which a meeting prepped from it takes. */
+  scope?: BindingScope
 }
 
 interface CacheEntry {
@@ -150,7 +154,12 @@ async function fetchBound(
         if (!event.id || event.status === 'cancelled') continue
         if (event.eventType && NOT_MEETINGS.has(event.eventType)) continue
         const key = `${binding.contextId}|${event.id}`
-        if (seen.has(key)) continue
+        const already = seen.get(key)
+        if (already) {
+          // A calendar bound to something narrower says more about the event.
+          already.event.scope ??= scopeOf(binding)
+          continue
+        }
 
         const startsAt = moment(event.start, zone)
         if (!startsAt) continue
@@ -189,6 +198,7 @@ async function fetchBound(
               })),
             location: event.location || null,
             htmlLink: event.htmlLink || null,
+            scope: scopeOf(binding),
           },
         })
       }

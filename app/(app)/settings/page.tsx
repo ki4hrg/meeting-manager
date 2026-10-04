@@ -16,23 +16,23 @@ import {
   type Connection,
 } from '@/lib/connect/connections'
 import { db } from '@/lib/db'
-import type { Context } from '@/lib/directory/contexts'
 import { allContexts, viewer } from '@/lib/web/context'
 import { disconnectAction, setCalendarContextAction } from './actions'
 import { Deleted } from './Deleted'
 import { Granola } from './Granola'
 import { Notice } from './Notice'
+import { PlaceOptions, placeOf, placesFor, type PlaceGroup } from './places'
 
-/* One account: who it is, whether Google still honours it, and which context
-   each of its calendars feeds. */
+/* One account: who it is, whether Google still honours it, and which
+   context, project, series or group each of its calendars feeds. */
 async function GoogleAccount({
   connection,
   bindings,
-  contexts,
+  places,
 }: {
   connection: Connection
   bindings: Binding[]
-  contexts: Context[]
+  places: PlaceGroup[]
 }) {
   /* Asked of Google on every load, so it can fail; the page must not. The
      calendars already bound are still listed, from what was stored. */
@@ -51,7 +51,7 @@ async function GoogleAccount({
       calendars.push({ id: binding.externalId, name: binding.name, primary: false })
     }
   }
-  const boundTo = new Map(bindings.map((binding) => [binding.externalId, binding.contextId]))
+  const boundTo = new Map(bindings.map((binding) => [binding.externalId, placeOf(binding)]))
 
   return (
     <Card>
@@ -86,7 +86,7 @@ async function GoogleAccount({
       {calendars.length > 0 ? (
         <ul className="mt-3 divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-700 dark:border-gray-700">
           {calendars.map((calendar) => {
-            const contextId = boundTo.get(calendar.id) ?? ''
+            const place = boundTo.get(calendar.id) ?? ''
             return (
               <li key={calendar.id} className="flex items-center gap-3 py-2 last:pb-0">
                 <Icon name="meeting" className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
@@ -95,7 +95,7 @@ async function GoogleAccount({
                   {calendar.primary ? <Badge tone="blue">Primary</Badge> : null}
                 </span>
                 <ActionSelect
-                  key={contextId}
+                  key={place}
                   action={setCalendarContextAction}
                   fields={{
                     connectionId: connection.id,
@@ -103,16 +103,12 @@ async function GoogleAccount({
                     name: calendar.name,
                   }}
                   name="contextId"
-                  value={contextId}
+                  value={place}
                   label={`Context for ${calendar.name}`}
-                  className="!w-36 shrink-0 !py-1.5 sm:!w-44"
+                  className="!w-40 shrink-0 !py-1.5 sm:!w-56"
                 >
                   <option value="">—</option>
-                  {contexts.map((context) => (
-                    <option key={context.id} value={context.id}>
-                      {context.name}
-                    </option>
-                  ))}
+                  <PlaceOptions groups={places} />
                 </ActionSelect>
               </li>
             )
@@ -139,6 +135,7 @@ async function GoogleCalendar() {
   )
   const contexts = await allContexts()
   const bindings = await listBindings(db)
+  const places = await placesFor(contexts, bindings)
 
   return (
     <Section
@@ -161,7 +158,7 @@ async function GoogleCalendar() {
               key={connection.id}
               connection={connection}
               bindings={bindings.filter((binding) => binding.connectionId === connection.id)}
-              contexts={contexts}
+              places={places}
             />
           ))}
         </div>

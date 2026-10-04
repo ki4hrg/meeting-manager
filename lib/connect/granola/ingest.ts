@@ -10,7 +10,7 @@
  *   2. **Which context.** Only the folder says: the note's folders, or the
  *      nearest folder above each, are looked up in this account's bindings.
  *      Everything after this step looks inside that one context and nowhere
- *      else. A folder bound to a project also names that project. A note in no
+ *      else. A folder bound to a project, a series or a group also names it. A note in no
  *      bound folder, or in folders bound to two contexts, is filed only on the
  *      meeting John already made for its calendar event, wherever that is;
  *      failing that it is held unfiled, in no context, for the Inbox, and
@@ -22,8 +22,9 @@
  *      `meetingFromNote`, with whoever of its attendees is already in the
  *      directory. Nobody is added to the directory from here.
  *
- * A note arriving for the first time puts its folders' projects on the
- * meeting it is filed on, alongside any it already has; nothing is taken off.
+ * A note arriving for the first time puts its folders' projects and groups on
+ * the meeting it is filed on, alongside any it already has; nothing is taken
+ * off. A meeting the note makes joins its folders' series when they name one.
  *
  * Then the note is saved and a run queued, in the same commit as any meeting
  * made for it. The same content twice saves nothing and queues nothing; edited
@@ -43,6 +44,7 @@ import { inTransaction, type ActorContext, type Executor } from '../../core/type
 import { notDeleted, onShelf } from '../../db/shelf'
 import {
   contexts,
+  groups,
   integrationEvents,
   meetingGroups,
   meetingPeople,
@@ -50,6 +52,7 @@ import {
   meetings,
   people,
   personEmails,
+  series,
   type NoteAttendee,
   type NoteFiling,
 } from '../../db/schema'
@@ -119,7 +122,7 @@ export function granolaActor(source: 'webhook' | 'job'): ActorContext {
 // ─── which context ───────────────────────────────────────────────────────────
 
 export type FolderHome =
-  | { kind: 'bound'; contextId: string; projectIds: string[] }
+  | { kind: 'bound'; contextId: string; projectIds: string[]; seriesIds: string[]; groupIds: string[] }
   | { kind: 'unbound' }
   | { kind: 'ambiguous' }
 
@@ -127,8 +130,8 @@ export type FolderHome =
 const MAX_DEPTH = 20
 
 /**
- * The one context a note's folders feed, on this account, and the projects
- * they name in it.
+ * The one context a note's folders feed, on this account, and the projects,
+ * series and groups they name in it.
  *
  * A folder with no binding of its own takes its nearest bound ancestor's,
  * which is how Granola itself treats a folder filter: a folder bound to the
@@ -165,6 +168,8 @@ export async function contextForFolders(
 
   const homes = new Set<string>()
   const projects = new Set<string>()
+  const seriesIds = new Set<string>()
+  const groupIds = new Set<string>()
   for (const folder of folders) {
     let current: string | null = folder.id
     for (let depth = 0; current && depth < MAX_DEPTH; depth++) {
@@ -173,6 +178,8 @@ export async function contextForFolders(
         if (live.has(binding.contextId)) {
           homes.add(binding.contextId)
           if (binding.projectId) projects.add(binding.projectId)
+          if (binding.seriesId) seriesIds.add(binding.seriesId)
+          if (binding.groupId) groupIds.add(binding.groupId)
         }
         break
       }
@@ -186,7 +193,13 @@ export async function contextForFolders(
 
   if (homes.size === 0) return { kind: 'unbound' }
   if (homes.size > 1) return { kind: 'ambiguous' }
-  return { kind: 'bound', contextId: [...homes][0]!, projectIds: [...projects] }
+  return {
+    kind: 'bound',
+    contextId: [...homes][0]!,
+    projectIds: [...projects],
+    seriesIds: [...seriesIds],
+    groupIds: [...groupIds],
+  }
 }
 
 // ─── what the note says ──────────────────────────────────────────────────────
@@ -385,8 +398,10 @@ export type IngestDeps = {
 
 /**
  * The meeting a note goes on in this context: the one it records, or one made
- * for it. The folders' projects join that meeting; a binding names a project
- * of its own context, and the meeting is in that context.
+ * for it. The folders' projects and groups join that meeting; a binding names
+ * them in its own context, and the meeting is in that context. A meeting made
+ * here joins the series its calendar event recurs in, failing that the one
+ * series its folders name.
  */
 export async function placeNote(
   tx: Executor,
@@ -396,8 +411,10 @@ export async function placeNote(
     projectIds: string[]
     filing: NoteFiling
     personIds: string[]
-    /** Groups whose list addresses the note names: they join the meeting. */
+    /** Groups whose list addresses the note names, or its folders do: they join the meeting. */
     groupIds?: string[]
+    /** Series its folders name. One that is live here is the series of a meeting made for the note. */
+    seriesIds?: string[]
     title: string | null
   },
 ): Promise<{ meetingId: string; via: 'event' | 'time' | 'new' }> {
@@ -416,7 +433,8 @@ export async function placeNote(
        its series comes along only when that series is here too. */
     const claim = eventId && !eventTaken ? eventId : undefined
     const recurring = claim ? OCCURRENCE.exec(claim)?.[1] : undefined
-    const series = recurring ? await findSeriesByCalendar(tx, recurring) : null
+    const mapped = recurring ? await findSeriesByCalendar(tx, recurring) : null
+    const named = await liveIn(tx, series, contextId, input.seriesIds ?? [])
 
     const end = moment(filing.endsAt)
     const meeting = await meetingFromNote(tx, actor, {
@@ -426,7 +444,8 @@ export async function placeNote(
       endsAt: end && end > start ? end : null,
       personIds,
       calendarEventId: claim,
-      seriesId: series?.contextId === contextId ? series.id : undefined,
+      seriesId:
+        mapped?.contextId === contextId ? mapped.id : named.length === 1 ? named[0] : undefined,
     })
     meetingId = meeting.id
     via = 'new'
@@ -438,13 +457,30 @@ export async function placeNote(
       .values(input.projectIds.map((projectId) => ({ meetingId, projectId })))
       .onConflictDoNothing()
   }
-  if (input.groupIds?.length) {
+  const groupIds = await liveIn(tx, groups, contextId, input.groupIds ?? [])
+  if (groupIds.length > 0) {
     await tx
       .insert(meetingGroups)
-      .values(input.groupIds.map((groupId) => ({ meetingId, groupId })))
+      .values(groupIds.map((groupId) => ({ meetingId, groupId })))
       .onConflictDoNothing()
   }
   return { meetingId, via }
+}
+
+/* Of these series or groups, the ones in this context and on the shelf: a
+   folder bound to one that was archived since puts nothing in it. */
+async function liveIn(
+  exec: Executor,
+  table: typeof series | typeof groups,
+  contextId: string,
+  ids: string[],
+): Promise<string[]> {
+  if (ids.length === 0) return []
+  const rows = await exec
+    .select({ id: table.id })
+    .from(table)
+    .where(and(inArray(table.id, ids), eq(table.contextId, contextId), onShelf(table)))
+  return rows.map((row) => row.id)
 }
 
 /* The meeting already made for this calendar event, in whichever context. */
@@ -527,7 +563,13 @@ export async function ingestNote(
           projectIds: home.projectIds,
           filing,
           personIds: await knownPeople(tx, attendeesOf(note)),
-          groupIds: await groupsByEmail(tx, home.contextId, attendeesOf(note)),
+          groupIds: [
+            ...new Set([
+              ...home.groupIds,
+              ...(await groupsByEmail(tx, home.contextId, attendeesOf(note))),
+            ]),
+          ],
+          seriesIds: home.seriesIds,
           title,
         })
         meetingId = placed.meetingId

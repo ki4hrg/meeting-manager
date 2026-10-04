@@ -12,7 +12,8 @@ import { placeAutomatic, placeRaiseWith } from '../agenda/candidates'
 import { eventsHere, listEventsIn, type CalendarEvent } from '../calendar/feed'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
-import { meetings, series } from '../db/schema'
+import { groups, meetings, projects, series } from '../db/schema'
+import { onShelf } from '../db/shelf'
 import { groupsByEmail } from '../directory/groups'
 import { findSelf } from '../directory/people'
 import {
@@ -169,6 +170,27 @@ function matchedPeople(event: CalendarEvent): string[] {
   return [...new Set(ids)]
 }
 
+/**
+ * The project, series or group the event's calendar is bound to, while it is
+ * still on the shelf in this context; otherwise nothing.
+ */
+export async function eventScope(
+  exec: Executor,
+  event: CalendarEvent,
+  contextId: string,
+): Promise<{ projectId?: string; seriesId?: string; groupId?: string }> {
+  const scope = event.scope
+  if (!scope) return {}
+  const table = { project: projects, series, group: groups }[scope.kind]
+  const [row] = await exec
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.id, scope.id), eq(table.contextId, contextId), onShelf(table)))
+    .limit(1)
+  if (!row) return {}
+  return { [`${scope.kind}Id`]: row.id }
+}
+
 /** The meeting for a calendar event: the one it already has, or a new one. */
 export async function prepFromEvent(
   exec: Executor,
@@ -184,18 +206,28 @@ export async function prepFromEvent(
   }
 
   /* An occurrence of a recurring event belongs to its series, wherever that
-     is: the series may have been moved out of the calendar's context. */
-  const series = event.seriesId ? await findSeriesByCalendar(exec, event.seriesId) : null
+     is: the series may have been moved out of the calendar's context. Failing
+     that, a calendar bound to a series puts every event on it in that series. */
+  const recurring = event.seriesId ? await findSeriesByCalendar(exec, event.seriesId) : null
+  const scoped = await eventScope(exec, event, recurring?.contextId ?? contextId)
+  const series = recurring ?? (scoped.seriesId ? await getSeries(exec, scoped.seriesId) : null)
   const people = matchedPeople(event)
   const home = series?.contextId ?? contextId
-  // A list address on the invite brings its group, alongside the series' own.
-  const lists = await groupsByEmail(exec, home, unmatchedEmails(event))
+  /* A list address on the invite brings its group, and so does a calendar
+     bound to one, alongside the series' own. */
+  const extra = [
+    ...(await groupsByEmail(exec, home, unmatchedEmails(event))),
+    ...(scoped.groupId ? [scoped.groupId] : []),
+  ]
   return prepMeeting(
     exec,
     actor,
     {
       contextId: home,
-      ...(lists.length > 0 ? { groupIds: [...new Set([...(series?.groups.map((g) => g.id) ?? []), ...lists])] } : {}),
+      ...(extra.length > 0 ? { groupIds: [...new Set([...(series?.groups.map((g) => g.id) ?? []), ...extra])] } : {}),
+      ...(scoped.projectId
+        ? { projectIds: [...new Set([...(series?.projects.map((p) => p.id) ?? []), scoped.projectId])] }
+        : {}),
       title: event.title,
       startsAt: event.startsAt,
       endsAt: event.endsAt,
@@ -224,7 +256,13 @@ export async function attachStub(
        that series is there too. */
     const mapped =
       stub.series || !event.seriesId ? null : await findSeriesByCalendar(tx, event.seriesId)
-    const series = mapped?.contextId === stub.contextId ? mapped : null
+    const scoped = stub.series || mapped ? {} : await eventScope(tx, event, stub.contextId)
+    const series =
+      mapped?.contextId === stub.contextId
+        ? mapped
+        : scoped.seriesId
+          ? await getSeries(tx, scoped.seriesId)
+          : null
     await attachToEvent(tx, actor, meetingId, {
       calendarId: event.calendarId,
       calendarEventId: event.eventId,
@@ -401,7 +439,10 @@ export async function listUpcoming(
   for (const event of events) {
     if (event.allDay) continue
     const meeting = byEvent.get(event.eventId) ?? null
-    const series = event.seriesId ? (byCalendarSeries.get(event.seriesId) ?? null) : null
+    const series =
+      (event.seriesId ? byCalendarSeries.get(event.seriesId) : undefined) ??
+      (event.scope?.kind === 'series' ? allSeries.find((one) => one.id === event.scope!.id) : undefined) ??
+      null
 
     const present = new Set([...matchedPeople(event), ...(series?.people.map((p) => p.id) ?? [])])
     const twins = meeting ? [] : dated.filter((one) => sameMeeting(one, event, present))

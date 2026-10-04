@@ -1,7 +1,7 @@
 /*
  * Connections: accounts at outside services, with their tokens encrypted at
  * rest, and the bindings that say which of an account's calendars feeds which
- * context.
+ * context, and which project, series or group in it.
  *
  * A small replacement for ../Meeter/lib/connect/connections.ts (888 lines,
  * multi-user). This is one user and two tables.
@@ -9,7 +9,8 @@
 
 import { and, eq, isNotNull, sql } from 'drizzle-orm'
 import { AppError, NotFoundError, ValidationError, type Executor } from '../core/types'
-import { bindings, connections } from '../db/schema'
+import { bindings, connections, groups, projects, series } from '../db/schema'
+import { notDeleted } from '../db/shelf'
 import { getContext } from '../directory/contexts'
 import { decrypt, encrypt, type EncryptedData } from './crypto'
 
@@ -376,18 +377,66 @@ export async function googleListCalendars(token: string): Promise<CalendarInfo[]
 
 export type Binding = typeof bindings.$inferSelect
 
+/** What in its context a binding feeds, beyond the context itself: one of these, or none. */
+export type BindingScope = { kind: 'project' | 'series' | 'group'; id: string } | null
+
+/** The binding's scope as its columns, all three, so binding again clears the others. */
+export function scopeColumns(scope: BindingScope): {
+  projectId: string | null
+  seriesId: string | null
+  groupId: string | null
+} {
+  return {
+    projectId: scope?.kind === 'project' ? scope.id : null,
+    seriesId: scope?.kind === 'series' ? scope.id : null,
+    groupId: scope?.kind === 'group' ? scope.id : null,
+  }
+}
+
+export function scopeOf(binding: Binding): BindingScope {
+  if (binding.projectId) return { kind: 'project', id: binding.projectId }
+  if (binding.seriesId) return { kind: 'series', id: binding.seriesId }
+  if (binding.groupId) return { kind: 'group', id: binding.groupId }
+  return null
+}
+
+/** A binding's scope must be in the context it feeds. */
+export async function assertScopeIn(
+  exec: Executor,
+  contextId: string,
+  scope: BindingScope,
+): Promise<void> {
+  if (!scope) return
+  const table = { project: projects, series, group: groups }[scope.kind]
+  const [row] = await exec
+    .select({ contextId: table.contextId })
+    .from(table)
+    .where(and(eq(table.id, scope.id), notDeleted(table)))
+    .limit(1)
+  if (!row) throw new NotFoundError(scope.kind === 'project' ? 'Project' : scope.kind === 'series' ? 'Series' : 'Group', scope.id)
+  if (row.contextId !== contextId) throw new ValidationError(`That ${scope.kind} is in another context.`)
+}
+
 /**
- * Feed a calendar into a context. A calendar feeds one context, so binding it
- * again moves it.
+ * Feed a calendar into a context, or into a project, series or group of it. A
+ * calendar feeds one place, so binding it again moves it.
  */
 export async function bindCalendar(
   exec: Executor,
-  input: { connectionId: string; calendarId: string; name: string; contextId: string },
+  input: {
+    connectionId: string
+    calendarId: string
+    name: string
+    contextId: string
+    scope?: BindingScope
+  },
 ): Promise<Binding> {
   const calendarId = input.calendarId.trim()
   if (calendarId === '') throw new ValidationError('Pick a calendar.')
   await loadRow(exec, input.connectionId)
   await getContext(exec, input.contextId)
+  const scope = input.scope ?? null
+  await assertScopeIn(exec, input.contextId, scope)
 
   const name = input.name.trim() || calendarId
   /* One statement on the unique key, so a calendar is never left with no
@@ -400,10 +449,11 @@ export async function bindCalendar(
       externalId: calendarId,
       name,
       contextId: input.contextId,
+      ...scopeColumns(scope),
     })
     .onConflictDoUpdate({
       target: [bindings.connectionId, bindings.kind, bindings.externalId],
-      set: { contextId: input.contextId, name, projectId: null },
+      set: { contextId: input.contextId, name, ...scopeColumns(scope) },
     })
     .returning()
   return row!

@@ -553,7 +553,7 @@ describe('folders', () => {
     const child = folder('fol_retreat0000000', 'Retreat', PARISH)
     const loose = folder('fol_loose00000000', 'Loose', child.id)
     granola.script.folders.push(child, loose)
-    await bindFolder(db, { connectionId: account.id, folderId: child.id, name: 'Retreat', contextId: parish.id, projectId: retreat.id })
+    await bindFolder(db, { connectionId: account.id, folderId: child.id, name: 'Retreat', contextId: parish.id, scope: { kind: 'project', id: retreat.id } })
 
     // A drop-in made for the note takes the project.
     const first = noteId()
@@ -596,13 +596,96 @@ describe('folders', () => {
     expect((await getMeeting(db, filed(await ingest(third)).meetingId)).projects).toEqual([])
   })
 
+  it("puts a series-bound folder's note on a meeting in that series, and a group-bound folder's group on it", async () => {
+    const { parish, diocese, staff, council, sarah, tom, granola, ingest, account } = await setUp()
+    const weekly = await createSeries(db, { contextId: parish.id, name: 'Weekly staff', personIds: [tom.id] })
+    const seriesFolder = folder('fol_weekly0000000', 'Weekly', PARISH)
+    const groupFolder = folder('fol_staffgrp00000', 'Staff', PARISH)
+    granola.script.folders.push(seriesFolder, groupFolder)
+    await bindFolder(db, { connectionId: account.id, folderId: seriesFolder.id, name: 'Weekly', contextId: parish.id, scope: { kind: 'series', id: weekly.id } })
+    await bindFolder(db, { connectionId: account.id, folderId: groupFolder.id, name: 'Staff', contextId: parish.id, scope: { kind: 'group', id: staff.id } })
+
+    // A meeting made for the note joins the series, its roster standing in.
+    const first = noteId()
+    granola.script.notes[first] = note({ id: first, folder_membership: [seriesFolder] })
+    const made = await getMeeting(db, filed(await ingest(first)).meetingId)
+    expect(made.contextId).toBe(parish.id)
+    expect(made.series?.id).toBe(weekly.id)
+    expect(made.people.map((person) => person.id)).toEqual([tom.id])
+
+    // A meeting it is filed on keeps its series, or its lack of one.
+    const prepped = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Hallway',
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+      calendarEventId: 'evt_hallway',
+      personIds: [sarah.id],
+    })
+    const second = noteId()
+    granola.script.notes[second] = note({
+      id: second,
+      folder_membership: [seriesFolder],
+      calendar_event: {
+        event_title: 'Hallway',
+        invitees: [],
+        organiser: null,
+        calendar_event_id: 'evt_hallway',
+        scheduled_start_time: '2026-10-06T15:00:00Z',
+        scheduled_end_time: '2026-10-06T16:00:00Z',
+      },
+    })
+    expect(filed(await ingest(second))).toMatchObject({ via: 'event', meetingId: prepped.id })
+    expect((await getMeeting(db, prepped.id)).series).toBeNull()
+
+    // The group folder's group joins the meeting.
+    const third = noteId()
+    granola.script.notes[third] = note({ id: third, created_at: '2026-10-08T15:00:00Z', folder_membership: [groupFolder] })
+    const grouped = await getMeeting(db, filed(await ingest(third)).meetingId)
+    expect(grouped.groups.map((group) => group.id)).toEqual([staff.id])
+    expect(grouped.series).toBeNull()
+
+    // Two series named: neither is guessed.
+    const other = await createSeries(db, { contextId: parish.id, name: 'Other' })
+    const otherFolder = folder('fol_otherser00000', 'Other', PARISH)
+    granola.script.folders.push(otherFolder)
+    await bindFolder(db, { connectionId: account.id, folderId: otherFolder.id, name: 'Other', contextId: parish.id, scope: { kind: 'series', id: other.id } })
+    const fourth = noteId()
+    granola.script.notes[fourth] = note({ id: fourth, created_at: '2026-10-10T15:00:00Z', folder_membership: [seriesFolder, otherFolder] })
+    expect((await getMeeting(db, filed(await ingest(fourth)).meetingId)).series).toBeNull()
+
+    // An archived series makes no meeting of it; the folder still feeds the context.
+    const { archive } = await import('../lib/archive/archive')
+    await archive(db, 'series', weekly.id)
+    const fifth = noteId()
+    granola.script.notes[fifth] = note({ id: fifth, created_at: '2026-10-12T15:00:00Z', folder_membership: [seriesFolder] })
+    const after = await getMeeting(db, filed(await ingest(fifth)).meetingId)
+    expect(after.contextId).toBe(parish.id)
+    expect(after.series).toBeNull()
+
+    // A series or group from another context is refused.
+    await expect(
+      bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: diocese.id, scope: { kind: 'series', id: other.id } }),
+    ).rejects.toThrow(ValidationError)
+    await expect(
+      bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: parish.id, scope: { kind: 'group', id: council.id } }),
+    ).rejects.toThrow(ValidationError)
+  })
+
+  it('keeps one scope on a folder: binding to a group clears the project', async () => {
+    const { parish, retreat, staff, account } = await setUp()
+    await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: parish.id, scope: { kind: 'project', id: retreat.id } })
+    await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: parish.id, scope: { kind: 'group', id: staff.id } })
+    const [bound] = (await listFolderBindings(db, { connectionId: account.id })).filter((one) => one.externalId === PARISH)
+    expect(bound).toMatchObject({ contextId: parish.id, projectId: null, seriesId: null, groupId: staff.id })
+  })
+
   it('refuses a project from another context, and binding again clears the project', async () => {
     const { parish, diocese, retreat, account } = await setUp()
     await expect(
-      bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: diocese.id, projectId: retreat.id }),
+      bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: diocese.id, scope: { kind: 'project', id: retreat.id } }),
     ).rejects.toThrow(ValidationError)
 
-    await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: parish.id, projectId: retreat.id })
+    await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: parish.id, scope: { kind: 'project', id: retreat.id } })
     await bindFolder(db, { connectionId: account.id, folderId: PARISH, name: 'Parish', contextId: parish.id })
     const [bound] = (await listFolderBindings(db, { connectionId: account.id })).filter((one) => one.externalId === PARISH)
     expect(bound).toMatchObject({ contextId: parish.id, projectId: null })

@@ -17,6 +17,7 @@ import {
 import { db } from '@/lib/db'
 import { GRANOLA_RECONCILE, kick } from '@/lib/jobs'
 import { act, field, type ActionResult } from '@/lib/web/action'
+import { parsePlace } from './places'
 
 /* Each of these changes what the calendar feed should say, and the feed keeps
    what it fetched for a couple of minutes: it is told to forget. */
@@ -28,15 +29,18 @@ export async function disconnectAction(formData: FormData): Promise<ActionResult
   })
 }
 
-/** Feed a calendar into the chosen context; with no context chosen, into none. */
+/**
+ * Feed a calendar into the chosen context, or one project, series or group of
+ * it (`<context>:<kind>:<id>`); with nothing chosen, into none.
+ */
 export async function setCalendarContextAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
     const connectionId = field(formData, 'connectionId')
     const calendarId = field(formData, 'calendarId')
-    const contextId = field(formData, 'contextId')
+    const place = parsePlace(field(formData, 'contextId'))
 
-    if (contextId) {
-      await bindCalendar(db, { connectionId, calendarId, name: field(formData, 'name'), contextId })
+    if (place) {
+      await bindCalendar(db, { connectionId, calendarId, name: field(formData, 'name'), ...place })
     } else {
       const bound = (await listBindings(db)).find(
         (binding) => binding.connectionId === connectionId && binding.externalId === calendarId,
@@ -70,23 +74,17 @@ export async function disconnectGranolaAction(formData: FormData): Promise<Actio
 }
 
 /**
- * Feed a folder into the chosen context, or one of its projects
- * (`<context>:<project>`); with nothing chosen, into none.
+ * Feed a folder into the chosen context, or one project, series or group of
+ * it (`<context>:<kind>:<id>`); with nothing chosen, into none.
  */
 export async function setFolderContextAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
     const connectionId = field(formData, 'connectionId')
     const folderId = field(formData, 'folderId')
-    const [contextId, projectId] = field(formData, 'contextId').split(':')
+    const place = parsePlace(field(formData, 'contextId'))
 
-    if (contextId) {
-      await bindFolder(db, {
-        connectionId,
-        folderId,
-        name: field(formData, 'name'),
-        contextId,
-        projectId: projectId || null,
-      })
+    if (place) {
+      await bindFolder(db, { connectionId, folderId, name: field(formData, 'name'), ...place })
       reconcileSoon()
     } else {
       await unbindFolder(db, { connectionId, folderId })

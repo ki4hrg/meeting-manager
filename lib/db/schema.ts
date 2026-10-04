@@ -744,8 +744,9 @@ export const connections = pgTable(
   (t) => [uniqueIndex('connections_account_key').on(t.provider, sql`lower(${t.account})`)],
 )
 
-/* What an outside thing maps to here: a calendar to a context in phase 2; a
-   Granola folder or Todoist project to a context or project later. */
+/* What an outside thing maps to here: a calendar or a Granola folder to a
+   context, and at most one of a project, a series or a group in it, which the
+   meetings it feeds take. */
 export const bindings = pgTable(
   'bindings',
   {
@@ -760,9 +761,14 @@ export const bindings = pgTable(
       .notNull()
       .references(() => contexts.id, { onDelete: 'cascade' }),
     projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    seriesId: uuid('series_id').references(() => series.id, { onDelete: 'cascade' }),
+    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'cascade' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('bindings_external_key').on(t.connectionId, t.kind, t.externalId)],
+  (t) => [
+    uniqueIndex('bindings_external_key').on(t.connectionId, t.kind, t.externalId),
+    check('bindings_one_scope', sql`num_nonnulls(${t.projectId}, ${t.seriesId}, ${t.groupId}) <= 1`),
+  ],
 )
 
 // ─── notes and processing ────────────────────────────────────────────────────
