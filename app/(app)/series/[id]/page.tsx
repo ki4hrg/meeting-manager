@@ -1,9 +1,10 @@
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
+import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { SkeletonEditor } from '@/components/series/SkeletonEditor'
-import { Card, CardGrid, CardHeader, LinkCard, Section } from '@/components/ui/Card'
+import { Card, CardHeader, LinkCard, Section } from '@/components/ui/Card'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { CheckList } from '@/components/ui/CheckList'
 import { Chip } from '@/components/ui/Chip'
@@ -53,12 +54,18 @@ const BLOCKS: Array<{ block: keyof BlockSettings; icon: IconName; label: string 
 /* How much of the next agenda the hub shows before it is a link's job. */
 const PREVIEW = 6
 
-export default async function SeriesPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SeriesPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
   const context = await requireContext()
-  const { user } = await viewer()
+  const { user, today } = await viewer()
   const series = await getSeries(db, id).catch((err) => {
     if (err instanceof NotFoundError) notFound()
     throw err
@@ -92,7 +99,6 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
      the same meeting "Prep next" would hand back. */
   const [stub] = await listMeetings(db, { contextId: context.id, seriesId: id, when: 'stubs', limit: 1 })
   const next = (await nextOccurrence(db, id)) ?? stub ?? null
-  const history = await listMeetings(db, { contextId: context.id, seriesId: id, when: 'past' })
   const behind = await outOfStep(db, id)
   const link = await calendarLinkOf(db, series)
   const linkable = link ? [] : await unlinkedRecurring(db, context.id)
@@ -428,26 +434,15 @@ export default async function SeriesPage({ params }: { params: Promise<{ id: str
           {null}
         </Section>
 
-        <Section title="History" count={history.length}>
-          {history.length === 0 ? (
-            <EmptyState icon="clock" />
-          ) : (
-            <CardGrid>
-              {history.map((meeting) => (
-                <LinkCard key={meeting.id} href={`/meetings/${meeting.id}`}>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="min-w-0 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      {meeting.title}
-                    </span>
-                    {meeting.startsAt ? (
-                      <Badge>{formatMoment(meeting.startsAt, user.timeZone)}</Badge>
-                    ) : null}
-                  </div>
-                </LinkCard>
-              ))}
-            </CardGrid>
-          )}
-        </Section>
+        <HubMeetings
+          hub={{ kind: 'series', id: series.id }}
+          contextId={context.id}
+          path={`/series/${series.id}`}
+          query={await searchParams}
+          timeZone={user.timeZone}
+          today={today}
+          skip={next?.id}
+        />
       </Muted>
     </>
   )

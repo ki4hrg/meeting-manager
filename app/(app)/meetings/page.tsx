@@ -21,7 +21,7 @@ import { listPeople } from '@/lib/directory/people'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { listUpcoming } from '@/lib/meetings/prep'
 import { listSeries } from '@/lib/meetings/series'
-import { pendingByMeeting } from '@/lib/processing/proposals'
+import { pendingByMeeting, pendingOnCards } from '@/lib/processing/proposals'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
 import { createMeetingAction } from './actions'
@@ -45,7 +45,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
   const days = Number.isInteger(asked) && asked > 0 ? Math.min(asked, FARTHEST) : STEP
   const from = fromDay ? fromLocalInput(`${fromDay}T00:00`, timeZone) : undefined
 
-  const [{ entries, stubs }, ahead, people, groups, projects, series, pending] = await Promise.all([
+  const [{ entries, stubs }, ahead, people, groups, projects, series, pending, onCards] = await Promise.all([
     listUpcoming(db, context.id, { from, days }),
     listMeetings(db, { contextId: context.id, when: 'upcoming', topLevelOnly: true }),
     listPeople(db),
@@ -53,6 +53,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
     listProjectChoices(db, context.id),
     listSeries(db, context.id),
     pendingByMeeting(db, context.id),
+    pendingOnCards(db, context.id),
   ])
   const agendas = await agendaCounts(
     db,
@@ -80,6 +81,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
               <MeetingFields
                 choices={{ people: others, groups, projects: live, series }}
                 timeZone={timeZone}
+                offerEvents
               />
             </FormModal>
           </>
@@ -117,7 +119,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
         {entries.length === 0 ? (
           <EmptyState icon="meeting" />
         ) : (
-          <DayList entries={entries} today={today} timeZone={timeZone} pending={pending} agendas={agendas} />
+          <DayList entries={entries} today={today} timeZone={timeZone} pending={onCards} agendas={agendas} />
         )}
         {days < FARTHEST ? (
           <div className="mt-4 flex justify-center">
@@ -141,7 +143,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
                 key={meeting.id}
                 meeting={meeting}
                 when={formatMoment(meeting.startsAt!, timeZone)}
-                pending={pending.get(meeting.id)}
+                pending={onCards.get(meeting.id)}
               />
             ))}
           </CardGrid>
@@ -152,7 +154,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
         <Section title="Undated" count={stubs.length}>
           <CardGrid>
             {stubs.map((stub) => (
-              <MeetingCard key={stub.id} meeting={stub} when={null} pending={pending.get(stub.id)} />
+              <MeetingCard key={stub.id} meeting={stub} when={null} pending={onCards.get(stub.id)} />
             ))}
           </CardGrid>
         </Section>

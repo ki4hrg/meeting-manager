@@ -26,6 +26,7 @@ import { RemovableChip } from '@/components/ui/RemovableChip'
 import { Spinner } from '@/components/ui/Spinner'
 import {
   Badge,
+  ContextBadge,
   DueBadge,
   KIND,
   KindIcon,
@@ -319,6 +320,13 @@ export default function DesignPage() {
                 <DueBadge label="Tomorrow" dueOn={TOMORROW} today={TODAY} open />
                 <DueBadge label="Overdue" dueOn={YESTERDAY} today={TODAY} open />
                 <DueBadge label="Done" dueOn={TODAY} today={TODAY} open={false} />
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Context (rows from several, on home)</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <ContextBadge name="Conference" />
+                <ContextBadge name="Church" />
               </div>
             </div>
           </div>

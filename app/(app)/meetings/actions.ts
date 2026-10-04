@@ -13,9 +13,11 @@ import {
   restoreLine,
   updateLine,
 } from '@/lib/agenda/lines'
-import { fromLocalInput } from '@/lib/core/dates'
+import { requireUser } from '@/lib/auth/guards'
+import { formatTime, fromLocalInput, isDay } from '@/lib/core/dates'
 import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
+import { listContexts } from '@/lib/directory/contexts'
 import type { BlockSettings } from '@/lib/db/schema'
 import { markDiscussed } from '@/lib/items/items'
 import {
@@ -34,6 +36,7 @@ import {
   prepWithGroup,
   prepWithPerson,
   seriesFromEvent,
+  unpreppedOn,
 } from '@/lib/meetings/prep'
 import { settleAttendance } from '@/lib/meetings/attendance'
 import { addToRoster } from '@/lib/meetings/series'
@@ -45,6 +48,23 @@ async function contextId(): Promise<string> {
   const context = await currentContext()
   if (!context) throw new ValidationError('Create a context first.')
   return context.id
+}
+
+/* An event card on home names its own context, which may not be the selected
+   one; anywhere else the card acts in the selected context. */
+async function eventContext(formData: FormData): Promise<string> {
+  const named = field(formData, 'contextId')
+  if (!named) return contextId()
+  if (!(await listContexts(db)).some((context) => context.id === named)) {
+    throw new ValidationError('That context is archived.')
+  }
+  return named
+}
+
+/* Opening a meeting made in another context selects that context first. */
+async function selectFrom(formData: FormData): Promise<void> {
+  const named = field(formData, 'contextId')
+  if (named) (await cookies()).set(CONTEXT_COOKIE, named, contextCookieOptions)
 }
 
 /* Every action that makes or finds a meeting ends on its page. */
@@ -242,12 +262,33 @@ export async function prepEventAction(formData: FormData): Promise<ActionResult>
   let id = ''
   return thenOpen(
     async (actor) => {
-      const context = await contextId()
+      const context = await eventContext(formData)
       const event = await findEvent(db, context, field(formData, 'eventId'), undefined, undefined, aroundFrom(formData))
       id = (await prepFromEvent(db, actor, { contextId: context, event })).id
+      await selectFrom(formData)
     },
     () => id,
   )
+}
+
+export type DayEvent = { eventId: string; title: string; at: string; time: string }
+
+/** The selected context's calendar events on a day with no meeting yet, for the New meeting form. */
+export async function eventsOnDayAction(day: string): Promise<DayEvent[]> {
+  const user = await requireUser()
+  const context = await currentContext()
+  if (!context || !isDay(day)) return []
+  try {
+    return (await unpreppedOn(db, context.id, day, user.timeZone)).map((event) => ({
+      eventId: event.eventId,
+      title: event.title,
+      at: event.startsAt.toISOString(),
+      time: formatTime(event.startsAt, user.timeZone),
+    }))
+  } catch {
+    // The calendar could not be read: the form still makes a meeting by hand.
+    return []
+  }
 }
 
 /** Give a stub its date from a calendar event, instead of making a second meeting. */
@@ -255,8 +296,9 @@ export async function attachStubAction(formData: FormData): Promise<ActionResult
   const id = field(formData, 'meetingId')
   return thenOpen(
     async (actor) => {
-      const event = await findEvent(db, await contextId(), field(formData, 'eventId'), undefined, undefined, aroundFrom(formData))
+      const event = await findEvent(db, await eventContext(formData), field(formData, 'eventId'), undefined, undefined, aroundFrom(formData))
       await attachStub(db, actor, id, event)
+      await selectFrom(formData)
     },
     () => id,
   )
@@ -264,7 +306,7 @@ export async function attachStubAction(formData: FormData): Promise<ActionResult
 
 export async function seriesFromEventAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    const context = await contextId()
+    const context = await eventContext(formData)
     const event = await findEvent(db, context, field(formData, 'eventId'))
     // Occurrences already prepped join the series, and the feed says which they are.
     const occurrences = event.seriesId ? await findOccurrences(db, context, event.seriesId) : []

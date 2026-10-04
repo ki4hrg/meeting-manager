@@ -1,10 +1,11 @@
 import { CardGrid, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Icon, type IconName } from '@/components/ui/icons'
-import { Badge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
+import { Badge, ContextBadge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDay } from '@/lib/core/dates'
 import { isLater } from '@/lib/items/horizon'
 import { isOpen, type ItemParty, type ItemView } from '@/lib/items/items'
+import { switches } from '@/lib/web/open'
 
 function names(parties: ItemParty[]): string {
   return parties.map((party) => (party.isSelf ? 'Me' : party.name)).join(', ')
@@ -54,16 +55,22 @@ export function ItemCard({
   item,
   today,
   showProject = true,
+  href = `/items/${item.id}`,
+  context,
 }: {
   item: ItemView
   today: string
   /** Off on the project's own page, where it would only repeat the title. */
   showProject?: boolean
+  /** Where it opens, when not its own page in the selected context (`openHref`). */
+  href?: string
+  /** Its context's name, where items from several are listed together. */
+  context?: string
 }) {
   const open = isOpen(item)
 
   return (
-    <LinkCard href={`/items/${item.id}`}>
+    <LinkCard href={href} plain={switches(href)}>
       <div className="flex items-start gap-3">
         <KindIcon kind={item.kind} />
         <div className="min-w-0 flex-1">
@@ -83,9 +90,10 @@ export function ItemCard({
               {item.resolution ?? item.detail}
             </p>
           ) : null}
-          <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
             <PartyLine parties={item.parties} />
-            <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+            <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+              {context ? <ContextBadge name={context} /> : null}
               {showProject && item.project ? <Badge>{item.project.name}</Badge> : null}
               {item.dueOn ? (
                 <DueBadge
@@ -116,17 +124,29 @@ export function ItemGrid({
   today,
   empty,
   showProject,
+  href,
+  context,
 }: {
   items: ItemView[]
   today: string
   empty: IconName
   showProject?: boolean
+  /** Where each opens, and its context's name, where items from several contexts are listed. */
+  href?: (item: ItemView) => string
+  context?: (item: ItemView) => string | undefined
 }) {
   if (items.length === 0) return <EmptyState icon={empty} />
   return (
     <CardGrid>
       {items.map((item) => (
-        <ItemCard key={item.id} item={item} today={today} showProject={showProject} />
+        <ItemCard
+          key={item.id}
+          item={item}
+          today={today}
+          showProject={showProject}
+          href={href?.(item)}
+          context={context?.(item)}
+        />
       ))}
     </CardGrid>
   )

@@ -36,7 +36,7 @@ import { listPeople } from '@/lib/directory/people'
 import { listItems } from '@/lib/items/items'
 import { getMeeting, isOver } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
-import { pendingByMeeting } from '@/lib/processing/proposals'
+import { pendingOnCards } from '@/lib/processing/proposals'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context'
 import {
@@ -96,7 +96,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     listGroups(db, context.id),
     listProjectChoices(db, context.id),
     listSeries(db, context.id),
-    pendingByMeeting(db, context.id),
+    pendingOnCards(db, context.id),
     // What its notes drafted, its sessions' with it.
     listDocuments(db, { contextId: context.id, meetingIds: covered }),
     // What came out of it, its sessions' with it.

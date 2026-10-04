@@ -1,8 +1,8 @@
 /* Projects, with their milestones and links. Each belongs to one context. */
 
-import { and, asc, eq, gte, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { parseDay } from '../core/dates'
-import { NotFoundError, ValidationError, type Executor } from '../core/types'
+import { NotFoundError, ValidationError, inTransaction, type Executor } from '../core/types'
 import { milestones, projectLinks, projects } from '../db/schema'
 import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 import { getContext } from '../directory/contexts'
@@ -86,7 +86,22 @@ export async function createProject(
 export async function updateProject(
   exec: Executor,
   id: string,
-  input: { name?: string; description?: string | null; status?: ProjectStatus; parentId?: string | null },
+  input: {
+    name?: string
+    description?: string | null
+    status?: ProjectStatus
+    parentId?: string | null
+    /** The new status goes to its sub-projects too, at any depth (archived ones aside). */
+    subProjects?: boolean
+  },
+): Promise<Project> {
+  return inTransaction(exec, (tx) => applyUpdate(tx, id, input))
+}
+
+async function applyUpdate(
+  exec: Executor,
+  id: string,
+  input: Parameters<typeof updateProject>[2],
 ): Promise<Project> {
   const project = await getProject(exec, id)
   const patch: Partial<typeof projects.$inferInsert> = {}
@@ -115,6 +130,16 @@ export async function updateProject(
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(projects.id, id))
     .returning()
+
+  if (input.subProjects && patch.status) {
+    const below = [...descendantIds(await listProjects(exec, project.contextId), [id])]
+    if (below.length > 0) {
+      await exec
+        .update(projects)
+        .set({ status: patch.status, updatedAt: new Date() })
+        .where(inArray(projects.id, below))
+    }
+  }
   return row!
 }
 

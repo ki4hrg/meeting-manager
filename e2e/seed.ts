@@ -1,0 +1,49 @@
+/* The world the browser tests start from: two contexts, a few people, items
+   that are due, a meeting coming up and one with a proposal waiting. Dates are
+   relative to today, so home always has something in each section. */
+
+import { randomUUID } from 'node:crypto'
+import { createFirstUser } from '../lib/auth/users'
+import { addDays, todayIn } from '../lib/core/dates'
+import { db } from '../lib/db'
+import { createContext } from '../lib/directory/contexts'
+import { createPerson, ensureSelf } from '../lib/directory/people'
+import { createItem } from '../lib/items/items'
+import { createMeeting } from '../lib/meetings/meetings'
+import { addProposals } from '../lib/processing/proposals'
+import { createProject } from '../lib/projects/projects'
+import { ACCOUNT, WORLD } from './world'
+
+export async function seed() {
+  const actor = { userId: null, source: 'system' as const, requestId: randomUUID() }
+  await createFirstUser({ email: ACCOUNT.email, displayName: ACCOUNT.name, password: ACCOUNT.password }, db)
+
+  const conference = await createContext(db, { name: WORLD.contexts.conference })
+  const church = await createContext(db, { name: WORLD.contexts.church })
+  const john = await ensureSelf(db, { displayName: ACCOUNT.name, email: ACCOUNT.email })
+  const adlene = await createPerson(db, { name: WORLD.people.adlene, email: 'adlene@example.test' })
+  const sarah = await createPerson(db, { name: WORLD.people.sarah })
+
+  const standing = await createProject(db, { contextId: conference.id, name: WORLD.projects.standing })
+  const year = await createProject(db, { contextId: conference.id, name: WORLD.projects.year, parentId: standing.id })
+  await createProject(db, { contextId: conference.id, name: WORLD.projects.worship, parentId: year.id })
+
+  const today = todayIn(process.env.TZ ?? 'America/Chicago')
+  const mine = [{ personId: john.id, role: 'owner' as const }]
+  await createItem(db, actor, { contextId: conference.id, kind: 'action', text: WORLD.items.overdue, dueOn: addDays(today, -2), parties: mine, projectId: year.id })
+  await createItem(db, actor, { contextId: church.id, kind: 'action', text: WORLD.items.lunch, dueOn: addDays(today, 6), parties: mine })
+  await createItem(db, actor, { contextId: church.id, kind: 'action', text: WORLD.items.bulletin, dueOn: addDays(today, 3), parties: [{ personId: sarah.id, role: 'owner' }] })
+  await createItem(db, actor, { contextId: conference.id, kind: 'topic', text: WORLD.items.accountability, parties: [{ personId: adlene.id, role: 'with' }] })
+
+  const at = (days: number, hour: number) => {
+    const moment = new Date()
+    moment.setDate(moment.getDate() + days)
+    moment.setHours(hour, 0, 0, 0)
+    return moment
+  }
+  await createMeeting(db, actor, { contextId: conference.id, title: WORLD.meetings.checkIn, startsAt: at(1, 10), endsAt: at(1, 11), personIds: [adlene.id] })
+  const finance = await createMeeting(db, actor, { contextId: church.id, title: WORLD.meetings.finance, startsAt: at(-1, 18), endsAt: at(-1, 19), personIds: [sarah.id] })
+  await addProposals(db, { meetingId: finance.id }, [
+    { payload: { type: 'item', kind: 'action', text: WORLD.proposal, parties: [] } },
+  ])
+}

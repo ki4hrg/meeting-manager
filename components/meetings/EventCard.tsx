@@ -6,13 +6,28 @@ import {
 import { ActionButton, IconAction } from '@/components/forms'
 import { Card } from '@/components/ui/Card'
 import { Icon } from '@/components/ui/icons'
+import { ContextBadge } from '@/components/ui/StatusBadge'
 import type { UpcomingEntry } from '@/lib/meetings/prep'
 import { Roster, SeriesMark, When } from './MeetingCard'
 
 /* A calendar event nobody has prepped yet: one click makes its meeting, or
    gives a waiting stub its date instead. */
-export function EventCard({ entry, time }: { entry: UpcomingEntry; time: string }) {
+export function EventCard({
+  entry,
+  time,
+  context,
+  actIn,
+}: {
+  entry: UpcomingEntry
+  time: string
+  /** The context its actions act in, where that may not be the selected one (a hub's). */
+  actIn?: string
+  /** The event's context, where events from several are listed together: its
+      actions then act there rather than in the selected one. */
+  context?: { id: string; name: string }
+}) {
   const event = entry.event!
+  const where: Record<string, string> = context ? { contextId: context.id } : actIn ? { contextId: actIn } : {}
   const people = event.attendees
     .filter((attendee) => attendee.personId && !attendee.declined)
     .map((attendee) => ({ name: attendee.name ?? attendee.email }))
@@ -24,6 +39,11 @@ export function EventCard({ entry, time }: { entry: UpcomingEntry; time: string 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{event.title}</p>
           <Roster people={people} />
+          {context ? (
+            <p className="mt-1 flex">
+              <ContextBadge name={context.name} />
+            </p>
+          ) : null}
         </div>
         <SeriesMark series={entry.series} />
       </div>
@@ -31,7 +51,7 @@ export function EventCard({ entry, time }: { entry: UpcomingEntry; time: string 
         {event.seriesId && !entry.series ? (
           <IconAction
             action={seriesFromEventAction}
-            fields={{ eventId: event.eventId }}
+            fields={{ ...where, eventId: event.eventId }}
             icon="refresh"
             label="Make a series"
           />
@@ -40,7 +60,7 @@ export function EventCard({ entry, time }: { entry: UpcomingEntry; time: string 
           <ActionButton
             key={stub.id}
             action={attachStubAction}
-            fields={{ meetingId: stub.id, eventId: event.eventId, at: event.startsAt.toISOString() }}
+            fields={{ ...where, meetingId: stub.id, eventId: event.eventId, at: event.startsAt.toISOString() }}
             variant="secondary"
             size="sm"
             aria-label={`Attach ${stub.title}`}
@@ -51,7 +71,7 @@ export function EventCard({ entry, time }: { entry: UpcomingEntry; time: string 
         ))}
         <ActionButton
           action={prepEventAction}
-          fields={{ eventId: event.eventId, at: event.startsAt.toISOString() }}
+          fields={{ ...where, eventId: event.eventId, at: event.startsAt.toISOString() }}
           variant="secondary"
           size="sm"
         >

@@ -19,6 +19,7 @@ import {
   prepWithGroup,
   prepWithPerson,
   seriesFromEvent,
+  unpreppedOn,
 } from '../lib/meetings/prep'
 import { createSeries } from '../lib/meetings/series'
 import { db, resetBetweenTests } from './helpers/db'
@@ -381,5 +382,23 @@ describe('a series and its calendar', () => {
     expect(cadenceOf([at('2026-10-06T15:00:00Z'), at('2026-11-06T16:00:00Z'), at('2026-12-06T16:00:00Z')])).toBe('monthly')
     expect(cadenceOf([at('2026-10-06T15:00:00Z'), at('2026-10-09T15:00:00Z'), at('2026-10-20T15:00:00Z')])).toBeNull()
     expect(cadenceOf([at('2026-10-06T15:00:00Z')])).toBeNull()
+  })
+})
+
+describe('the New meeting form offers the day\'s events', () => {
+  it('lists the events on that day on the user\'s clock that have no meeting yet, in order', async () => {
+    const w = await makeWorld()
+    const events = [
+      // 7:30 PM in Chicago on Oct 6, which is Oct 7 in UTC.
+      event({ eventId: 'evening', title: 'Vestry', startsAt: new Date('2026-10-07T00:30:00Z'), endsAt: new Date('2026-10-07T01:30:00Z') }),
+      event({ eventId: 'morning', title: 'Coffee', startsAt: new Date('2026-10-06T14:00:00Z'), endsAt: new Date('2026-10-06T15:00:00Z') }),
+      event({ eventId: 'prepped', title: 'Staff', startsAt: new Date('2026-10-06T16:00:00Z'), endsAt: new Date('2026-10-06T17:00:00Z') }),
+      event({ eventId: 'next-day', title: 'Lunch', startsAt: new Date('2026-10-07T17:00:00Z'), endsAt: new Date('2026-10-07T18:00:00Z') }),
+      event({ eventId: 'all-day', title: 'Holiday', allDay: true, startsAt: new Date('2026-10-06T05:00:00Z'), endsAt: null }),
+    ]
+    await prepFromEvent(db, actor, { contextId: w.parish.id, event: events[2]! }, NOW)
+
+    const found = await unpreppedOn(db, w.parish.id, '2026-10-06', 'America/Chicago', { events })
+    expect(found.map((one) => one.title)).toEqual(['Coffee', 'Vestry'])
   })
 })

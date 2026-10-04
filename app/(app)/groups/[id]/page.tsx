@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
-import { MeetingGrid } from '@/components/meetings/MeetingCard'
+import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, Section } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -18,7 +18,6 @@ import { db } from '@/lib/db'
 import { getGroup, listGroupEmails, listMembers } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { listItems, type ItemView } from '@/lib/items/items'
-import { listMeetings } from '@/lib/meetings/meetings'
 import { viewer } from '@/lib/web/context'
 import {
   addGroupEmailAction,
@@ -32,7 +31,13 @@ import { prepWithGroupAction } from '../../meetings/actions'
 const has = (item: ItemView, groupId: string, role: 'owner' | 'with') =>
   item.parties.some((party) => party.id === groupId && party.role === role)
 
-export default async function GroupPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function GroupPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -51,11 +56,6 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
   const owes = open.filter((item) => has(item, id, 'owner'))
   const waiting = open.filter((item) => has(item, id, 'with'))
   const decisions = all.filter((item) => item.kind === 'decision')
-  const meetings = await listMeetings(db, {
-    contextId: group.contextId,
-    groupId: id,
-    topLevelOnly: true,
-  })
 
   const archived = !!group.archivedAt
   const emails = await listGroupEmails(db, id)
@@ -134,9 +134,14 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
           <ItemGrid items={decisions} today={today} empty="decision" />
         </Section>
 
-        <Section title="Meetings">
-          <MeetingGrid meetings={meetings} timeZone={user.timeZone} />
-        </Section>
+        <HubMeetings
+          hub={{ kind: 'group', id }}
+          contextId={group.contextId}
+          path={`/groups/${id}`}
+          query={await searchParams}
+          timeZone={user.timeZone}
+          today={today}
+        />
 
         <Section
           title="Members"

@@ -15,6 +15,7 @@ import { db } from '@/lib/db'
 import { getPerson } from '@/lib/directory/people'
 import { listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
+import { pendingOnCards } from '@/lib/processing/proposals'
 import { requireContext, viewer } from '@/lib/web/context'
 import {
   addPersonEmailAction,
@@ -135,6 +136,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   }
 
   const meetings = await listMeetings(db, { contextId: context.id, personId: id, topLevelOnly: true })
+  const pending = await pendingOnCards(db, context.id)
   const archived = !!person.archivedAt
   const theyOwe = open.filter((item) => has(item, id, 'owner'))
   const iOwe = open.filter((item) => has(item, id, 'with') && has(item, self.id, 'owner'))
@@ -184,7 +186,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
         </Section>
 
         <Section title="Meetings">
-          <MeetingGrid meetings={meetings} timeZone={user.timeZone} />
+          <MeetingGrid meetings={meetings} timeZone={user.timeZone} pending={pending} />
         </Section>
 
         {closed.length > 0 ? (

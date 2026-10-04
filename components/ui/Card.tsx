@@ -22,12 +22,22 @@ export function LinkCard({
   children,
   padding = 'sm',
   className = '',
-}: CardProps & { href: string }) {
+  plain = false,
+}: CardProps & {
+  href: string
+  /** A plain link, for a route that does something on the way (never prefetched). */
+  plain?: boolean
+}) {
+  const classes = `block ${SURFACE} ${PADDING[padding]} transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${className}`
+  if (plain) {
+    return (
+      <a href={href} className={classes}>
+        {children}
+      </a>
+    )
+  }
   return (
-    <Link
-      href={href}
-      className={`block ${SURFACE} ${PADDING[padding]} transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${className}`}
-    >
+    <Link href={href} className={classes}>
       {children}
     </Link>
   )

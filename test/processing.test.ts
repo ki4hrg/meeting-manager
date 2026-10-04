@@ -24,6 +24,7 @@ import {
   type ProposalView,
 } from '../lib/processing/proposals'
 import {
+  MAX_ATTEMPTS,
   buildExtractionInput,
   latestRun,
   processQueued,
@@ -636,7 +637,8 @@ describe('re-delivery', () => {
       ['rejected', 'two'],
     ])
     expect(await listItems(db, { contextId: w.parish.id })).toHaveLength(1)
-    expect((await runsOf(a.note.id))[0]).toMatchObject({ attempts: 2, model: 'fake-model-1' })
+    // Retry starts the count of attempts again.
+    expect((await runsOf(a.note.id))[0]).toMatchObject({ attempts: 1, model: 'fake-model-1' })
 
     await expect(reprocessMeeting(db, actor, randomUUID())).rejects.toThrow(NotFoundError)
   })
@@ -733,11 +735,49 @@ describe('when the extractor fails', () => {
     const [retry] = await reprocessMeeting(db, actor, meeting.id)
     expect(retry).toMatchObject({ id: run.id, status: 'queued', error: null })
     const done = await processRun(db, retry!.id, extractor)
-    expect(done).toMatchObject({ status: 'done', error: null, model: 'fake-model-1', attempts: 2 })
+    expect(done).toMatchObject({ status: 'done', error: null, model: 'fake-model-1', attempts: 1 })
 
     const list = await listProposals(db, meeting.id)
     expect(texts(list)).toEqual(['Keep the Thursday slot', 'Email the caterer'])
     expect((list[0]!.payload as ItemPayload).detail).toBe('Everyone agreed.')
+  })
+
+  it('tries a failed run again by itself, five then thirty minutes on, and stops after three attempts', async () => {
+    const { meeting } = await setup()
+    const { note } = await paste(meeting.id, 'D: Keep the Thursday slot')
+    let calls = 0
+    const broken: RunExtractor = {
+      model: 'fake-model-1',
+      extractor: async () => {
+        calls++
+        throw new Error('529 overloaded')
+      },
+    }
+    const minutes = (n: number) => new Date(Date.now() + n * 60_000)
+    const state = async () => (await runsOf(note.id))[0]!
+
+    expect(await processQueued(db, broken)).toEqual({ processed: 0, failed: 1 })
+    expect(await state()).toMatchObject({ status: 'failed', attempts: 1 })
+
+    // Not before its wait is over.
+    expect(await processQueued(db, broken, minutes(4))).toEqual({ processed: 0, failed: 0 })
+    expect(await processQueued(db, broken, minutes(6))).toEqual({ processed: 0, failed: 1 })
+    expect(await state()).toMatchObject({ status: 'failed', attempts: 2 })
+
+    expect(await processQueued(db, broken, minutes(20))).toEqual({ processed: 0, failed: 0 })
+    expect(await processQueued(db, broken, minutes(40))).toEqual({ processed: 0, failed: 1 })
+    expect(await state()).toMatchObject({ status: 'failed', attempts: 3, error: '529 overloaded' })
+
+    // Three attempts: it waits for Retry now, however long.
+    expect(await processQueued(db, broken, minutes(60 * 24))).toEqual({ processed: 0, failed: 0 })
+    expect(calls).toBe(3)
+
+    // Once the model is back, Retry gets it through, with a fresh count.
+    const { extractor } = fake(() => ({ drafts: [action('Email the caterer')] }))
+    await reprocessMeeting(db, actor, meeting.id)
+    expect(await processQueued(db, extractor)).toEqual({ processed: 1, failed: 0 })
+    expect(await state()).toMatchObject({ status: 'done', attempts: 1 })
+    expect(texts(await listProposals(db, meeting.id))).toEqual(['Keep the Thursday slot', 'Email the caterer'])
   })
 
   it('counts a failure in processQueued and carries on with the rest', async () => {
@@ -792,6 +832,18 @@ describe('processQueued', () => {
     expect((await runsOf(dead.note.id))[0]).toMatchObject({ status: 'done', attempts: 2 })
     expect((await runsOf(live.note.id))[0]).toMatchObject({ status: 'running', attempts: 1 })
     expect(texts(await listProposals(db, meeting.id))).toEqual(['from the dead run'])
+  })
+
+  it('gives up on a run abandoned once too often, rather than taking it up forever', async () => {
+    const { meeting } = await setup()
+    const dead = await paste(meeting.id, 'D: never finishes')
+    await db
+      .update(processingRuns)
+      .set({ status: 'running', attempts: MAX_ATTEMPTS, startedAt: new Date(Date.now() - 20 * 60_000) })
+      .where(eq(processingRuns.id, dead.run.id))
+
+    expect(await processQueued(db)).toEqual({ processed: 0, failed: 0 })
+    expect((await runsOf(dead.note.id))[0]).toMatchObject({ status: 'failed', error: 'Stopped after 3 attempts.' })
   })
 })
 

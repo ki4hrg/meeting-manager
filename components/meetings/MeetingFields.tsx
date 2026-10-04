@@ -2,6 +2,7 @@ import { PartyPicker } from '@/components/processing/PartyPicker'
 import { CheckList } from '@/components/ui/CheckList'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { toLocalInput } from '@/lib/core/dates'
+import { DayEvents } from './DayEvents'
 import { WhenInputs } from './WhenInputs'
 
 type Option = { id: string; name: string }
@@ -46,10 +47,13 @@ export function MeetingFields({
   meeting,
   choices,
   timeZone,
+  offerEvents = false,
 }: {
   meeting?: Current
   choices: MeetingChoices
   timeZone: string | null
+  /** New meetings only: the chosen day's calendar events, to prep one instead. */
+  offerEvents?: boolean
 }) {
   return (
     <>
@@ -57,6 +61,7 @@ export function MeetingFields({
         <Input name="title" defaultValue={meeting?.title ?? ''} required={Boolean(meeting)} />
       </Field>
       <WhenFields startsAt={meeting?.startsAt} endsAt={meeting?.endsAt} timeZone={timeZone} />
+      {offerEvents ? <DayEvents /> : null}
 
       {/* The same pickers as a series' roster and projects. Groups sit among the
           people, each standing for its members. Empty lists draw nothing. */}

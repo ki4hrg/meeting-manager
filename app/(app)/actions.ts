@@ -336,6 +336,7 @@ export async function updateProjectAction(formData: FormData): Promise<ActionRes
       description: field(formData, 'description'),
       status,
       ...(formData.has('parentId') ? { parentId: field(formData, 'parentId') || null } : {}),
+      subProjects: formData.has('subProjects'),
     })
   })
 }

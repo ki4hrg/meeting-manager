@@ -1,6 +1,39 @@
 # Handoff
 
-Updated 2026-10-03. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+Updated 2026-10-04. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+
+## Before phase 4: built (2026-10-04)
+
+Settled with John in an interview (written into the spec where each item lives), then built on branch `claude/kind-maxwell-pg2afc`, one commit per piece, not yet deployed. No migrations. `pnpm test` (655 tests, 42 files), `pnpm typecheck` and `pnpm lint` are clean. Each screen was walked in a dev build with Playwright, in light, dark and at phone width.
+
+John's order: everything that is not Todoist first, then phase 4. He wants the tool working well before it feeds Todoist, which is a key part of his existing workflow and expensive to get wrong.
+
+**Built**
+
+- **Time zone on Settings** (`setTimeZone` in `lib/auth/users.ts`, `app/(app)/settings/TimeZone.tsx`). Unset, the browser's zone is offered with Save; once saved, choosing another saves it. Clears the feed cache.
+- **Home is Today** (`lib/today.ts`, `app/(app)/page.tsx`). Across every live context: Review (meetings with proposals waiting, and unfiled notes), Next up, Due (overdue or due today, mine and others'), I owe and Waiting on (within 14 days), Later. With more than one context each row carries a `ContextBadge`. A row from another context opens through `GET /api/open?context=&to=` (`lib/web/open.ts`), which selects that context on the way; such links are plain `<a>`, never prefetched. An event card from another context preps there (`contextId` on the event actions, checked against live contexts). The tiles stay with the selected context; the top bar's quick-add shows which context it files into.
+- **Hub reach** (`lib/meetings/hub.ts`, `components/meetings/HubMeetings.tsx`). Project, series and group hubs list Upcoming (their meetings and the calendar events that would be theirs, with Prep, More) and Past (Earlier). An event belongs to a hub by what prepping it would give its meeting: `eventTakes` in `prep.ts`, which `prepFromEvent` now uses too, so the two cannot disagree. A project hub reads sub-projects only with "Include sub-projects" on, as its items do. The series page's History became Past; its Next stays above and is left out of Upcoming.
+- **New meeting offers the day's events** (`unpreppedOn` in `prep.ts`, `eventsOnDayAction`, `components/meetings/DayEvents.tsx`): once a start is chosen, that day's events in the context with no meeting, each one click to prep.
+- **Sub-projects follow a status change when asked** (`subProjects` on `updateProject`, `components/projects/StatusField.tsx`): the tick box appears only when the status is changed on a project with sub-projects. Archived sub-projects, and anything under them, are left alone.
+
+**Decisions made without John**
+
+- Today's Due section takes what is overdue or due today out of I owe and Waiting on, so nothing is listed twice; it is hidden when empty.
+- Today keeps the selected context's tiles and its Inbox count; Review on Today counts every context's.
+- A hub's Past pages through held meetings by count (nine at a time), not by date window; never-prepped past events stay on `/meetings/past`.
+- The New meeting form's events are those of the selected context only, as the form makes the meeting there.
+
+**Not verified**
+
+- No Google Calendar locally: the event list on the New meeting form was checked with a stubbed list, and hub events and the cross-context Prep with tests only.
+
+**Gaps closed after (2026-10-04)**
+
+- **A failed run is retried by itself** (`processQueued` in `lib/processing/run.ts`): five minutes after its first failure, thirty after its second; after three attempts (`MAX_ATTEMPTS`) it waits for Retry, which starts the count again. A run abandoned while running is taken up on the same count and marked failed when it has none left, instead of forever.
+- **Review badges everywhere meetings are listed**: the person page joins the hubs; `pendingOnCards` counts a session's waiting proposals on its meeting's card, page and recap. Review lists still name each session alone.
+- **Browser tests** (`e2e/`, `pnpm e2e`, a CI job the image waits on): home across contexts and opening a row in its own context, quick-add, review and accept from home, Log to review, prep with a person, the time zone, pausing sub-projects, and ten pages at phone width in light and dark with no sideways scroll and no page errors. Three runs in a row clean locally.
+
+**Next: phase 4.** The Todoist sync, Fold into with Combine at review, and `get_hub`; see the spec.
 
 ## Refinements after item 9 (2026-10-03)
 
@@ -152,9 +185,9 @@ Everything below was pushed to `main` on 2026-10-01 and deployed. John confirmed
 
 **Known gaps**
 
-- A failed run is retried only by hand (Retry on the review screen, or `process_meeting`). A run stuck in `running` is re-queued after 15 minutes with no cap on attempts.
+- *(Closed 2026-10-04: failed and abandoned runs are retried by themselves, three attempts in all.)*
 - A pending proposal whose line was later removed from the note lingers.
-- Pending badges are not shown on the project, person and group hubs or on home.
+- *(Closed 2026-10-04: review badges on every hub, and Review on home.)*
 - `kick` runs the job even with `WORKER=off`; only the MCP tools guard against that.
 - The series page does not name which occurrences stayed after a move.
 - Scratch databases `mm_move`, `mm_screens`, `mm_granola` in `mm-dev-db`, and `.next-move`, `.next-screens`, `.next-granola` in the repo (ignored by git), can be dropped.
@@ -239,7 +272,7 @@ The phase 1 rules still stand (one `items` table in four kinds; a decision is it
 - **`Response.redirect` wants an absolute URL** in a Route Handler.
 - The phase 1 notes still apply: React resets a form after its action; `showModal()` focuses the close button; no `setState` directly in an effect; Docker must be running for `pnpm test`; set `PUBLIC_BASE_URL` when the dev server is not on port 3000.
 - **Password managers:** `Input` and `Textarea` opt out of autofill unless a field sets `autoComplete` itself. A raw `<input>` needs the same attributes by hand (see `QuickAdd`).
-- **Browser checks:** still no Playwright in this repo; the walks used the one in `../Meeter/node_modules`. Adding it here with a small e2e suite is overdue.
+- **Browser checks:** `pnpm e2e` (see `e2e/`). For a one-off look at a screen, a script against `pnpm dev` with the Playwright in `node_modules` is still quickest.
 
 ## Local setup
 

@@ -288,6 +288,10 @@ export const updateProjectTool = defineTool({
     name: z.string().min(1).optional(),
     description: z.string().nullable().optional(),
     status: z.enum(['active', 'paused', 'done']).optional(),
+    with_sub_projects: z
+      .boolean()
+      .optional()
+      .describe('With status: give its sub-projects, at any depth, the same status. Off by default.'),
     parent: z.string().nullable().optional().describe('The project it sits within, or null for none.'),
     add_milestone: z
       .object({ title: z.string().min(1), due_on: z.string().optional() })
@@ -310,6 +314,7 @@ export const updateProjectTool = defineTool({
         description: input.description,
         status: input.status,
         parentId,
+        subProjects: input.with_sub_projects,
       })
       if (input.add_milestone) {
         await addMilestone(tx, {

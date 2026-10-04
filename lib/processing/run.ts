@@ -16,7 +16,7 @@
  * a leak, and is dropped here rather than at review.
  */
 
-import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm'
 import { toLocalInput, todayIn } from '../core/dates'
 import { normalise } from '../core/match'
 import {
@@ -57,6 +57,12 @@ export type RunExtractor = { extractor: Extractor; model: string }
 /* A run left "running" this long was abandoned by a process that died under
    it; the job picks it up again. */
 const STALE_MINUTES = 15
+
+/* A failed run is tried again by itself, this long after each failure (the
+   model overloaded, the network down), until it has had this many attempts.
+   After that it waits for Retry, which starts the count again. */
+export const MAX_ATTEMPTS = 3
+const RETRY_AFTER_MINUTES = [5, 30]
 
 async function getRun(exec: Executor, id: string): Promise<Run> {
   const [row] = await exec.select().from(processingRuns).where(eq(processingRuns.id, id)).limit(1)
@@ -113,7 +119,7 @@ export async function reprocessMeeting(
         .values({ noteId: note.id, contentHash: note.contentHash })
         .onConflictDoUpdate({
           target: [processingRuns.noteId, processingRuns.contentHash],
-          set: { status: 'queued', error: null, startedAt: null, finishedAt: null },
+          set: { status: 'queued', error: null, startedAt: null, finishedAt: null, attempts: 0 },
           setWhere: inArray(processingRuns.status, ['done', 'failed']),
         })
         .returning()
@@ -463,22 +469,41 @@ export async function processRun(
 }
 
 /**
- * Every queued run, oldest first: what the job calls. A run abandoned while
- * running is put back in the queue first.
+ * Every queued run, oldest first: what the job calls. First, a run abandoned
+ * while running is put back in the queue, and a failed one whose wait is over
+ * is queued again, each while it has attempts left; an abandoned run that has
+ * none is marked failed.
  */
 export async function processQueued(
   exec: Executor,
   extractor?: RunExtractor | null,
+  now: Date = new Date(),
 ): Promise<{ processed: number; failed: number }> {
+  const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000)
+  const abandoned = and(
+    eq(processingRuns.status, 'running'),
+    lt(processingRuns.startedAt, minutesAgo(STALE_MINUTES)),
+  )
   await exec
     .update(processingRuns)
     .set({ status: 'queued' })
-    .where(
-      and(
-        eq(processingRuns.status, 'running'),
-        lt(processingRuns.startedAt, new Date(Date.now() - STALE_MINUTES * 60_000)),
-      ),
-    )
+    .where(and(abandoned, lt(processingRuns.attempts, MAX_ATTEMPTS)))
+  await exec
+    .update(processingRuns)
+    .set({ status: 'failed', finishedAt: now, error: `Stopped after ${MAX_ATTEMPTS} attempts.` })
+    .where(and(abandoned, gte(processingRuns.attempts, MAX_ATTEMPTS)))
+  for (const [index, wait] of RETRY_AFTER_MINUTES.entries()) {
+    await exec
+      .update(processingRuns)
+      .set({ status: 'queued', startedAt: null, finishedAt: null })
+      .where(
+        and(
+          eq(processingRuns.status, 'failed'),
+          eq(processingRuns.attempts, index + 1),
+          lt(processingRuns.finishedAt, minutesAgo(wait)),
+        ),
+      )
+  }
 
   const queued = await exec
     .select({ id: processingRuns.id })
