@@ -35,7 +35,7 @@ These apply to every screen.
 - `lib/directory/` — contexts, people, groups, and `resolve.ts`, which turns a typed name into a row.
 - `lib/projects/` — projects, milestones, links.
 - `lib/items/` — `items.ts` (the item lifecycle and every item query), `capture.ts` (the quick-add line).
-- `lib/meetings/` — `meetings.ts` and `series.ts` (CRUD), `prep.ts` (what turns a person, a series or a calendar event into a meeting with its agenda started).
+- `lib/meetings/` — `meetings.ts` and `series.ts` (CRUD), `prep.ts` (what turns a person, a series or a calendar event into a meeting with its agenda started; `eventTakes` says where an event's meeting would go), `hub.ts` (a project, series or group hub's meetings and events).
 - `lib/agenda/` — `lines.ts` (the agenda in the database), `schedule.ts` (start times), `candidates.ts` (what an agenda pulls in: the leak rules), `generated.ts` (follow-ups, since last time, lookahead), `brief.ts` (the paste for Granola and the public agenda), `outline.ts`.
 - `lib/meetings/` also holds `log.ts` (Log a meeting: people and pasted notes) and `move.ts` (a meeting or series to another context).
 - `lib/notes/`, `lib/processing/` — a meeting's notes, and what turns them into proposals: `verbatim.ts` (`D:` `Q:` `A:` `T:` lines, by code), `extract.ts` and `prompt.ts` (the model, behind the `Extractor` in `types.ts`), `run.ts` (queue and process), `proposals.ts` (accept, edit, reject, undo). `lib/documents/` — documents a meeting produced.

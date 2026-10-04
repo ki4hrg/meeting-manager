@@ -2,23 +2,32 @@
 
 Updated 2026-10-04. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
 
-## Decisions before phase 4 (John, 2026-10-04)
+## Before phase 4: built (2026-10-04)
 
-Settled in an interview; written into the spec where each item lives. Nothing built yet.
+Settled with John in an interview (written into the spec where each item lives), then built on branch `claude/kind-maxwell-pg2afc`, one commit per piece, not yet deployed. No migrations. `pnpm test` (655 tests, 42 files), `pnpm typecheck` and `pnpm lint` are clean. Each screen was walked in a dev build with Playwright, in light, dark and at phone width.
 
-**Order:** everything that is not Todoist first, then phase 4.
+John's order: everything that is not Todoist first, then phase 4. He wants the tool working well before it feeds Todoist, which is a key part of his existing workflow and expensive to get wrong.
 
-1. **Time zone on Settings.** A picker prefilled from the browser, saved to `users.time_zone`; the process `TZ` stays as the fallback.
-2. **Today replaces home** (item 6). Across every live context: next meetings; overdue and due today; I owe and Waiting on within 14 days; pending review (proposals waiting and unfiled notes). Each row shows its context and opening it switches there. Quick-add files into the selected context, shown beside the box.
-3. **Hub reach** (item 7). Project, series and group hubs show their meetings and the calendar events mapped to them, with Prep, More and Earlier.
-4. **New meeting form offers the day's events** (item 8); picking one preps from the event.
-5. **Pausing or finishing a parent project offers to do the same to its sub-projects** (item 11), with a tick box.
+**Built**
 
-Then phase 4:
+- **Time zone on Settings** (`setTimeZone` in `lib/auth/users.ts`, `app/(app)/settings/TimeZone.tsx`). Unset, the browser's zone is offered with Save; once saved, choosing another saves it. Clears the feed cache.
+- **Home is Today** (`lib/today.ts`, `app/(app)/page.tsx`). Across every live context: Review (meetings with proposals waiting, and unfiled notes), Next up, Due (overdue or due today, mine and others'), I owe and Waiting on (within 14 days), Later. With more than one context each row carries a `ContextBadge`. A row from another context opens through `GET /api/open?context=&to=` (`lib/web/open.ts`), which selects that context on the way; such links are plain `<a>`, never prefetched. An event card from another context preps there (`contextId` on the event actions, checked against live contexts). The tiles stay with the selected context; the top bar's quick-add shows which context it files into.
+- **Hub reach** (`lib/meetings/hub.ts`, `components/meetings/HubMeetings.tsx`). Project, series and group hubs list Upcoming (their meetings and the calendar events that would be theirs, with Prep, More) and Past (Earlier). An event belongs to a hub by what prepping it would give its meeting: `eventTakes` in `prep.ts`, which `prepFromEvent` now uses too, so the two cannot disagree. A project hub reads sub-projects only with "Include sub-projects" on, as its items do. The series page's History became Past; its Next stays above and is left out of Upcoming.
+- **New meeting offers the day's events** (`unpreppedOn` in `prep.ts`, `eventsOnDayAction`, `components/meetings/DayEvents.tsx`): once a start is chosen, that day's events in the context with no meeting, each one click to prep.
+- **Sub-projects follow a status change when asked** (`subProjects` on `updateProject`, `components/projects/StatusField.tsx`): the tick box appears only when the status is changed on a project with sub-projects. Archived sub-projects, and anything under them, are left alone.
 
-- **Todoist project for a sub-project:** its own binding, else the nearest bound ancestor's, else the context's. No automatic sub-project mirroring.
-- **Fold into only** (no Steps), with **Combine** on the review screen. A folded item's task is completed in Todoist and its text joins the surviving task's description.
-- **`get_hub`** over MCP: a hub's contents in one call.
+**Decisions made without John**
+
+- Today's Due section takes what is overdue or due today out of I owe and Waiting on, so nothing is listed twice; it is hidden when empty.
+- Today keeps the selected context's tiles and its Inbox count; Review on Today counts every context's.
+- A hub's Past pages through held meetings by count (nine at a time), not by date window; never-prepped past events stay on `/meetings/past`.
+- The New meeting form's events are those of the selected context only, as the form makes the meeting there.
+
+**Not verified**
+
+- No Google Calendar locally: the event list on the New meeting form was checked with a stubbed list, and hub events and the cross-context Prep with tests only.
+
+**Next: phase 4.** The Todoist sync, Fold into with Combine at review, and `get_hub`; see the spec.
 
 ## Refinements after item 9 (2026-10-03)
 
