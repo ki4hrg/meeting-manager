@@ -10,6 +10,7 @@ import {
   moveToSession,
   nudgeLine,
   removeLine,
+  restoreLine,
   updateLine,
 } from '@/lib/agenda/lines'
 import { fromLocalInput } from '@/lib/core/dates'
@@ -318,8 +319,12 @@ export async function nudgeLineAction(formData: FormData): Promise<ActionResult>
 }
 
 export async function removeLineAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => ({ undoId: await removeLine(db, actor, field(formData, 'id')) }))
+}
+
+export async function restoreLineAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await removeLine(db, actor, field(formData, 'id'))
+    await restoreLine(db, actor, field(formData, 'undoId'))
   })
 }
 

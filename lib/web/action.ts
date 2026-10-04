@@ -15,15 +15,17 @@ import { resolvePerson } from '../directory/resolve'
 import type { PartyRef } from '../items/items'
 import { webActor } from './context'
 
-export type ActionResult = { error?: string }
+/** `undoId` names what an Undo on the toast would put back (see `IconAction`). */
+export type ActionResult = { error?: string; undoId?: string }
 
 export async function act(
-  work: (actor: ActorContext, user: AuthUser) => Promise<void>,
+  work: (actor: ActorContext, user: AuthUser) => Promise<void | { undoId: string }>,
 ): Promise<ActionResult> {
   const user = await requireUser()
 
+  let done: void | { undoId: string }
   try {
-    await work(webActor(user), user)
+    done = await work(webActor(user), user)
   } catch (err) {
     if (err instanceof AppError) return { error: err.message }
     // An id that is not a uuid never matched anything; say so rather than 500.
@@ -34,7 +36,7 @@ export async function act(
   // One user and small pages: refreshing everything is simpler than tracking
   // which lists an item appears in.
   revalidatePath('/', 'layout')
-  return {}
+  return done ? { undoId: done.undoId } : {}
 }
 
 /* 22P02 is invalid_text_representation, which is what Postgres answers when a

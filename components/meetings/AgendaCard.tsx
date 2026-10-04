@@ -3,6 +3,7 @@ import {
   markDiscussedAction,
   nudgeLineAction,
   removeLineAction,
+  restoreLineAction,
   updateLineAction,
 } from '@/app/(app)/meetings/actions'
 import { FormModal, IconAction } from '@/components/forms'
@@ -243,6 +244,8 @@ function LineRow({
         </FormModal>
         <IconAction
           action={removeLineAction}
+          done="Removed"
+          undo={{ action: restoreLineAction, fields: {} }}
           fields={{ id: line.id }}
           icon="close"
           label={`Remove ${line.text}`}

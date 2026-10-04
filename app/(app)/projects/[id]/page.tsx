@@ -42,6 +42,7 @@ import {
   deleteMilestoneAction,
   updateProjectAction,
 } from '../../actions'
+import { restoreDeletedAction } from '../../archive-actions'
 
 type OwnerGroup = { key: string; name: string; group: boolean; items: ItemView[] }
 
@@ -284,7 +285,14 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                             open={!past}
                           />
                         ) : null}
-                        <IconAction action={deleteMilestoneAction} fields={{ id: milestone.id }} icon="close" label={`Remove ${milestone.title}`} />
+                        <IconAction
+                          action={deleteMilestoneAction}
+                          fields={{ id: milestone.id }}
+                          icon="close"
+                          label={`Remove ${milestone.title}`}
+                          done="Removed"
+                          undo={{ action: restoreDeletedAction, fields: { kind: 'milestone', id: milestone.id } }}
+                        />
                       </li>
                     )
                   })}
@@ -324,7 +332,14 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                       >
                         {link.label}
                       </a>
-                      <IconAction action={deleteLinkAction} fields={{ id: link.id }} icon="close" label={`Remove ${link.label}`} />
+                      <IconAction
+                        action={deleteLinkAction}
+                        fields={{ id: link.id }}
+                        icon="close"
+                        label={`Remove ${link.label}`}
+                        done="Removed"
+                        undo={{ action: restoreDeletedAction, fields: { kind: 'link', id: link.id } }}
+                      />
                     </li>
                   ))}
                 </ul>

@@ -170,6 +170,16 @@ export async function fileHeldNote(
   }
 }
 
+/** Take a dismissal back: the note is held in the Inbox again. */
+export async function undismissHeldNote(exec: Executor, _actor: ActorContext, noteId: string): Promise<void> {
+  const [row] = await exec
+    .update(notes)
+    .set({ dismissedAt: null, updatedAt: new Date() })
+    .where(and(eq(notes.id, noteId), isNull(notes.meetingId)))
+    .returning({ id: notes.id })
+  if (!row) throw new NotFoundError('Note', noteId)
+}
+
 /** Wave a held note away. A later delivery updates it but does not bring it back. */
 export async function dismissHeldNote(
   exec: Executor,

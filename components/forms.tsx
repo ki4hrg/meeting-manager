@@ -148,7 +148,10 @@ export function FormModal({
   )
 }
 
-/** An action that takes another back, offered on the toast that says it was done. */
+/**
+ * An action that takes another back, offered on the toast that says it was
+ * done. When the first action answers with an `undoId`, it is sent too.
+ */
 export type Undo = { action: Action; fields: Record<string, string> }
 
 function formOf(fields: Record<string, string>): FormData {
@@ -171,7 +174,9 @@ function useAction(action: Action, fields: Record<string, string>, done?: string
           label: 'Undo',
           run: () =>
             startTransition(async () => {
-              const back = await undo.action(formOf(undo.fields))
+              const back = await undo.action(
+                formOf(result.undoId ? { ...undo.fields, undoId: result.undoId } : undo.fields),
+              )
               if (back?.error) toast.error(back.error)
             }),
         })

@@ -1,4 +1,4 @@
-import { dismissNoteAction, fileNoteAction } from '@/app/(app)/meetings/processing-actions'
+import { dismissNoteAction, fileNoteAction, undismissNoteAction } from '@/app/(app)/meetings/processing-actions'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { Card } from '@/components/ui/Card'
 import { Field, Select } from '@/components/ui/Field'
@@ -56,7 +56,14 @@ export function UnfiledCard({
             {match ? `${match.title}${when(match.startsAt)}` : 'New meeting'}
           </span>
         </span>
-        <IconAction action={dismissNoteAction} fields={{ noteId: note.id }} icon="close" label="Dismiss" />
+        <IconAction
+          action={dismissNoteAction}
+          fields={{ noteId: note.id }}
+          icon="close"
+          label="Dismiss"
+          done="Dismissed"
+          undo={{ action: undismissNoteAction, fields: { noteId: note.id } }}
+        />
         {choices.length > 0 ? (
           <FormModal action={fileNoteAction} title="Link" label="Link" icon="link" variant="secondary" size="sm" submit="Link">
             <input type="hidden" name="noteId" value={note.id} />
