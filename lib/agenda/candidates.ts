@@ -17,6 +17,9 @@
  *     A person match alone is not enough in a larger meeting; those sit under
  *     "more" and are never placed for him, as do the items of a project the
  *     meeting's projects sit within.
+ *   - An item aimed at another meeting, series or project is on its way there
+ *     and is not offered here at all. An aim at a meeting that is over (or
+ *     gone) is spent, and the item is matched as if it had none.
  *   - John is at every meeting, so nothing is a candidate through him.
  *
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
@@ -206,6 +209,21 @@ export async function getCandidates(
     }
   }
 
+  // Meetings items are aimed at: one that is over, put away or gone no longer holds its item.
+  const aimedAt = [...new Set(open.flatMap((item) => (item.targetMeetingId ? [item.targetMeetingId] : [])))]
+  const live = new Set(
+    aimedAt.length === 0
+      ? []
+      : (
+          await exec
+            .select({ id: meetings.id, startsAt: meetings.startsAt, endsAt: meetings.endsAt })
+            .from(meetings)
+            .where(and(inArray(meetings.id, aimedAt), onShelf(meetings)))
+        )
+          .filter((one) => !isOver(one, now))
+          .map((one) => one.id),
+  )
+
   const toPlace: ItemView[] = []
   const dismissed: ItemView[] = []
   const suggested = new Map<string, CandidateGroup>()
@@ -223,6 +241,13 @@ export async function getCandidates(
       (parentAim !== null && item.targetMeetingId === parentAim) ||
       (next && item.targetSeriesId !== null && item.targetSeriesId === meeting.seriesId) ||
       (item.targetProjectId !== null && projectAims.get(item.targetProjectId) === meeting.id)
+    // On its way to somewhere else: not offered here, under any reason.
+    const aimedElsewhere =
+      !aimedHere &&
+      ((item.targetMeetingId !== null && live.has(item.targetMeetingId)) ||
+        item.targetSeriesId !== null ||
+        item.targetProjectId !== null)
+    if (aimedElsewhere) continue
     const viaProject = item.project !== null && projectIds.has(item.project.id)
     const viaChild = item.project !== null && !viaProject && below.has(item.project.id)
     const viaParent = item.project !== null && !viaProject && !viaChild && above.has(item.project.id)

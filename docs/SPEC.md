@@ -68,7 +68,7 @@ A single `items` table. Only `context` and `text` are required.
 - items owned by an attendee, or `with` an attendee, that also carry one of the meeting's projects or groups;
 - in a 1:1 (exactly two attendees, John and one other, and no group), anything owned by or `with` the other person. A meeting with a group is never a 1:1: what is for one member alone sits under "more" there, however few have joined so far.
 
-**Not suggested:** person-only items in larger meetings (reachable under "more"), and anything matched only through John himself.
+**Not suggested:** person-only items in larger meetings (reachable under "more"), anything matched only through John himself, and *(2026-10-04)* anything aimed at another meeting, series or project: it is on its way there. An aim at a meeting that is over or gone is spent, and the item is matched as if it had none.
 
 **Leak rule:** "Follow-ups due" and the recap draw only from items placed on the agenda or originating in this meeting, never from the raw candidate pull.
 
