@@ -21,6 +21,7 @@
  *     and is not offered here at all. An aim at a meeting that is over (or
  *     gone) is spent, and the item is matched as if it had none.
  *   - John is at every meeting, so nothing is a candidate through him.
+ *   - What came out of a meeting is not a candidate for that same meeting.
  *
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
  */
@@ -232,6 +233,8 @@ export async function getCandidates(
   for (const item of open) {
     // A decision is a record, not something to raise.
     if (item.kind === 'decision' || placedIds.has(item.id)) continue
+    // What came out of this meeting is its outcome, not something to raise at it.
+    if (item.originMeetingId === meeting.id) continue
 
     const attendee = item.parties.find(
       (party) => party.type === 'person' && !party.isSelf && attendeeIds.has(party.id),

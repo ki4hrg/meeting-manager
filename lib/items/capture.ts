@@ -115,6 +115,8 @@ export type CapturePresets = {
   parentItemId?: string
   /** Captured from a meeting's page: the item is aimed at that meeting's agenda. */
   targetMeetingId?: string
+  /** Captured as an outcome of a meeting: it came out of it, and is not raised there. */
+  originMeetingId?: string
 }
 
 function sameParty(a: PartyInput, b: PartyInput): boolean {
@@ -191,9 +193,13 @@ export async function captureLine(
       parentItemId: presets.parentItemId ?? null,
       /* A series named says where it is raised, over the meeting it was
          captured on. Otherwise something to raise is aimed at that meeting; a decision
-         is not raised, it was made there. */
+         is not raised, it was made there. An outcome came out of its meeting
+         whatever it is, and may still be raised at a series. */
+      ...(presets.originMeetingId ? { originMeetingId: presets.originMeetingId } : {}),
       ...(raiseAt
         ? { target: { seriesId: raiseAt.id } }
+        : presets.originMeetingId
+        ? {}
         : presets.targetMeetingId
         ? kind === 'decision'
           ? { originMeetingId: presets.targetMeetingId }

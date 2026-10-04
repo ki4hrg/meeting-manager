@@ -1,8 +1,9 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { listItems } from '../lib/items/items'
+import { createMeeting } from '../lib/meetings/meetings'
 import { db, resetBetweenTests } from './helpers/db'
-import { makeWorld } from './helpers/fixtures'
+import { actor, makeWorld } from './helpers/fixtures'
 import { connect, dataOf, identityFor, makeUser, textOf, type ConnectedClient } from './helpers/mcp'
 
 resetBetweenTests()
@@ -45,6 +46,20 @@ describe('capture_item', () => {
       owners: [{ name: 'Sarah Jones' }, { name: 'Tom Baker' }],
       with: [{ name: 'John', is_me: true }],
     })
+  })
+
+  it('records the meeting an item came out of, in its context', async () => {
+    const meeting = await createMeeting(db, actor, { contextId: world.parish.id, title: 'Staff' })
+    const result = await call('capture_item', {
+      text: 'Send the minutes',
+      kind: 'action',
+      owners: ['sarah'],
+      from_meeting: meeting.id,
+    })
+    expect(result.isError).toBeFalsy()
+    const { item } = dataOf<{ item: Item }>(result)
+    expect(item).toMatchObject({ context_id: world.parish.id, origin_meeting_id: meeting.id })
+    expect(await listItems(db, { contextId: world.parish.id, originMeetingId: meeting.id })).toHaveLength(1)
   })
 
   it('asks for the context when nothing implies one', async () => {

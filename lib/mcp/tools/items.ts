@@ -78,7 +78,8 @@ export const captureItemTool = defineTool({
     'owners owe the action or answer; with is who to raise it with (on an item I own, who it ' +
     'is owed to). "me" names the account holder. target_meeting, target_series or target_project aims it at ' +
     'one meeting, or at the next occurrence of a series, where prep places it on the agenda. ' +
-    'The context is inferred from the project, the target or a group when there is more than one.',
+    'from_meeting records the meeting it came out of: it is listed there and in its recap. ' +
+    'The context is inferred from the project, the meetings, the target or a group when there is more than one.',
   scope: 'meetings:write',
   input: z.object({
     text: z.string().min(1).describe('One line, in the wording to keep.'),
@@ -90,6 +91,7 @@ export const captureItemTool = defineTool({
     with: z.array(z.string()).optional().describe('People or groups, by name or id.'),
     due_on: z.string().optional().describe('A deadline, YYYY-MM-DD.'),
     parent_item_id: z.uuid().optional().describe('The item this one came out of.'),
+    from_meeting: z.uuid().optional().describe('Meeting id this came out of.'),
     target_meeting: z.uuid().optional().describe('Meeting id to raise this at.'),
     target_series: z
       .string()
@@ -109,10 +111,9 @@ export const captureItemTool = defineTool({
   handler: async (input, context) =>
     write(context, 'capture_item', input, async (tx) => {
       const parent = input.parent_item_id ? await getItem(tx, input.parent_item_id) : null
+      const meetingId = input.from_meeting ?? input.target_meeting
       const aimedAt =
-        !parent && !input.context && input.target_meeting
-          ? await getMeeting(tx, input.target_meeting)
-          : null
+        !parent && !input.context && meetingId ? await getMeeting(tx, meetingId) : null
       const contextId =
         parent?.contextId ??
         aimedAt?.contextId ??
@@ -137,6 +138,8 @@ export const captureItemTool = defineTool({
         dueOn: input.due_on,
         parties: await partiesFrom(tx, contextId, input),
         parentItemId: parent?.id ?? null,
+        // The item layer refuses a meeting that is in another context.
+        originMeetingId: input.from_meeting ?? null,
         target,
       })
       return { item: itemOut(item) }
