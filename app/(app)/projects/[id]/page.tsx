@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { DocumentCard } from '@/components/documents/DocumentCard'
 import { FormModal, IconAction } from '@/components/forms'
 import { iconButtonClasses } from '@/components/ui/IconButton'
+import { Answered } from '@/components/items/Answered'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { StatusField } from '@/components/projects/StatusField'
@@ -389,11 +390,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           <ItemGrid items={decisions} today={today} empty="decision" showProject={rolled} />
         </Section>
 
-        {answers.length > 0 ? (
-          <Section title="Answered" count={answers.length}>
-            <ItemGrid items={answers} today={today} empty="question" showProject={rolled} />
-          </Section>
-        ) : null}
+        <Answered items={answers} today={today} on={{ projectId: id }} showProject={rolled} />
 
         <HubMeetings
           hub={{ kind: 'project', ids: scope }}

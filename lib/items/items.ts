@@ -903,6 +903,23 @@ export async function answerItem(
   })
 }
 
+/**
+ * A question recorded already answered: asked and settled somewhere this app
+ * did not see, kept with its answer on the project, group or series it belongs to.
+ */
+export async function recordAnswered(
+  exec: Executor,
+  actor: ActorContext,
+  input: Omit<CreateItemInput, 'kind'> & { answer: string },
+): Promise<ItemView> {
+  const { answer, ...question } = input
+  if (answer.trim() === '') throw new ValidationError('Enter the answer.')
+  return inTransaction(exec, async (tx) => {
+    const item = await createItem(tx, actor, { ...question, kind: 'question' })
+    return (await answerItem(tx, actor, item.id, { answer })).item
+  })
+}
+
 export async function dropItem(exec: Executor, actor: ActorContext, id: string): Promise<ItemView> {
   return inTransaction(exec, async (tx) => {
     const item = await getItem(tx, id)

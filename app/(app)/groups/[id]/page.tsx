@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
+import { Answered } from '@/components/items/Answered'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { QuickAdd } from '@/components/QuickAdd'
@@ -135,11 +136,7 @@ export default async function GroupPage({
           <ItemGrid items={decisions} today={today} empty="decision" />
         </Section>
 
-        {answers.length > 0 ? (
-          <Section title="Answered" count={answers.length}>
-            <ItemGrid items={answers} today={today} empty="question" />
-          </Section>
-        ) : null}
+        <Answered items={answers} today={today} on={{ groupId: id }} />
 
         <HubMeetings
           hub={{ kind: 'group', id }}

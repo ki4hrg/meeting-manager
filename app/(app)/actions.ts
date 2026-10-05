@@ -7,7 +7,7 @@ import { placeItem } from '@/lib/agenda/candidates'
 import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
-import { addGroupEmail, addMember, createGroup, removeGroupEmail, removeMember, renameGroup } from '@/lib/directory/groups'
+import { addGroupEmail, addMember, createGroup, getGroup, removeGroupEmail, removeMember, renameGroup } from '@/lib/directory/groups'
 import {
   addPersonEmail,
   createPerson,
@@ -29,6 +29,7 @@ import {
   getItem,
   isOpen,
   parkItem,
+  recordAnswered,
   recordDecision,
   removeItemParty,
   reopenItem,
@@ -46,10 +47,12 @@ import {
   createProject,
   deleteLink,
   deleteMilestone,
+  getProject,
   updateProject,
   type ProjectStatus,
 } from '@/lib/projects/projects'
 import { getMeeting } from '@/lib/meetings/meetings'
+import { getSeries } from '@/lib/meetings/series'
 import { act, field, partyRef, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 import { switchTarget } from '@/lib/web/switch'
@@ -101,7 +104,9 @@ export async function captureAction(formData: FormData): Promise<ActionResult> {
       ? (await getItem(db, presets.parentItemId)).contextId
       : meetingId
         ? (await getMeeting(db, meetingId)).contextId
-        : (await currentContext())?.id
+        : presets.targetSeriesId
+          ? (await getSeries(db, presets.targetSeriesId)).contextId
+          : (await currentContext())?.id
     if (!contextId) throw new ValidationError('Create a context first.')
 
     await inTransaction(db, async (tx) => {
@@ -111,6 +116,29 @@ export async function captureAction(formData: FormData): Promise<ActionResult> {
         await placeItem(tx, actor, presets.targetMeetingId, item.id)
       }
     })
+  })
+}
+
+/* A question and its answer, recorded on the project, group or series page it was added from. */
+export async function addAnsweredAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const text = field(formData, 'text')
+    const answer = field(formData, 'answer')
+    const projectId = field(formData, 'projectId')
+    const groupId = field(formData, 'groupId')
+    const seriesId = field(formData, 'seriesId')
+    if (projectId) {
+      const { contextId } = await getProject(db, projectId)
+      await recordAnswered(db, actor, { contextId, text, answer, projectId })
+    } else if (groupId) {
+      const { contextId } = await getGroup(db, groupId)
+      await recordAnswered(db, actor, { contextId, text, answer, parties: [{ groupId, role: 'owner' }] })
+    } else if (seriesId) {
+      const { contextId } = await getSeries(db, seriesId)
+      await recordAnswered(db, actor, { contextId, text, answer, target: { seriesId } })
+    } else {
+      throw new ValidationError('That could not be added. Reload the page and try again.')
+    }
   })
 }
 
