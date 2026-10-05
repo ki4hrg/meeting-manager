@@ -17,7 +17,7 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { getGroup, listGroupEmails, listMembers } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
-import { listItems, type ItemView } from '@/lib/items/items'
+import { answered, listItems, type ItemView } from '@/lib/items/items'
 import { viewer } from '@/lib/web/context'
 import {
   addGroupEmailAction,
@@ -56,6 +56,7 @@ export default async function GroupPage({
   const owes = open.filter((item) => has(item, id, 'owner'))
   const waiting = open.filter((item) => has(item, id, 'with'))
   const decisions = all.filter((item) => item.kind === 'decision')
+  const answers = answered(all)
 
   const archived = !!group.archivedAt
   const emails = await listGroupEmails(db, id)
@@ -133,6 +134,12 @@ export default async function GroupPage({
         >
           <ItemGrid items={decisions} today={today} empty="decision" />
         </Section>
+
+        {answers.length > 0 ? (
+          <Section title="Answered" count={answers.length}>
+            <ItemGrid items={answers} today={today} empty="question" />
+          </Section>
+        ) : null}
 
         <HubMeetings
           hub={{ kind: 'group', id }}

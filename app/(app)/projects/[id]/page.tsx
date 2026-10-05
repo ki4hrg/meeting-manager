@@ -20,7 +20,7 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listDocuments } from '@/lib/documents/documents'
-import { isOpen, listItems, type ItemView } from '@/lib/items/items'
+import { answered, isAnswered, isOpen, listItems, type ItemView } from '@/lib/items/items'
 import {
   ancestorIds,
   descendantIds,
@@ -125,7 +125,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
   const topics = open.filter((item) => item.kind === 'topic')
   const decisions = all.filter((item) => item.kind === 'decision')
-  const closed = all.filter((item) => item.kind !== 'decision' && !isOpen(item)).slice(0, 6)
+  const answers = answered(all)
+  const closed = all.filter((item) => item.kind !== 'decision' && !isOpen(item) && !isAnswered(item)).slice(0, 6)
 
   const archived = !!project.archivedAt
 
@@ -387,6 +388,12 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         >
           <ItemGrid items={decisions} today={today} empty="decision" showProject={rolled} />
         </Section>
+
+        {answers.length > 0 ? (
+          <Section title="Answered" count={answers.length}>
+            <ItemGrid items={answers} today={today} empty="question" showProject={rolled} />
+          </Section>
+        ) : null}
 
         <HubMeetings
           hub={{ kind: 'project', ids: scope }}

@@ -94,4 +94,26 @@ describe('a hub reaches its calendar', () => {
     const hub = await hubUpcoming(db, w.parish.id, { kind: 'project', ids: [w.campaign.id] }, { now: NOW, events })
     expect(titles(hub.entries)).toEqual(['Campaign committee'])
   })
+
+  it('says when its calendar holds more beyond the window, and when it does not', async () => {
+    const w = await makeWorld()
+    const staff = await createSeries(db, { contextId: w.parish.id, name: 'Staff', calendarSeriesId: 'rec-3' })
+    const hub = { kind: 'series', id: staff.id } as const
+    const far = event({ eventId: 'far', seriesId: 'rec-3', title: 'Staff', startsAt: at('2026-11-02T15:00:00Z'), endsAt: at('2026-11-02T16:00:00Z') })
+    const notOurs = event({ eventId: 'lunch', title: 'Lunch', startsAt: at('2026-10-30T15:00:00Z'), endsAt: at('2026-10-30T16:00:00Z') })
+
+    const ahead = await hubUpcoming(db, w.parish.id, hub, { now: NOW, reach: 180, events: [notOurs, far] })
+    expect(ahead.entries).toEqual([])
+    expect(ahead.further).toEqual(far.startsAt)
+
+    // Nothing of its own further out: no More.
+    const none = await hubUpcoming(db, w.parish.id, hub, { now: NOW, reach: 180, events: [notOurs] })
+    expect(none.further).toBeNull()
+
+    // A meeting further out is listed as it is, without More.
+    await createMeeting(db, actor, { contextId: w.parish.id, seriesId: staff.id, title: 'Staff by hand', startsAt: at('2026-11-09T15:00:00Z'), endsAt: at('2026-11-09T16:00:00Z') })
+    const later = await hubUpcoming(db, w.parish.id, hub, { now: NOW, reach: 180, events: [] })
+    expect(later.later.map((m) => m.title)).toEqual(['Staff by hand'])
+    expect(later.further).toBeNull()
+  })
 })

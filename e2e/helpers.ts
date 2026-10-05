@@ -5,7 +5,7 @@ export async function selectedContext(page: Page): Promise<string> {
   return (await page.locator('select[aria-label=Context] option:checked').textContent()) ?? ''
 }
 
-/** Select a context through the switcher, which lands on home. */
+/** Select a context through the switcher, from home. */
 export async function selectContext(page: Page, name: string) {
   await page.goto('/')
   if ((await selectedContext(page)) === name) return

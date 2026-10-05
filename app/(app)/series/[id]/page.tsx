@@ -2,6 +2,7 @@ import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
+import { ItemGrid } from '@/components/items/ItemCard'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { SkeletonEditor } from '@/components/series/SkeletonEditor'
 import { Card, CardHeader, LinkCard, Section } from '@/components/ui/Card'
@@ -23,6 +24,7 @@ import type { BlockSettings } from '@/lib/db/schema'
 import { allGroupEmails, listGroups, listMembers } from '@/lib/directory/groups'
 import { GroupCluster, MeChip, MemberLink } from '@/components/meetings/Roster'
 import { listPeople } from '@/lib/directory/people'
+import { answered, listItems } from '@/lib/items/items'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
 import { calendarLinkOf, unlinkedRecurring } from '@/lib/meetings/prep'
 import { outOfStep } from '@/lib/meetings/roster'
@@ -116,6 +118,10 @@ export default async function SeriesPage({
     new Intl.DateTimeFormat('en-US', { timeZone: user.timeZone ?? undefined, weekday: 'short' }).format(at) +
     ' ' +
     formatTime(at, user.timeZone)
+
+  const answers = answered(
+    await listItems(db, { contextId: context.id, kinds: ['question'], statuses: ['done'], seriesId: id }),
+  )
 
   // Sections and their lines as one flat list, for the preview.
   const agenda = next ? await getAgenda(db, next.id, { timeZone: user.timeZone }) : null
@@ -433,6 +439,12 @@ export default async function SeriesPage({
         >
           {null}
         </Section>
+
+        {answers.length > 0 ? (
+          <Section title="Answered" count={answers.length}>
+            <ItemGrid items={answers} today={today} empty="question" />
+          </Section>
+        ) : null}
 
         <HubMeetings
           hub={{ kind: 'series', id: series.id }}
