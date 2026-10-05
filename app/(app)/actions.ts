@@ -53,7 +53,7 @@ import {
 } from '@/lib/projects/projects'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { getSeries } from '@/lib/meetings/series'
-import { act, field, partyRef, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { act, field, partyRef, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 import { switchTarget } from '@/lib/web/switch'
 
@@ -230,12 +230,19 @@ export async function supersedeDecisionAction(formData: FormData): Promise<Actio
   return result
 }
 
+/* Everyone picked joins in one role; a name nobody has yet is added to the
+   directory on the way. */
 export async function addPartyAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    const party = partyRef(field(formData, 'party'))
-    if (!party) throw new ValidationError('Pick a person or a group.')
     const role = field(formData, 'role') === 'owner' ? 'owner' : 'with'
-    await addItemParty(db, actor, field(formData, 'id'), { ...party, role })
+    const id = field(formData, 'id')
+    await inTransaction(db, async (tx) => {
+      const people = await pickedPeople(tx, formData, 'party')
+      const groups = pickedGroups(formData, 'party')
+      if (people.length + groups.length === 0) throw new ValidationError('Pick a person or a group.')
+      for (const personId of people) await addItemParty(tx, actor, id, { personId, role })
+      for (const groupId of groups) await addItemParty(tx, actor, id, { groupId, role })
+    })
   })
 }
 

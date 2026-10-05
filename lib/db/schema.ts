@@ -477,6 +477,10 @@ export const itemEvents = pgTable(
    no series, or with `blocks` null, falls back to all off. */
 export type BlockSettings = { followUps: boolean; sinceLast: boolean; lookahead: boolean }
 
+/* John's own wording for a recap's prose, over what the runs wrote. A key that
+   is absent keeps the computed text; an empty string leaves that part out. */
+export type RecapEdits = { summary?: string; lines?: Record<string, string> }
+
 /* A series' standing agenda, copied onto each new occurrence. */
 export type SkeletonSection = {
   title: string
@@ -586,6 +590,7 @@ export const meetings = pgTable(
        after the meeting ended. Until then its groups stand for their members
        as they are; from then on meeting_people is the record. */
     attendanceAt: timestamp('attendance_at', { withTimezone: true }),
+    recapEdits: jsonb('recap_edits').$type<RecapEdits>(),
     ...timestamps,
     ...shelved,
   },

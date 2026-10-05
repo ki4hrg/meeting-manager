@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { placeItem, restoreCandidate } from '@/lib/agenda/candidates'
+import { setRecapEdits } from '@/lib/agenda/recap'
 import {
   addLine,
   addSection,
@@ -420,5 +421,34 @@ export async function settleAttendanceAction(formData: FormData): Promise<Action
       const added = await pickedPeople(tx, formData, 'personIds')
       await settleAttendance(tx, field(formData, 'meetingId'), [...present, ...added])
     })
+  })
+}
+
+// ─── recap ───────────────────────────────────────────────────────────────────
+
+/* The recap's edit form: the summary, and each line it says something under.
+   Only what was changed from what the form opened with is kept as an edit, so
+   a later run still reaches the parts John left alone. */
+export async function editRecapAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const meeting = await getMeeting(db, field(formData, 'id'))
+    const changed = (name: string) => {
+      const value = String(formData.get(name) ?? '').trim()
+      return value === String(formData.get(`${name}Was`) ?? '').trim() ? undefined : value
+    }
+    const lines: Record<string, string> = {}
+    for (const lineId of ids(formData, 'lineId')) {
+      const value = changed(`line:${lineId}`)
+      if (value !== undefined) lines[lineId] = value
+    }
+    await setRecapEdits(db, actor, meeting.id, { summary: changed('summary'), lines })
+  })
+}
+
+/** Back to the recap the runs wrote. */
+export async function resetRecapAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const meeting = await getMeeting(db, field(formData, 'id'))
+    await setRecapEdits(db, actor, meeting.id, null)
   })
 }

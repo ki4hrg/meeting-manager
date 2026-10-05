@@ -4,49 +4,92 @@ import { Icon, type IconName } from '@/components/ui/icons'
 import { Badge, ContextBadge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDay } from '@/lib/core/dates'
 import { isLater } from '@/lib/items/horizon'
-import { isOpen, type ItemParty, type ItemView } from '@/lib/items/items'
+import { isOpen, type ItemKind, type ItemParty, type ItemView } from '@/lib/items/items'
+import { COLLABORATOR, hasCollaborators, roleLabel, roleOrder, type PartyRole } from '@/lib/items/roles'
 import { switches } from '@/lib/web/open'
 
 function names(parties: ItemParty[]): string {
   return parties.map((party) => (party.isSelf ? 'Me' : party.name)).join(', ')
 }
 
+const mark = (list: ItemParty[]): IconName =>
+  list.length > 1 || list[0]?.type === 'group' ? 'group' : 'person'
+
 /**
- * Who an item involves, without the words "owner" or "with": owners come
- * first under a person or group icon, and an arrow leads to who it is with.
- * An owner that is only a guess is marked on the owner itself.
+ * Who an item involves, without the words "owner" or "with". Whoever leads
+ * comes first under a person or group icon, collaborators follow the two-way
+ * mark, and the arrow points at who it is for: on a question, who it is asked
+ * of; on a decision, who decides (`lib/items/roles.ts`). An owner that is only
+ * a guess is marked on the owner itself.
  */
-export function PartyLine({ parties, ownerGuessed = false }: { parties: ItemParty[]; ownerGuessed?: boolean }) {
-  const owners = parties.filter((party) => party.role === 'owner')
-  const withs = parties.filter((party) => party.role === 'with')
+export function PartyLine({
+  parties,
+  kind = 'action',
+  ownerGuessed = false,
+}: {
+  parties: ItemParty[]
+  kind?: ItemKind
+  ownerGuessed?: boolean
+}) {
   if (parties.length === 0) return <span />
+  const [lead, target] = roleOrder(kind)
+  const of = (role: PartyRole) => parties.filter((party) => party.role === role)
+  const leading = of(lead)
+  const pointed = of(target)
 
-  const icon = (list: ItemParty[]): IconName =>
-    list.length > 1 || list[0]?.type === 'group' ? 'group' : 'person'
+  /* An action's or a topic's first owner leads and the rest are collaborators;
+     anywhere else everyone in the role stands together. */
+  const split = (list: ItemParty[]) =>
+    lead === 'owner' && hasCollaborators(kind) ? [list.slice(0, 1), list.slice(1)] : [list, []]
 
-  return (
-    <span className="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-      {owners.length > 0 && ownerGuessed ? (
+  const run = (role: PartyRole, list: ItemParty[], first: React.ReactNode) => {
+    const [main, together] = split(list)
+    const body = (
+      <>
+        {first}
+        <span className="truncate">{names(main!)}</span>
+        {together!.length > 0 ? (
+          <>
+            <Icon name="mutual" className="h-3.5 w-3.5 shrink-0" label={COLLABORATOR} />
+            <span className="truncate">{names(together!)}</span>
+          </>
+        ) : null}
+      </>
+    )
+    if (role === 'owner' && ownerGuessed) {
+      return (
         <span title="Owner is a guess" className="flex min-w-0">
           <Badge tone="amber">
-            <Icon name={icon(owners)} className="h-3 w-3 shrink-0" label="Owner" />
-            <span className="truncate">{names(owners)}</span>
+            {body}
             <span aria-hidden>?</span>
             <span className="sr-only">(a guess)</span>
           </Badge>
         </span>
-      ) : owners.length > 0 ? (
-        <>
-          <Icon name={icon(owners)} className="h-3.5 w-3.5 shrink-0" label="Owner" />
-          <span className="truncate">{names(owners)}</span>
-        </>
-      ) : null}
-      {withs.length > 0 ? (
-        <>
-          <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0" label="With" />
-          <span className="truncate">{names(withs)}</span>
-        </>
-      ) : null}
+      )
+    }
+    return body
+  }
+
+  return (
+    <span className="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+      {leading.length > 0
+        ? run(
+            lead,
+            leading,
+            <Icon
+              name={mark(split(leading)[0]!)}
+              className="h-3.5 w-3.5 shrink-0"
+              label={roleLabel(kind, lead)}
+            />,
+          )
+        : null}
+      {pointed.length > 0
+        ? run(
+            target,
+            pointed,
+            <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0" label={roleLabel(kind, target)} />,
+          )
+        : null}
     </span>
   )
 }
@@ -91,7 +134,7 @@ export function ItemCard({
             </p>
           ) : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-            <PartyLine parties={item.parties} />
+            <PartyLine parties={item.parties} kind={item.kind} />
             <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
               {context ? <ContextBadge name={context} /> : null}
               {showProject && item.project ? <Badge>{item.project.name}</Badge> : null}

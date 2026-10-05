@@ -15,12 +15,16 @@
  * and what John took away is part of that.
  *
  * Private notes on agenda lines are never read into a recap.
+ *
+ * Its prose (the summary and what was said under each line) is the model's
+ * until John rewords it: his edits are kept on the meeting (`recap_edits`)
+ * and stand over whatever a later run writes. Items are edited as items.
  */
 
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { formatDay, formatSpan, formatWeekday, todayIn } from '../core/dates'
-import { NotFoundError, type Executor } from '../core/types'
-import { meetings, notes, personEmails, processingRuns } from '../db/schema'
+import { NotFoundError, type ActorContext, type Executor } from '../core/types'
+import { meetings, notes, personEmails, processingRuns, type RecapEdits } from '../db/schema'
 import { onShelf } from '../db/shelf'
 import { getMeeting } from '../meetings/meetings'
 import { isOpen, listItems, type ItemKind, type ItemStatus, type ItemView } from '../items/items'
@@ -70,6 +74,8 @@ export type Recap = {
     resolution: string | null
   }[]
   lookahead: LookaheadBlock | null
+  /** Whether John has reworded any of its prose. */
+  edited: boolean
   recipients: { personId: string; name: string; email: string }[]
   /** Carried so the renderers format dates as the user reads them. */
   today: string
@@ -235,8 +241,9 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
       if (text) said.set(line.lineId, [...(said.get(line.lineId) ?? []), text])
     }
   }
+  const edits: RecapEdits = meeting.recapEdits ?? {}
   const lines: Recap['lines'] = []
-  if (said.size > 0) {
+  if (said.size > 0 || Object.keys(edits.lines ?? {}).length > 0) {
     for (const row of covered) {
       const agenda = await getAgenda(exec, row.id, { timeZone: opts.timeZone })
       const listed = agenda.nodes.flatMap((node) =>
@@ -248,8 +255,9 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
           : [{ id: node.id, text: node.text, description: node.description }],
       )
       for (const { id, text, description } of listed) {
-        const summary = said.get(id)
-        if (summary) lines.push({ lineId: id, text, description, summary: summary.join('\n\n') })
+        const own = edits.lines?.[id]
+        const summary = own !== undefined ? own.trim() : (said.get(id) ?? []).join('\n\n')
+        if (summary) lines.push({ lineId: id, text, description, summary })
       }
     }
   }
@@ -316,17 +324,54 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
       endsAt: meeting.endsAt,
       people: attendees,
     },
-    summary: summaries.length > 0 ? summaries.join('\n\n') : null,
+    summary:
+      edits.summary !== undefined
+        ? edits.summary.trim() || null
+        : summaries.length > 0
+          ? summaries.join('\n\n')
+          : null,
     lines,
     decisions: decisions.map((item) => ({ itemId: item.id, text: item.text })),
     owed,
     closed,
     lookahead,
+    edited: edits.summary !== undefined || Object.keys(edits.lines ?? {}).length > 0,
     recipients,
     today: opts.today,
     timeZone: opts.timeZone,
     selfId: opts.selfId,
   }
+}
+
+/**
+ * Reword a recap's prose. Only what is given changes: a summary or a line's
+ * text replaces the computed one, an empty string leaves it out, and null
+ * clears every edit, so the recap is the runs' again.
+ */
+export async function setRecapEdits(
+  exec: Executor,
+  _actor: ActorContext,
+  meetingId: string,
+  change: RecapEdits | null,
+): Promise<void> {
+  const [meeting] = await exec.select().from(meetings).where(eq(meetings.id, meetingId)).limit(1)
+  if (!meeting) throw new NotFoundError('Meeting', meetingId)
+  const was = meeting.recapEdits ?? {}
+  const next: RecapEdits | null =
+    change === null
+      ? null
+      : {
+          ...(change.summary !== undefined
+            ? { summary: change.summary }
+            : was.summary !== undefined
+              ? { summary: was.summary }
+              : {}),
+          lines: { ...was.lines, ...change.lines },
+        }
+  await exec
+    .update(meetings)
+    .set({ recapEdits: next, updatedAt: new Date() })
+    .where(eq(meetings.id, meetingId))
 }
 
 // ─── writing out ─────────────────────────────────────────────────────────────

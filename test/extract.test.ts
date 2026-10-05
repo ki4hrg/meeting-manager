@@ -68,6 +68,7 @@ function input(over: Partial<ExtractionInput> = {}): ExtractionInput {
 }
 
 type Wire = {
+  selfSpeaker: string | null
   summary: string | null
   lines: { lineId: string; summary: string }[]
   verbatimDetails: { index: number; detail: string }[]
@@ -78,7 +79,7 @@ type Wire = {
 }
 
 function wire(over: Partial<Wire> = {}): Wire {
-  return { summary: null, lines: [], verbatimDetails: [], items: [], updates: [], documents: [], stubs: [], ...over }
+  return { selfSpeaker: null, summary: null, lines: [], verbatimDetails: [], items: [], updates: [], documents: [], stubs: [], ...over }
 }
 
 function item(over: Record<string, unknown> = {}) {
@@ -492,12 +493,13 @@ describe('extractorFromEnv', () => {
 describe('the eval fixtures', () => {
   const fixtures = loadFixtures()
 
-  it('cover the four cases', () => {
+  it('cover the five cases', () => {
     expect(fixtures.map((fixture) => fixture.name)).toEqual([
       'lunch-menu',
       'routine-one-to-one',
       'committee',
       'drop-in',
+      'anonymous-speakers',
     ])
   })
 

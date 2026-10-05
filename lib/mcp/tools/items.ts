@@ -76,7 +76,8 @@ export const captureItemTool = defineTool({
     'Capture a topic, question, action or decision. Only text is required; with nothing else ' +
     `it lands in the Inbox as a topic. ${KIND_RULE} ` +
     'owners owe the action or answer; with is who to raise it with (on an item I own, who it ' +
-    'is owed to). "me" names the account holder. target_meeting, target_series or target_project aims it at ' +
+    'is owed to). On a question, owners are who it is asked of and with is who asked; on a ' +
+    'decision, owners are who decides. Several owners of an action are doing it together. "me" names the account holder. target_meeting, target_series or target_project aims it at ' +
     'one meeting, or at the next occurrence of a series, where prep places it on the agenda. ' +
     'from_meeting records the meeting it came out of: it is listed there and in its recap. ' +
     'The context is inferred from the project, the meetings, the target or a group when there is more than one.',
