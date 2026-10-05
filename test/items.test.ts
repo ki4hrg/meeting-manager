@@ -15,6 +15,7 @@ import {
   listItems,
   openCounts,
   parkItem,
+  recordAnswered,
   recordDecision,
   reopenItem,
   setItemParties,
@@ -371,5 +372,18 @@ describe("a series' answered questions", () => {
     expect(answered(ofStaff).map((i) => i.text).sort()).toEqual(['Aimed at it', 'In a session', 'Raised there'])
     expect(ofStaff.map((i) => i.id)).toContain(open.id)
     expect(isAnswered(ofStaff.find((i) => i.id === open.id)!)).toBe(false)
+  })
+})
+
+describe('recording an answered question', () => {
+  it('asks and answers it at once, and refuses one without its answer', async () => {
+    const { parish, retreat } = await makeWorld()
+    const item = await recordAnswered(db, actor, { contextId: parish.id, text: 'Where do we stay?', answer: 'The abbey', projectId: retreat.id })
+    expect(item).toMatchObject({ kind: 'question', status: 'done', resolution: 'The abbey' })
+    expect(item.project?.id).toBe(retreat.id)
+    await expect(
+      recordAnswered(db, actor, { contextId: parish.id, text: 'When?', answer: '  ', projectId: retreat.id }),
+    ).rejects.toThrow('Enter the answer.')
+    expect((await listItems(db, { contextId: parish.id })).map((i) => i.text)).toEqual(['Where do we stay?'])
   })
 })

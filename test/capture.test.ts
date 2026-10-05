@@ -224,3 +224,29 @@ describe('inferContext', () => {
     await expect(inferContext(db, { parties: ['sarah'] })).rejects.toThrow('Parish, Diocese')
   })
 })
+
+describe('capture on a hub or a meeting', () => {
+  it("raises what is added on a series' page at its next occurrence, but not a decision", async () => {
+    const w = await makeWorld()
+    const staff = await createSeries(db, { contextId: w.parish.id, name: 'Staff' })
+    const item = await captureLine(db, actor, { contextId: w.parish.id, line: 'Q: who opens up', presets: { targetSeriesId: staff.id } })
+    expect(item).toMatchObject({ kind: 'question', targetSeriesId: staff.id })
+    await expect(
+      captureLine(db, actor, { contextId: w.parish.id, line: 'D: we open at nine', presets: { targetSeriesId: staff.id } }),
+    ).rejects.toThrow('not something to raise')
+  })
+
+  it('puts what is added on a meeting about one project on that project, unless the line names another', async () => {
+    const w = await makeWorld()
+    const one = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Retreat planning', projectIds: [w.retreat.id] })
+    const session = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Breakout', parentMeetingId: one.id })
+    const two = await createMeeting(db, actor, { contextId: w.parish.id, title: 'Both', projectIds: [w.retreat.id, w.campaign.id] })
+
+    const add = (line: string, presets: object) => captureLine(db, actor, { contextId: w.parish.id, line, presets })
+    expect((await add('Q: where do we stay', { targetMeetingId: one.id })).project?.id).toBe(w.retreat.id)
+    expect((await add('A: book the house', { originMeetingId: one.id })).project?.id).toBe(w.retreat.id)
+    expect((await add('Q: who leads it', { targetMeetingId: session.id })).project?.id).toBe(w.retreat.id)
+    expect((await add('Q: the pledge cards #Capital-campaign', { targetMeetingId: one.id })).project?.id).toBe(w.campaign.id)
+    expect((await add('Q: which comes first', { targetMeetingId: two.id })).project).toBeNull()
+  })
+})

@@ -14,7 +14,9 @@
  * action, he owes it and everyone else named is who it is owed to.
  */
 
+import { eq } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
+import { meetingProjects, meetings } from '../db/schema'
 import { resolveMention, resolveProject, resolveSeries, type Mention, type Party } from '../directory/resolve'
 import { createItem, type ItemKind, type ItemView, type PartyInput, type PartyRole } from './items'
 
@@ -117,6 +119,25 @@ export type CapturePresets = {
   targetMeetingId?: string
   /** Captured as an outcome of a meeting: it came out of it, and is not raised there. */
   originMeetingId?: string
+  /** Captured on a series' page: raised at its next occurrence. */
+  targetSeriesId?: string
+}
+
+/*
+ * The one project a meeting is about, if it is about exactly one: a session
+ * with none of its own is about its parent's. Several, or none, say nothing.
+ */
+export async function meetingProject(exec: Executor, meetingId: string): Promise<string | null> {
+  const own = await exec
+    .select({ projectId: meetingProjects.projectId })
+    .from(meetingProjects)
+    .where(eq(meetingProjects.meetingId, meetingId))
+  if (own.length > 0) return own.length === 1 ? own[0]!.projectId : null
+  const [row] = await exec
+    .select({ parentId: meetings.parentMeetingId })
+    .from(meetings)
+    .where(eq(meetings.id, meetingId))
+  return row?.parentId ? meetingProject(exec, row.parentId) : null
 }
 
 function sameParty(a: PartyInput, b: PartyInput): boolean {
@@ -156,9 +177,10 @@ export async function captureLine(
     ]
 
     const [project, ...moreProjects] = distinct('project')
-    const [raiseAt, ...moreSeries] = distinct('series')
+    const [named, ...moreSeries] = distinct('series')
     if (moreProjects.length > 0) throw new ValidationError('An item belongs to one project.')
     if (moreSeries.length > 0) throw new ValidationError('An item is raised at one series.')
+    const raiseAt = named ?? (presets.targetSeriesId ? { id: presets.targetSeriesId } : undefined)
     if (raiseAt && kind === 'decision') {
       throw new ValidationError('A decision is a record, not something to raise.')
     }
@@ -184,11 +206,17 @@ export async function captureLine(
     })
     if (text === '') throw new ValidationError('Enter some text.')
 
+    /* Added on a meeting about one project, it is on that project unless the
+       line names another. */
+    const meetingId = presets.originMeetingId ?? presets.targetMeetingId
+    const projectId =
+      project?.id ?? presets.projectId ?? (meetingId ? await meetingProject(tx, meetingId) : null)
+
     return createItem(tx, actor, {
       contextId: input.contextId,
       kind,
       text,
-      projectId: project?.id ?? presets.projectId ?? null,
+      projectId,
       parties,
       parentItemId: presets.parentItemId ?? null,
       /* A series named says where it is raised, over the meeting it was

@@ -2,7 +2,9 @@ import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
+import { Answered } from '@/components/items/Answered'
 import { ItemGrid } from '@/components/items/ItemCard'
+import { QuickAdd } from '@/components/QuickAdd'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { SkeletonEditor } from '@/components/series/SkeletonEditor'
 import { Card, CardHeader, LinkCard, Section } from '@/components/ui/Card'
@@ -24,7 +26,7 @@ import type { BlockSettings } from '@/lib/db/schema'
 import { allGroupEmails, listGroups, listMembers } from '@/lib/directory/groups'
 import { GroupCluster, MeChip, MemberLink } from '@/components/meetings/Roster'
 import { listPeople } from '@/lib/directory/people'
-import { answered, listItems } from '@/lib/items/items'
+import { answered, isOpen, listItems } from '@/lib/items/items'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
 import { calendarLinkOf, unlinkedRecurring } from '@/lib/meetings/prep'
 import { outOfStep } from '@/lib/meetings/roster'
@@ -119,9 +121,14 @@ export default async function SeriesPage({
     ' ' +
     formatTime(at, user.timeZone)
 
-  const answers = answered(
-    await listItems(db, { contextId: context.id, kinds: ['question'], statuses: ['done'], seriesId: id }),
-  )
+  /* Raised at its meetings or aimed at its next one. What is added here is
+     aimed at the next one. */
+  const all = await listItems(db, { contextId: context.id, seriesId: id })
+  const open = all.filter(isOpen)
+  const topics = open.filter((item) => item.kind === 'topic')
+  const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
+  const decisions = all.filter((item) => item.kind === 'decision')
+  const answers = answered(all)
 
   // Sections and their lines as one flat list, for the preview.
   const agenda = next ? await getAgenda(db, next.id, { timeZone: user.timeZone }) : null
@@ -440,11 +447,30 @@ export default async function SeriesPage({
           {null}
         </Section>
 
-        {answers.length > 0 ? (
-          <Section title="Answered" count={answers.length}>
-            <ItemGrid items={answers} today={today} empty="question" />
+        <Section
+          title="Topics"
+          count={topics.length}
+          action={<QuickAdd presets={{ kind: 'topic', targetSeriesId: series.id }} />}
+        >
+          <ItemGrid items={topics} today={today} empty="topic" />
+        </Section>
+
+        <Section
+          title="Owed"
+          count={owed.length}
+          action={<QuickAdd presets={{ kind: 'action', targetSeriesId: series.id }} />}
+        >
+          <ItemGrid items={owed} today={today} empty="action" />
+        </Section>
+
+        {/* Made at its meetings: nothing to add from here. */}
+        {decisions.length > 0 ? (
+          <Section title="Decisions" count={decisions.length}>
+            <ItemGrid items={decisions} today={today} empty="decision" />
           </Section>
         ) : null}
+
+        <Answered items={answers} today={today} on={{ seriesId: series.id }} />
 
         <HubMeetings
           hub={{ kind: 'series', id: series.id }}

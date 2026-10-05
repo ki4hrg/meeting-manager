@@ -16,3 +16,16 @@ test("pausing a project offers to pause its sub-projects, and does only when ask
   await page.goto('/projects')
   await expect(page.getByText('Paused')).toHaveCount(3)
 })
+
+test('an answered question is recorded on a project with its answer', async ({ page }) => {
+  await page.goto('/projects')
+  await page.getByRole('link').filter({ hasText: WORLD.projects.worship }).first().click()
+  const answered = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Answered/ }) })
+  await answered.getByRole('button', { name: 'Add', exact: true }).click()
+  await dialog(page).getByLabel('Question').fill('Who plays the organ?')
+  await dialog(page).getByLabel('Answer').fill('The cathedral organist')
+  await dialog(page).getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(dialog(page)).toHaveCount(0)
+  await expect(answered.getByText('Who plays the organ?')).toBeVisible()
+  await expect(answered.getByText('The cathedral organist')).toBeVisible()
+})
