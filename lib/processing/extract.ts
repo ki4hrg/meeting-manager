@@ -54,6 +54,12 @@ const CHANGES = ['complete', 'answer', 'drop', 'note', 'discussed'] as const
  * field the model forgets.
  */
 const Wire = z.object({
+  /* First, so it is settled before any owner rests on it. Not kept: it is
+     there for the model's sake. */
+  selfSpeaker: z
+    .string()
+    .nullable()
+    .describe('The transcript label that is John ("Speaker A", "Me"), or null when there is none or it cannot be told.'),
   summary: z.string().nullable().describe('The meeting in three to six sentences, or null.'),
   lines: z
     .array(z.object({ lineId: z.string(), summary: z.string() }))

@@ -18,6 +18,7 @@ import {
   renderPersonSnippet,
   renderRecap,
   renderRecapHtml,
+  setRecapEdits,
   type Recap,
 } from '../lib/agenda/recap'
 import { notes, personEmails, processingRuns, type RunOutput } from '../lib/db/schema'
@@ -459,6 +460,62 @@ describe('the summary', () => {
     )
     expect(renderRecapHtml(recap)).toContain('<li>Bring the <strong>map</strong></li>')
     expect(renderRecapHtml(recap)).not.toContain('secret')
+  })
+})
+
+describe('edits', () => {
+  it('stand over what the runs wrote, part by part, until they are cleared', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, startsAt: START, personIds: [w.sarah.id] })
+    const first = await addLine(db, actor, meeting.id, { text: 'First' })
+    const second = await addLine(db, actor, meeting.id, { text: 'Second' })
+    const quiet = await addLine(db, actor, meeting.id, { text: 'Quiet' })
+    await noteWith(meeting.id, {
+      status: 'done',
+      output: {
+        summary: 'The model said this.',
+        lines: [
+          { lineId: first, summary: 'about the first' },
+          { lineId: second, summary: 'about the second' },
+        ],
+      },
+    })
+    expect((await recapOf(w, meeting.id)).edited).toBe(false)
+
+    await setRecapEdits(db, actor, meeting.id, { summary: 'John says this.' })
+    await setRecapEdits(db, actor, meeting.id, { lines: { [first]: 'reworded', [quiet]: 'added by hand' } })
+    let recap = await recapOf(w, meeting.id)
+    expect(recap.edited).toBe(true)
+    // The summary from the first edit stands; the second touched only lines.
+    expect(recap.summary).toBe('John says this.')
+    expect(recap.lines.map((line) => [line.text, line.summary])).toEqual([
+      ['First', 'reworded'],
+      ['Second', 'about the second'],
+      ['Quiet', 'added by hand'],
+    ])
+
+    // An empty edit leaves the part out, even when a run wrote it.
+    await setRecapEdits(db, actor, meeting.id, { summary: '', lines: { [second]: '' } })
+    recap = await recapOf(w, meeting.id)
+    expect(recap.summary).toBeNull()
+    expect(recap.lines.map((line) => line.text)).toEqual(['First', 'Quiet'])
+    expect(renderRecap(recap)).not.toContain('Summary')
+
+    // A later run does not reach what John reworded, and does reach the rest.
+    await noteWith(meeting.id, {
+      status: 'done',
+      output: { summary: 'A second note.', lines: [{ lineId: first, summary: 'more on the first' }] },
+    })
+    expect((await recapOf(w, meeting.id)).lines[0]!.summary).toBe('reworded')
+
+    await setRecapEdits(db, actor, meeting.id, null)
+    recap = await recapOf(w, meeting.id)
+    expect(recap.edited).toBe(false)
+    expect(recap.summary).toBe('The model said this.\n\nA second note.')
+    expect(recap.lines.map((line) => line.summary)).toEqual([
+      'about the first\n\nmore on the first',
+      'about the second',
+    ])
   })
 })
 

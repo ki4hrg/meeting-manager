@@ -13,7 +13,8 @@ import { Markdown } from '@/components/ui/Markdown'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { Badge, DueBadge, KindIcon, StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { formatDay } from '@/lib/core/dates'
-import type { ItemParty } from '@/lib/items/items'
+import type { ItemKind, ItemParty } from '@/lib/items/items'
+import { roleLabel, roleOrder } from '@/lib/items/roles'
 import type { ProposalView } from '@/lib/processing/proposals'
 import { missingDetails } from '@/lib/processing/missing'
 import { AcceptFields, CHANGES, ProposalFields, type ProposalChoices } from './ProposalFields'
@@ -119,6 +120,8 @@ export function ProposalCard({
   const named =
     payload.type === 'stub' && payload.title === proposal.parties.map((party) => party.name).join(', ')
   const missing = pending ? missingDetails(payload, choices.projects.length > 0) : []
+  /* A meeting to prep reads like an action: who it is with is where it points. */
+  const kind: ItemKind = payload.type === 'item' ? payload.kind : 'action'
   const body = payload.type === 'item' ? payload.detail : payload.type === 'update' ? payload.text : null
 
   return (
@@ -186,20 +189,24 @@ export function ProposalCard({
           (payload.type === 'item' && payload.dueOn) ? (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
               <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                {/* Owners, then who it is with, each followed by its names still to be settled. */}
-                {(['owner', 'with'] as const).map((role) => {
+                {/* Who leads, then who the arrow points at, each followed by its names still to be settled. */}
+                {roleOrder(kind).map((role) => {
                   const settled = known.filter((party) => party.role === role)
                   const open = unknown.filter((party) => party.role === role)
                   if (settled.length + open.length === 0) return null
                   return (
                     <span key={role} className="flex min-w-0 flex-wrap items-center gap-1.5">
                       {settled.length > 0 ? (
-                        <PartyLine parties={settled} ownerGuessed={pending && role === 'owner' && proposal.ownerGuessed} />
-                      ) : role === 'with' ? (
+                        <PartyLine
+                          parties={settled}
+                          kind={kind}
+                          ownerGuessed={pending && role === 'owner' && proposal.ownerGuessed}
+                        />
+                      ) : role === roleOrder(kind)[1] ? (
                         <Icon
                           name="arrowRight"
                           className="h-3.5 w-3.5 shrink-0 text-gray-500 dark:text-gray-400"
-                          label="With"
+                          label={roleLabel(kind, role)}
                         />
                       ) : null}
                       {open.map((party) =>

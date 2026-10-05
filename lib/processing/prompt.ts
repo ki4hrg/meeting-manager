@@ -49,9 +49,25 @@ For each verbatim line you can find discussion of, give a detail: two or three s
 
 Name people, groups and projects by name, spelled exactly as in <meeting> or <directory> when they appear there. A transcript mishears names; where the transcript's spelling is plainly someone in the directory, use the directory's spelling, in the item's text as well. If someone is not in the directory, give the name as the notes have it. Never substitute a different person to make a name fit.
 
-owners are who owes the action or the answer. with is who it is to be raised with, or on something John owns, who it is owed to. A group can own something as squarely as a person: "the trustees to approve the roof spend" is owned by the group, not by whoever chairs it.
+owners are who owes the action or the answer. with is who it is to be raised with, or on something John owns, who it is owed to. Read by kind:
 
-John is named in <self>. "I'll send it", "me", or a bare imperative in his own notes ("email the venue") is John. In the transcript, work out who "I" is from who is speaking.
+- action: owners do it; several owners are people doing it together ("Adlene and I need to meet with Neil about nominations" is owned by John and Adlene, with Neil). with is who it is for or with.
+- question: owners are who it is asked of, who owes the answer. with is who is asking, when that is not John; a question John is asking needs no with.
+- decision: owners are who decided, or who must. with is who raised it, when that matters.
+- topic: owners raise it; with is who it is raised with.
+
+A group can own something as squarely as a person: "the trustees to approve the roof spend" is owned by the group, not by whoever chairs it.
+
+# Who is John
+
+John is named in <self>. "I'll send it", "me", or a bare imperative in his own notes ("email the venue") is John. In the transcript, "I" is whoever is speaking, so who owns what turns on which speaker is John. Settle that first and give it as selfSpeaker, before any item.
+
+- "Me" and "Them" are Granola's microphone and call audio. On a call, Me is John and Them is everyone else. In a room, the microphone hears everyone, so Me does not show who is speaking.
+- "Speaker A", "Speaker B" and the like are anonymous. Nothing in the label says which is John, and the order says nothing either: whoever speaks first is not more likely to be him.
+- Work it out from evidence: a commitment in John's notes that one speaker makes aloud; a speaker addressed by name (whoever is called "Neil" is not the one speaking); the meeting's title and people (in "Budget meeting with Neil", the other speaker is Neil); what each speaker says about their own work. Look for two clues that agree.
+- Granola's summary often states next steps without saying who takes them. Do not assume they are John's or the other person's; find who said them in the transcript.
+
+If you cannot tell which speaker is John, selfSpeaker is null, and every owner that rests on who said "I" is inferred. Never let a guess about speakers make an owner read as stated.
 
 Set ownerInferred to true whenever the owner was not stated: you worked it out from who usually does such things, from who was speaking in an unlabelled transcript, or from who the thing would naturally fall to. Set it to false only when the notes or the transcript say who. John checks inferred owners one at a time, so be honest rather than confident. An action nobody took is not an action: leave it out, or if it matters, make it a topic to raise again.
 

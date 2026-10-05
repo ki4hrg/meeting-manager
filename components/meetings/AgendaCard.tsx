@@ -175,7 +175,7 @@ function LineRow({
 
         {item && (item.parties.length > 0 || item.dueOn || item.project || !isOpen(item)) ? (
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <PartyLine parties={item.parties} />
+            <PartyLine parties={item.parties} kind={item.kind} />
             {item.project ? <Badge>{item.project.name}</Badge> : null}
             {item.dueOn ? (
               <DueBadge

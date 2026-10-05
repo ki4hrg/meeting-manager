@@ -45,6 +45,7 @@ A single `items` table. Only `context` and `text` are required.
 - **Report back** *(review)*: when closing a question or recording a decision, an optional "report to" (person or group) spawns a child topic for that party carrying the resolution. This is how an answer from one meeting reaches another.
 - **Fields:** `kind`, `status` (open, done, dropped; decisions: decided, superseded), `closed_at`, `superseded_by_item_id`, `text`, `detail`, `resolution`, `project_id`, `due_on` (always a deadline), `target_meeting_id` or `target_series_id`, `origin_meeting_id`, `parent_item_id`.
 - **`item_parties`**: a person or a group, with role `owner` (owes the action/answer) or `with` (raise it with them; on an item John owns, the party it is owed to). Several allowed.
+  - *(John, 2026-10-05)* **Shown by kind, stored the same.** The arrow points at the recipient: on an action or topic, its `with` (who it is for); on a question, its owners (who it is asked of); on a decision, its owners (who decides). Whoever leads stands first: an action's first owner, a question's asker (`with`), a decision's raiser. An action's or topic's further owners are collaborators and wear a two-way mark (⇄, issue #4). Forms label the roles by kind (`lib/items/roles.ts`): Owner / For, Owner / Raise with, Asked by / Asked of, Raised by / Decided by. "Owner = whoever asks" was considered and not taken: "owed" (Today, hubs, the recap's follow-ups, Todoist) is built on the owner owing the answer.
 - **`item_events`** logs every step: created, discussed in meeting X, note added, converted, answered, completed, spawned. A topic discussed but unfinished stays open with a "discussed" event.
 - Questions and actions share one shape and appear together in a single "owed" list per person, group and project.
 - Items with no party, project or target sit in a per-context **Inbox**. The Inbox also holds the Granola notes no folder filed (see Drop-ins): they belong to no context until filed, so they show whichever context is selected.
@@ -128,7 +129,7 @@ One pipeline; every stage is optional, with no rail.
   - A meeting can hold several Granola notes. A note for a multi-day event asks which session at review.
   - A reconcile job catches missed webhook deliveries.
 - **Review:** one screen; accept, edit or reject each proposal, or approve all. Proposals whose owner was guessed are marked on the owner and excluded from approve-all. Accepted proposals can be undone. Nothing reaches real items or Todoist before approval.
-- **Export:** recap computed on demand: summary, decisions, owed items grouped by person and group, lookahead. Copy as rich text or Markdown; `mailto:` fills recipients and subject while the body goes to the clipboard. Also a per-person "your items" snippet.
+- **Export:** recap computed on demand: summary, decisions, owed items grouped by person and group, lookahead. *(John, 2026-10-05)* Its prose (the summary and what was said under each line) can be reworded from the recap page; the edits are kept on the meeting (`recap_edits`), stand over later runs part by part, and can be cleared. Items are edited as items. Copy as rich text or Markdown; `mailto:` fills recipients and subject while the body goes to the clipboard. Also a per-person "your items" snippet.
 
 ## Hubs
 

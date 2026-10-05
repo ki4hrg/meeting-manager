@@ -236,8 +236,9 @@ export async function approveAllAction(formData: FormData): Promise<ApproveAllRe
 }
 
 /*
- * The parties a picker submits under `name`: `person:<id>`, `group:<id>`, or
- * `name:<text>` for one that is still only a name. Whatever was typed and not
+ * The parties a picker submits under `name`: `person:<id>`, `group:<id>`,
+ * `name:<text>` for one that is still only a name, or `new:<name>` for someone
+ * to add to the directory now. Whatever was typed and not
  * picked is looked up; a name that finds nobody (or several) stays a name, and
  * the card asks who it is.
  */
@@ -255,6 +256,10 @@ async function partiesFrom(
     if (type === 'person') parties.push({ role, name: '', personId: rest })
     else if (type === 'group') parties.push({ role, name: '', groupId: rest })
     else if (type === 'name' && rest.trim()) parties.push({ role, name: rest.trim() })
+    else if (type === 'new' && rest.trim()) {
+      const person = await createPerson(db, { name: rest })
+      parties.push({ role, name: person.name, personId: person.id })
+    }
     else throw new ValidationError('Pick a person or a group.')
   }
   for (const text of typed(formData, `${name}Text`)) {

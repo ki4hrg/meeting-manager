@@ -1,10 +1,12 @@
 import { notFound } from 'next/navigation'
 import { CopyButton } from '@/components/CopyButton'
+import { FormModal, IconAction } from '@/components/forms'
 import { LivesIn } from '@/components/meetings/Move'
 import { MailButton } from '@/components/processing/MailButton'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ButtonLink } from '@/components/ui/Button'
 import { Card, CardGrid, CardHeader, Section } from '@/components/ui/Card'
+import { Field, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import {
@@ -22,7 +24,7 @@ import { settleIfOver } from '@/lib/meetings/attendance'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { pendingOnCards } from '@/lib/processing/proposals'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
-import { openMeetingAction } from '../../actions'
+import { editRecapAction, openMeetingAction, resetRecapAction } from '../../actions'
 
 /* The recap as it will paste, drawn with the page's own type: the renderer
    escapes every piece of text it is given, and emits only headings,
@@ -120,6 +122,36 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
           ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
           { href: `/meetings/${meeting.id}`, label: meeting.title },
         ]}
+        tools={
+          <>
+            <FormModal action={editRecapAction} title="Edit" icon="pencil" compact iconSize="md" wide>
+              <input type="hidden" name="id" value={meeting.id} />
+              <Field label="Summary">
+                <Textarea name="summary" rows={6} defaultValue={recap.summary ?? ''} />
+              </Field>
+              <input type="hidden" name="summaryWas" value={recap.summary ?? ''} />
+              {recap.lines.map((line) => (
+                <div key={line.lineId}>
+                  <input type="hidden" name="lineId" value={line.lineId} />
+                  <input type="hidden" name={`line:${line.lineId}Was`} value={line.summary} />
+                  <Field label={line.text}>
+                    <Textarea name={`line:${line.lineId}`} rows={3} defaultValue={line.summary} />
+                  </Field>
+                </div>
+              ))}
+            </FormModal>
+            {recap.edited ? (
+              <IconAction
+                action={resetRecapAction}
+                fields={{ id: meeting.id }}
+                icon="undo"
+                label="Undo edits"
+                size="md"
+                done="Recap reset"
+              />
+            ) : null}
+          </>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <CopyButton label="Copy" variant="primary" text={text} html={html} />

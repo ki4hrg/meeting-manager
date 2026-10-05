@@ -4,6 +4,7 @@ import { ActionSelect } from '@/components/ActionSelect'
 import { ActionButton, ActionForm, FormModal } from '@/components/forms'
 import { ItemCard } from '@/components/items/ItemCard'
 import { PartyOptions } from '@/components/items/PartyOptions'
+import { PartyPicker, type PartyOption } from '@/components/processing/PartyPicker'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs'
 import { Button } from '@/components/ui/Button'
@@ -28,6 +29,7 @@ import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { canDeleteItem, getThread, isOpen, type ItemEvent, type ItemParty } from '@/lib/items/items'
+import { COLLABORATOR, hasCollaborators, roleLabel, roleOrder } from '@/lib/items/roles'
 import { getProject, listProjectChoices } from '@/lib/projects/projects'
 import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
@@ -100,16 +102,34 @@ function eventDetail(event: ItemEvent): React.ReactNode {
   }
 }
 
-function PartyChip({ itemId, party }: { itemId: string; party: ItemParty }) {
+/* One party, marked as the item's kind reads its role: the arrow on who it
+   points at, the two-way mark on a collaborator (`lib/items/roles.ts`). */
+function PartyChip({
+  itemId,
+  party,
+  kind,
+  collaborator,
+}: {
+  itemId: string
+  party: ItemParty
+  kind: ItemKind
+  collaborator: boolean
+}) {
+  const label = collaborator ? COLLABORATOR : roleLabel(kind, party.role)
   return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 py-0.5 pl-2 pr-0.5 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200">
-      {party.role === 'with' ? (
-        <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0 text-gray-400" label="With" />
+    <span
+      title={label}
+      className="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 py-0.5 pl-2 pr-0.5 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200"
+    >
+      {collaborator ? (
+        <Icon name="mutual" className="h-3.5 w-3.5 shrink-0 text-gray-400" label={label} />
+      ) : party.role === roleOrder(kind)[1] ? (
+        <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0 text-gray-400" label={label} />
       ) : null}
       <Icon
         name={party.type === 'group' ? 'group' : 'person'}
         className="h-3.5 w-3.5 shrink-0 text-gray-400"
-        label={party.role === 'owner' ? 'Owner' : undefined}
+        label={party.role === roleOrder(kind)[0] && !collaborator ? label : undefined}
       />
       <Link
         href={party.type === 'group' ? `/groups/${party.id}` : `/people/${party.id}`}
@@ -265,23 +285,46 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
             ) : null}
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              {item.parties.map((party) => (
-                <PartyChip key={party.id} itemId={item.id} party={party} />
-              ))}
+              {roleOrder(item.kind).flatMap((role) =>
+                item.parties
+                  .filter((party) => party.role === role)
+                  .map((party, index) => (
+                    <PartyChip
+                      key={party.id}
+                      itemId={item.id}
+                      party={party}
+                      kind={item.kind}
+                      collaborator={index > 0 && role === 'owner' && hasCollaborators(item.kind)}
+                    />
+                  )),
+              )}
               <FormModal
                 action={addPartyAction}
                 title="People"
                 icon="plus"
                 compact
-                submit="With"
-                also={{ label: 'Owner', name: 'role', value: 'owner' }}
+                submit={roleLabel(item.kind, 'with')}
+                also={{ label: roleLabel(item.kind, 'owner'), name: 'role', value: 'owner' }}
               >
                 <input type="hidden" name="id" value={item.id} />
-                <Field label="Person or group" required>
-                  <Select name="party" required defaultValue="">
-                    <PartyOptions people={people} groups={groups} />
-                  </Select>
-                </Field>
+                <PartyPicker
+                  label="Person or group"
+                  name="party"
+                  options={[
+                    ...people.map((person): PartyOption => ({
+                      value: `person:${person.id}`,
+                      name: person.name,
+                      icon: 'person',
+                    })),
+                    ...groups.map((group): PartyOption => ({
+                      value: `group:${group.id}`,
+                      name: group.name,
+                      icon: 'group',
+                    })),
+                  ]}
+                  required
+                  allowNew
+                />
               </FormModal>
             </div>
 

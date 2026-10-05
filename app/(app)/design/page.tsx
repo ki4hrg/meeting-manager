@@ -10,6 +10,7 @@ import { UnfiledCard } from '@/components/meetings/UnfiledCard'
 import { WhenInputs } from '@/components/meetings/WhenInputs'
 import { DeleteButton } from '@/components/archive/DeleteButton'
 import { FormModal, IconAction } from '@/components/forms'
+import { PartyLine } from '@/components/items/ItemCard'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
@@ -37,6 +38,7 @@ import {
   type ItemStatus,
   type ProjectStatus,
 } from '@/components/ui/StatusBadge'
+import type { ItemParty } from '@/lib/items/items'
 import type { MeetingView } from '@/lib/meetings/meetings'
 import type { UpcomingEntry } from '@/lib/meetings/prep'
 import type { ProposalView } from '@/lib/processing/proposals'
@@ -81,6 +83,22 @@ const EVENT: UpcomingEntry = {
   series: null,
   stubs: [{ id: 'sample', title: 'Bishop Wright' } as MeetingView],
 }
+
+/* How each kind reads its parties: who leads, collaborators, and where the arrow points. */
+const party = (role: ItemParty['role'], name: string, isSelf = false): ItemParty => ({
+  type: 'person',
+  id: name,
+  name,
+  role,
+  isSelf,
+})
+const WHO: { kind: ItemKind; parties: ItemParty[] }[] = [
+  { kind: 'action', parties: [party('owner', 'John', true), party('owner', 'Adlene Kufarimai'), party('with', 'Neil Carter')] },
+  { kind: 'question', parties: [party('owner', 'Neil Carter')] },
+  { kind: 'question', parties: [party('owner', 'John', true), party('with', 'Sarah Jones')] },
+  { kind: 'decision', parties: [party('owner', 'Bishop Wright')] },
+  { kind: 'topic', parties: [party('with', 'Sarah Jones')] },
+]
 
 /* Proposals as the review screen draws them. Their buttons are live actions
    and refuse: none of these is in the database. */
@@ -306,6 +324,17 @@ export default function DesignPage() {
               </div>
             </div>
             <div>
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Who</p>
+              <div className="flex flex-col gap-2">
+                {WHO.map(({ kind, parties }) => (
+                  <div key={kind} className="flex items-center gap-2">
+                    <KindIcon kind={kind} />
+                    <PartyLine parties={parties} kind={kind} />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
               <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Project status</p>
               <div className="flex flex-wrap items-center gap-2">
                 {PROJECT_STATUSES.map((status) => (
@@ -336,7 +365,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>

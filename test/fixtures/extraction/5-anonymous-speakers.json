@@ -1,0 +1,51 @@
+{
+  "name": "anonymous-speakers",
+  "about": "An in-person 1:1 recorded on one microphone, so the transcript has only Speaker A and Speaker B, and Speaker A is not John. Each takes something away; the owners must not be swapped.",
+  "input": {
+    "meeting": {
+      "id": "a5000000-0000-4000-8000-000000000001",
+      "title": "Budget meeting with Neil",
+      "startsAt": "2026-10-05 13:00",
+      "people": [{ "id": "b5000000-0000-4000-8000-000000000001", "name": "Neil Carter" }],
+      "groups": [],
+      "projects": []
+    },
+    "self": { "id": "b5000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+    "today": "2026-10-05",
+    "note": {
+      "body": "venue contract - this week\nAED: grant first, ask Skip re insurance",
+      "summary": "### Next Steps\n\n- **Get the delegate cost estimate from the conference secretary**\n- **Ask Skip Lowe about AED insurance coverage**",
+      "transcript": "Speaker A: So the venue contract should come through today or tomorrow. Their operations guy was out last week.\nSpeaker B: Good. Does that change the budget much?\nSpeaker A: Not much. The bigger question is the extra reserves. I'm waiting on the conference secretary for a cost per delegate. I'll get you that estimate as soon as I have it.\nSpeaker B: Okay. If the bishop wants them I'm not going to stand in the way.\nSpeaker A: Thanks, John. Anything else on your side?\nSpeaker B: We're putting an AED downstairs. I'm applying for a grant first, and I'm going to ask Skip Lowe whether insurance covers any of it.\nSpeaker A: He'll have ideas. He always does.\nSpeaker B: I'll reach out to him this week."
+    },
+    "agenda": [],
+    "openItems": [],
+    "directory": {
+      "people": [
+        { "id": "b5000000-0000-4000-8000-000000000000", "name": "John Fleischauer" },
+        { "id": "b5000000-0000-4000-8000-000000000001", "name": "Neil Carter" },
+        { "id": "b5000000-0000-4000-8000-000000000002", "name": "Skip Lowe" }
+      ],
+      "groups": [],
+      "projects": []
+    },
+    "verbatim": [],
+    "captured": [],
+    "handled": []
+  },
+  "expect": [
+    {
+      "say": "John asks Skip about AED insurance (Speaker B is John: Speaker A calls him John)",
+      "where": { "kind": ["action"], "text": "skip|insurance|aed", "owners": ["b5000000-0000-4000-8000-000000000000"] },
+      "min": 1,
+      "max": 1
+    },
+    {
+      "say": "Neil gets the delegate cost estimate",
+      "where": { "text": "estimate|cost per delegate|delegate cost", "owners": ["b5000000-0000-4000-8000-000000000001"] },
+      "min": 1,
+      "max": 1
+    },
+    { "say": "the AED action is never Neil's", "where": { "text": "skip|insurance|aed", "owners": ["b5000000-0000-4000-8000-000000000001"] }, "min": 0, "max": 0 },
+    { "say": "no more than four proposals", "maxDrafts": 4 }
+  ]
+}

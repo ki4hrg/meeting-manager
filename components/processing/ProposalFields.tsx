@@ -1,6 +1,7 @@
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { KIND, type ItemKind } from '@/components/ui/StatusBadge'
 import type { MissingDetail } from '@/lib/processing/missing'
+import { roleLabel, roleOrder } from '@/lib/items/roles'
 import type { ProposalParty, ProposalView } from '@/lib/processing/proposals'
 import { PartyPicker, type PartyOption } from './PartyPicker'
 
@@ -80,7 +81,14 @@ export function AcceptFields({
       {missing.map((one) => (
         <input key={one} type="hidden" name="asked" value={one} />
       ))}
-      {missing.includes('owner') ? <PartyPicker label="Owner" name="owners" options={parties} /> : null}
+      {missing.includes('owner') ? (
+        <PartyPicker
+          label={proposal.payload.type === 'item' ? roleLabel(proposal.payload.kind, 'owner') : 'Owner'}
+          name="owners"
+          options={parties}
+          allowNew
+        />
+      ) : null}
       {missing.includes('project') || missing.includes('due') ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {missing.includes('project') ? <ProjectField projects={choices.projects} value={null} /> : null}
@@ -133,18 +141,16 @@ export function ProposalFields({
             </Select>
           </Field>
         </div>
-        <PartyPicker
-          label="Owner"
-          name="owners"
-          options={parties}
-          selected={proposal.parties.filter((party) => party.role === 'owner').map(picked)}
-        />
-        <PartyPicker
-          label="With"
-          name="withs"
-          options={parties}
-          selected={proposal.parties.filter((party) => party.role === 'with').map(picked)}
-        />
+        {roleOrder(payload.kind).map((role) => (
+          <PartyPicker
+            key={role}
+            label={roleLabel(payload.kind, role)}
+            name={role === 'owner' ? 'owners' : 'withs'}
+            options={parties}
+            selected={proposal.parties.filter((party) => party.role === role).map(picked)}
+            allowNew
+          />
+        ))}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ProjectField projects={choices.projects} value={payload.projectId} />
           <Field label="Due">
@@ -200,7 +206,7 @@ export function ProposalFields({
       <Field label="Title" required>
         <Input name="title" defaultValue={payload.title} required />
       </Field>
-      <PartyPicker label="People" name="people" options={people} selected={proposal.parties.map(picked)} />
+      <PartyPicker label="People" name="people" options={people} selected={proposal.parties.map(picked)} allowNew />
     </>
   )
 }
