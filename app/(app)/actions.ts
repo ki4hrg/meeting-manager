@@ -52,16 +52,17 @@ import {
 import { getMeeting } from '@/lib/meetings/meetings'
 import { act, field, partyRef, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
+import { switchTarget } from '@/lib/web/switch'
 
 // ─── contexts ────────────────────────────────────────────────────────────────
 
-export async function switchContextAction(contextId: string): Promise<void> {
+export async function switchContextAction(contextId: string, from = '/'): Promise<void> {
   await requireUser()
   const context = await getContext(db, contextId)
   ;(await cookies()).set(CONTEXT_COOKIE, context.id, contextCookieOptions)
-  /* Home, not the page they were on: a project or group page belongs to the
-     context being left. */
-  redirect('/')
+  /* The page they were on, unless it belongs to the context being left (a
+     project, a meeting): then the list it sits in. */
+  redirect(switchTarget(from))
 }
 
 export async function createContextAction(formData: FormData): Promise<ActionResult> {

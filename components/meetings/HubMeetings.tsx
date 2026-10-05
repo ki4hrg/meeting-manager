@@ -36,10 +36,16 @@ function withParam(path: string, query: Search, name: string, value: number): st
   return `${path}?${params}`
 }
 
+/* Steps far enough ahead to take in `at`, the next thing More would show. */
+function reachFor(at: Date): number {
+  const away = (at.getTime() - Date.now()) / 86_400_000
+  return Math.min((Math.floor(away / STEP) + 1) * STEP, FARTHEST)
+}
+
 /**
  * A hub's meetings: what is coming (its meetings and the calendar events that
- * would be its own, each with Prep), then what was held. More reaches further
- * ahead; Earlier further back.
+ * would be its own, each with Prep), then what was held. More, when the
+ * calendar holds more of its own, reaches further ahead; Earlier further back.
  */
 export async function HubMeetings({
   hub,
@@ -62,8 +68,8 @@ export async function HubMeetings({
   skip?: string
 }) {
   const { days, past } = hubReach(query)
-  const [{ entries, later, stubs }, held, pending] = await Promise.all([
-    hubUpcoming(db, contextId, hub, { days }),
+  const [{ entries, later, stubs, further }, held, pending] = await Promise.all([
+    hubUpcoming(db, contextId, hub, { days, reach: FARTHEST }),
     hubPast(db, contextId, hub, { limit: past }),
     pendingOnCards(db, contextId),
   ])
@@ -106,9 +112,9 @@ export async function HubMeetings({
             ) : null}
           </div>
         )}
-        {days < FARTHEST ? (
+        {further ? (
           <div className="mt-4 flex justify-center">
-            <ButtonLink href={withParam(path, query, 'days', days + STEP)} scroll={false} variant="ghost">
+            <ButtonLink href={withParam(path, query, 'days', reachFor(further))} scroll={false} variant="ghost">
               <Icon name="chevronDown" className="h-4 w-4" />
               More
             </ButtonLink>

@@ -112,6 +112,18 @@ export function isOpen(item: { status: ItemStatus }): boolean {
   return OPEN_STATUSES.includes(item.status)
 }
 
+/** A question closed with its answer. */
+export function isAnswered(item: { kind: ItemKind; status: ItemStatus; resolution: string | null }): boolean {
+  return item.kind === 'question' && item.status === 'done' && item.resolution !== null
+}
+
+/** Answered questions, latest answer first. */
+export function answered<T extends ItemView>(list: T[]): T[] {
+  return list
+    .filter(isAnswered)
+    .sort((a, b) => (b.closedAt?.getTime() ?? 0) - (a.closedAt?.getTime() ?? 0))
+}
+
 // ─── reading ─────────────────────────────────────────────────────────────────
 
 async function loadViews(exec: Executor, where: SQL | undefined, limit?: number): Promise<ItemView[]> {
@@ -212,6 +224,8 @@ export type ItemFilter = {
   /** Shorthand for the open statuses, or for everything else. */
   open?: boolean
   projectId?: string
+  /** Raised at one of this series' meetings (or their sessions), or aimed at its next one. */
+  seriesId?: string
   /** Items naming this party, in any role unless one is given. */
   party?: PartyRef & { role?: PartyRole }
   /** Open, with no party and no project: nothing says where it belongs yet. */
@@ -242,6 +256,15 @@ export async function listItems(exec: Executor, filter: ItemFilter): Promise<Ite
   if (filter.open === true) conditions.push(inArray(items.status, OPEN_STATUSES))
   if (filter.open === false) conditions.push(sql`${items.status} not in ('open', 'needs_answer')`)
   if (filter.projectId) conditions.push(eq(items.projectId, filter.projectId))
+  if (filter.seriesId) {
+    conditions.push(
+      // A session's series is its parent meeting's.
+      sql`(${items.targetSeriesId} = ${filter.seriesId} or exists (select 1 from meetings m
+        left join meetings parent on parent.id = m.parent_meeting_id
+        where m.id = ${items.originMeetingId}
+          and (m.series_id = ${filter.seriesId} or parent.series_id = ${filter.seriesId})))`,
+    )
+  }
   if (filter.party) conditions.push(partyExists(filter.party))
   if (filter.inbox) {
     conditions.push(

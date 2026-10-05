@@ -52,21 +52,31 @@ async function hubMeetings(
 /**
  * What is coming: the hub's meetings and its unprepped events within `days`
  * (each as `listUpcoming` gives it, soonest first), then its meetings dated
- * beyond that, then its undated stubs.
+ * beyond that, then its undated stubs. `further` is when the first of its
+ * unprepped events beyond `days` (but within `reach`) starts: what More would show.
  */
 export async function hubUpcoming(
   exec: Executor,
   contextId: string,
   hub: Hub,
   /* `events` stands in for the context's calendars, for tests. */
-  opts: { now?: Date; days?: number; events?: CalendarEvent[] } = {},
-): Promise<{ entries: UpcomingEntry[]; later: MeetingView[]; stubs: MeetingView[] }> {
+  opts: { now?: Date; days?: number; reach?: number; events?: CalendarEvent[] } = {},
+): Promise<{ entries: UpcomingEntry[]; later: MeetingView[]; stubs: MeetingView[]; further: Date | null }> {
   const now = opts.now ?? new Date()
   const days = opts.days ?? 14
-  const { entries } = await listUpcoming(exec, contextId, { now, days, events: opts.events })
+  const reach = Math.max(days, opts.reach ?? days)
+  const windowEnd = now.getTime() + days * 86_400_000
+  const { entries } = await listUpcoming(exec, contextId, { now, days: reach, events: opts.events })
 
   const mine: UpcomingEntry[] = []
+  let further: Date | null = null
   for (const entry of entries) {
+    if (entry.startsAt.getTime() >= windowEnd) {
+      // A meeting out there is listed below anyway; only an event needs More to be seen.
+      if (further || entry.meeting) continue
+      if (await eventIsOf(exec, contextId, entry.event!, hub)) further = entry.startsAt
+      continue
+    }
     const ours = entry.meeting
       ? meetingIsOf(entry.meeting, hub)
       : await eventIsOf(exec, contextId, entry.event!, hub)
@@ -74,12 +84,11 @@ export async function hubUpcoming(
   }
 
   const listed = new Set(mine.flatMap((entry) => (entry.meeting ? [entry.meeting.id] : [])))
-  const windowEnd = now.getTime() + days * 86_400_000
   const later = (await hubMeetings(exec, contextId, hub, 'upcoming', now))
     .filter((meeting) => !listed.has(meeting.id) && meeting.startsAt && meeting.startsAt.getTime() >= windowEnd)
     .sort((a, b) => a.startsAt!.getTime() - b.startsAt!.getTime())
   const stubs = await hubMeetings(exec, contextId, hub, 'stubs', now)
-  return { entries: mine, later, stubs }
+  return { entries: mine, later, stubs, further }
 }
 
 /** What was held, latest first, `limit` at a time; `more` says whether there is earlier. */

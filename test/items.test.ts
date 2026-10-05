@@ -3,6 +3,7 @@ import { ValidationError } from '../lib/core/types'
 import {
   addNote,
   answerItem,
+  answered,
   completeItem,
   convertItem,
   createItem,
@@ -10,6 +11,7 @@ import {
   dropItem,
   getItem,
   getThread,
+  isAnswered,
   listItems,
   openCounts,
   parkItem,
@@ -22,6 +24,8 @@ import {
   updateItem,
 } from '../lib/items/items'
 import { itemEvents } from '../lib/db/schema'
+import { createMeeting } from '../lib/meetings/meetings'
+import { createSeries } from '../lib/meetings/series'
 import { eq } from 'drizzle-orm'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
@@ -340,5 +344,32 @@ describe('threads', () => {
         { personId: sarah.id, role: 'with' },
       ]),
     ).rejects.toThrow('twice')
+  })
+})
+
+describe("a series' answered questions", () => {
+  it('are the ones raised at its meetings or their sessions, or aimed at it, and answered', async () => {
+    const { parish } = await makeWorld()
+    const staff = await createSeries(db, { contextId: parish.id, name: 'Staff' })
+    const other = await createSeries(db, { contextId: parish.id, name: 'Vestry' })
+    const meeting = await createMeeting(db, actor, { contextId: parish.id, seriesId: staff.id, title: 'Staff' })
+    const session = await createMeeting(db, actor, { contextId: parish.id, parentMeetingId: meeting.id, title: 'Breakout' })
+    const elsewhere = await createMeeting(db, actor, { contextId: parish.id, seriesId: other.id, title: 'Vestry' })
+
+    const ask = async (text: string, more: object) => {
+      const item = await createItem(db, actor, { contextId: parish.id, kind: 'question', text, ...more })
+      return item
+    }
+    const raised = await ask('Raised there', { originMeetingId: meeting.id })
+    const inSession = await ask('In a session', { originMeetingId: session.id })
+    const aimed = await ask('Aimed at it', { target: { seriesId: staff.id } })
+    const open = await ask('Still open', { originMeetingId: meeting.id })
+    const vestry = await ask('Elsewhere', { originMeetingId: elsewhere.id })
+    for (const item of [raised, inSession, aimed, vestry]) await answerItem(db, actor, item.id, { answer: 'Yes' })
+
+    const ofStaff = await listItems(db, { contextId: parish.id, seriesId: staff.id })
+    expect(answered(ofStaff).map((i) => i.text).sort()).toEqual(['Aimed at it', 'In a session', 'Raised there'])
+    expect(ofStaff.map((i) => i.id)).toContain(open.id)
+    expect(isAnswered(ofStaff.find((i) => i.id === open.id)!)).toBe(false)
   })
 })
