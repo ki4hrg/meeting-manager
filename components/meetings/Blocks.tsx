@@ -57,7 +57,7 @@ export function Blocks({
       }
     >
       {followUps || sinceLast || lookahead ? (
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <div className="card-grid grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
           {followUps ? (
             <Card>
               <CardHeader title="Follow-ups due" />

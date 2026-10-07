@@ -188,6 +188,31 @@ export function treeOrder<T extends Pick<Project, 'id' | 'parentId' | 'name'>>(a
   return out
 }
 
+export type ProjectNode<T> = T & { depth: number; archived: boolean; children: Array<ProjectNode<T>> }
+
+/**
+ * The live projects as a forest, siblings in `treeOrder`. An archived project
+ * comes along only above a live one, so a live sub-project keeps its parent.
+ */
+export function projectTree<T extends Pick<Project, 'id' | 'parentId' | 'name'>>(
+  live: T[],
+  archived: T[] = [],
+): Array<ProjectNode<T>> {
+  const above = ancestorIds([...live, ...archived], live.map((one) => one.id))
+  const shelved = new Set(archived.filter((one) => above.has(one.id)).map((one) => one.id))
+  const rows = [...live, ...archived.filter((one) => shelved.has(one.id))]
+  const roots: Array<ProjectNode<T>> = []
+  const path: Array<ProjectNode<T>> = []
+  for (const row of treeOrder(rows)) {
+    const node: ProjectNode<T> = { ...row, archived: shelved.has(row.id), children: [] }
+    path.length = row.depth
+    if (row.depth === 0) roots.push(node)
+    else path[row.depth - 1]!.children.push(node)
+    path.push(node)
+  }
+  return roots
+}
+
 /** A project's name indented by its depth, for an <option>. */
 export function indented(project: { name: string; depth: number }): string {
   return `${'\u00a0\u00a0\u00a0'.repeat(project.depth)}${project.name}`

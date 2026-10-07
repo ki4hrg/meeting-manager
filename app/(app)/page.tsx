@@ -7,16 +7,24 @@ import { Icon } from '@/components/ui/icons'
 import { Badge } from '@/components/ui/StatusBadge'
 import { agendaCounts } from '@/lib/agenda/lines'
 import { countUnfiledNotes } from '@/lib/connect/granola/unfiled'
-import { formatMoment } from '@/lib/core/dates'
+import { formatMoment, formatTime } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import type { ItemView } from '@/lib/items/items'
 import { openCounts } from '@/lib/items/items'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { listProjects } from '@/lib/projects/projects'
-import { owedEverywhere, reviewEverywhere, upcomingEverywhere } from '@/lib/today'
+import { meetingsEverywhere, owedEverywhere, reviewEverywhere, type TodayEntry } from '@/lib/today'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import { openHref } from '@/lib/web/open'
+
+/* Where a meeting that is over opens: its proposals, its notes to log (on the
+   review page), or its recap. */
+const STEP = {
+  review: { path: 'review', mark: null },
+  log: { path: 'review', mark: <StepMark icon="log" label="Log" /> },
+  recap: { path: 'recap', mark: <StepMark icon="document" label="Recap" /> },
+} as const
 
 /* Home is Today: what needs attention in every context, each row marked with
    its context and opened there. The tiles and quick-add stay with the
@@ -35,9 +43,18 @@ export default async function HomePage() {
   const projects = await listProjects(db, context.id)
   const groups = await listGroups(db, context.id)
 
+  // Today's meetings, then Next up after today: three fill the row, the rest scroll, then More.
+  const { today: todays, next } = await meetingsEverywhere(db, contexts, { timeZone: user.timeZone, limit: 12 })
+  const agendas = await agendaCounts(
+    db,
+    [...todays, ...next].flatMap((entry) => (entry.meeting ? [entry.meeting.id] : [])),
+  )
+
+  // A meeting of today is reviewed from its own card, not here as well.
+  const shownToday = new Set(todays.flatMap((entry) => (entry.meeting ? [entry.meeting.id] : [])))
   const pending = await reviewEverywhere(db, contexts)
   const toReview = await Promise.all(
-    [...pending].map(async ([id, { contextId, count }]) => {
+    [...pending].filter(([id]) => !shownToday.has(id)).map(async ([id, { contextId, count }]) => {
       const meeting = await getMeeting(db, id)
       // A session reads as its meeting's: "Annual Conference · Day one".
       const title = meeting.parentMeetingId
@@ -47,17 +64,49 @@ export default async function HomePage() {
     }),
   )
   toReview.sort((a, b) => (b.meeting.startsAt?.getTime() ?? 0) - (a.meeting.startsAt?.getTime() ?? 0))
-  const inSelected = toReview.filter((one) => one.contextId === context.id).length
-
-  // Three fill the row; the rest scroll, then More opens the whole list.
-  const next = await upcomingEverywhere(db, contexts, { limit: 12 })
-  const agendas = await agendaCounts(
-    db,
-    next.flatMap((entry) => (entry.meeting ? [entry.meeting.id] : [])),
-  )
+  const inSelected = [...pending.values()].filter((one) => one.contextId === context.id).length
 
   const owed = await owedEverywhere(db, contexts, self.id, today)
   const later = owed.later.mine.length + owed.later.waiting.length
+
+  /* A meeting that is over opens at what it needs next; one under way is ringed. */
+  const todayCard = (entry: TodayEntry) => {
+    const time = formatTime(entry.startsAt, user.timeZone)
+    const step = entry.step ? STEP[entry.step] : null
+    return (
+      <div
+        key={entry.meeting?.id ?? entry.event!.eventId}
+        className={
+          entry.phase === 'done'
+            ? 'opacity-70'
+            : entry.phase === 'now'
+              ? 'rounded-lg ring-2 ring-blue-500 dark:ring-blue-400'
+              : ''
+        }
+      >
+        {entry.meeting ? (
+          <MeetingCard
+            meeting={{ ...entry.meeting, series: entry.series }}
+            when={time}
+            pending={entry.pending}
+            agenda={entry.phase === 'done' ? undefined : (agendas.get(entry.meeting.id) ?? 0)}
+            mark={step?.mark}
+            href={open(
+              step ? `/meetings/${entry.meeting.id}/${step.path}` : `/meetings/${entry.meeting.id}`,
+              entry.contextId,
+            )}
+            context={label(entry.contextId)}
+          />
+        ) : (
+          <EventCard
+            entry={entry}
+            time={time}
+            context={several ? { id: entry.contextId, name: nameOf.get(entry.contextId) ?? '' } : undefined}
+          />
+        )}
+      </div>
+    )
+  }
 
   const items = (list: ItemView[], empty: Parameters<typeof ItemGrid>[0]['empty']) => (
     <ItemGrid
@@ -114,6 +163,12 @@ export default async function HomePage() {
               </LinkCard>
             ) : null}
           </CardGrid>
+        </Section>
+      ) : null}
+
+      {todays.length > 0 ? (
+        <Section title="Today" count={todays.length}>
+          <CardGrid>{todays.map(todayCard)}</CardGrid>
         </Section>
       ) : null}
 
@@ -191,5 +246,13 @@ export default async function HomePage() {
         </CollapsedSection>
       ) : null}
     </>
+  )
+}
+
+function StepMark({ icon, label }: { icon: 'log' | 'document'; label: string }) {
+  return (
+    <Badge>
+      <Icon name={icon} className="h-3 w-3" label={label} />
+    </Badge>
   )
 }

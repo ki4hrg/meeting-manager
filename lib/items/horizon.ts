@@ -9,7 +9,7 @@
  */
 
 import { addDays } from '../core/dates'
-import type { ItemView } from './items'
+import { isOpen, type ItemView } from './items'
 
 /** How close a deadline is "soon": what leads the list, and what ends parking. */
 export const SOON_DAYS = 14
@@ -54,4 +54,29 @@ export function splitLater<T extends Dated>(items: T[], today: string): { now: T
     .sort((a, b) => key(a.item).localeCompare(key(b.item)) || a.index - b.index)
     .map(({ item }) => item)
   return { now: byHorizon(items.filter(isNow), today), later }
+}
+
+/**
+ * A question I asked that nobody in particular is to answer: no owner, and I
+ * am its `with` or it has no parties at all (an announcement still to come).
+ * Nobody owes it, so nothing raises it with anyone; once an answerer is added
+ * it is an ordinary question.
+ */
+export function askedOfNoOne(item: Pick<ItemView, 'kind' | 'parties'>): boolean {
+  return (
+    item.kind === 'question' &&
+    !item.parties.some((party) => party.role === 'owner') &&
+    (item.parties.length === 0 || item.parties.some((party) => party.role === 'with' && party.isSelf))
+  )
+}
+
+/**
+ * What I am waiting on: an open question or action owed by someone and not by
+ * me, or an open question asked of no one in particular.
+ */
+export function isWaitingOn(item: ItemView): boolean {
+  if (!isOpen(item) || (item.kind !== 'question' && item.kind !== 'action')) return false
+  const owners = item.parties.filter((party) => party.role === 'owner')
+  if (owners.length > 0) return !owners.some((party) => party.isSelf)
+  return askedOfNoOne(item)
 }

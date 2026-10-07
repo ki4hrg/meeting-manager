@@ -7,6 +7,7 @@ import { placeItem } from '@/lib/agenda/candidates'
 import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
+import { isNewKind } from '@/lib/directory/create'
 import { addGroupEmail, addMember, createGroup, getGroup, removeGroupEmail, removeMember, renameGroup } from '@/lib/directory/groups'
 import {
   addPersonEmail,
@@ -15,7 +16,7 @@ import {
   removePersonEmail,
   updatePerson,
 } from '@/lib/directory/people'
-import { captureLine, type CapturePresets } from '@/lib/items/capture'
+import { captureLine, type CapturePresets, type NewMention } from '@/lib/items/capture'
 import {
   ITEM_KINDS,
   addItemParty,
@@ -88,11 +89,24 @@ function kindFrom(value: string): ItemKind {
   return value as ItemKind
 }
 
+/* The tokens quick add picked as new, as it submits them under `create`. */
+function newMentions(value: unknown): NewMention[] {
+  if (!Array.isArray(value)) throw new ValidationError('Pick what is new again.')
+  return value.map((one: Partial<NewMention>) => {
+    if (typeof one?.token !== 'string' || typeof one.name !== 'string' || !isNewKind(one.type)) {
+      throw new ValidationError('Pick what is new again.')
+    }
+    return { token: one.token, type: one.type, name: one.name }
+  })
+}
+
 export async function captureAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     let presets: CapturePresets
+    let create: NewMention[]
     try {
       presets = JSON.parse(field(formData, 'presets') || '{}') as CapturePresets
+      create = newMentions(JSON.parse(field(formData, 'create') || '[]'))
     } catch {
       throw new ValidationError('That could not be added. Reload the page and try again.')
     }
@@ -110,7 +124,7 @@ export async function captureAction(formData: FormData): Promise<ActionResult> {
     if (!contextId) throw new ValidationError('Create a context first.')
 
     await inTransaction(db, async (tx) => {
-      const item = await captureLine(tx, actor, { contextId, line: field(formData, 'line'), presets })
+      const item = await captureLine(tx, actor, { contextId, line: field(formData, 'line'), presets, create })
       // Added from a meeting's page: on its agenda at once, whenever the meeting is.
       if (presets.targetMeetingId && !presets.originMeetingId && isOpen(item)) {
         await placeItem(tx, actor, presets.targetMeetingId, item.id)
@@ -172,7 +186,10 @@ export async function undropItemAction(formData: FormData): Promise<ActionResult
 
 export async function parkItemAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await parkItem(db, actor, field(formData, 'id'), { until: field(formData, 'until') })
+    await parkItem(db, actor, field(formData, 'id'), {
+      until: field(formData, 'until'),
+      untilItem: field(formData, 'untilItem'),
+    })
   })
 }
 
@@ -251,6 +268,22 @@ export async function removePartyAction(formData: FormData): Promise<ActionResul
     const party = partyRef(field(formData, 'party'))
     if (!party) throw new ValidationError('Pick a person or a group.')
     await removeItemParty(db, actor, field(formData, 'id'), party)
+  })
+}
+
+/* A party already on the item to another role; `lead` 1 puts an owner first, 0 after the rest. */
+export async function setPartyRoleAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const party = partyRef(field(formData, 'party'))
+    if (!party) throw new ValidationError('Pick a person or a group.')
+    const id = field(formData, 'id')
+    const role = field(formData, 'role') === 'owner' ? 'owner' : 'with'
+    const lead = field(formData, 'lead')
+    const item = await getItem(db, id)
+    if (!item.parties.some((one) => one.id === (party.personId ?? party.groupId))) {
+      throw new ValidationError('They are not on this item.')
+    }
+    await addItemParty(db, actor, id, { ...party, role }, lead === '' ? {} : { lead: lead === '1' })
   })
 }
 

@@ -100,6 +100,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Sea
       <Section
         title="Upcoming"
         count={entries.length}
+        empty={false}
         action={
           <div className="flex items-center gap-2">
             {fromDay ? (

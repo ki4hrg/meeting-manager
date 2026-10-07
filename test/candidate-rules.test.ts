@@ -20,7 +20,7 @@ import { getRecap, renderPersonSnippet, renderRecap, renderRecapHtml } from '../
 import { agendaLines, items } from '../lib/db/schema'
 import { createPerson } from '../lib/directory/people'
 import { addMember } from '../lib/directory/groups'
-import { completeItem, createItem, getItem, markDiscussed, recordDecision } from '../lib/items/items'
+import { completeItem, createItem, getItem, markDiscussed, parkItem, recordDecision } from '../lib/items/items'
 import { createMeeting, getMeeting, setMeetingPeople, updateMeeting } from '../lib/meetings/meetings'
 import type { CalendarEvent } from '../lib/calendar/feed'
 import { prepFromEvent, prepMeeting, prepWithPerson } from '../lib/meetings/prep'
@@ -264,6 +264,67 @@ describe('what is never a candidate', () => {
 
     const next = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id] })
     expect(offered(await getCandidates(db, next.id, NOW))).toEqual([outcome.id])
+  })
+
+  it('a question asked of no one in particular is owed by nobody: never offered, never a follow-up', async () => {
+    const w = await makeWorld()
+    const asked = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'per-delegate cost?',
+      parties: [{ personId: w.john.id, role: 'with' }],
+    })
+    await createItem(db, actor, { contextId: w.parish.id, kind: 'question', text: 'nobody named?' })
+
+    const oneOnOne = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id] })
+    const candidates = await getCandidates(db, oneOnOne.id, NOW)
+    expect(offered(candidates)).toEqual([])
+    expect(grouped(candidates.more)).toEqual([])
+
+    // Aimed at a meeting by hand, it is on the agenda, and still nobody owes it.
+    await placeItem(db, actor, oneOnOne.id, asked.id)
+    const blocks = await computeBlocks(db, oneOnOne.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(blocks.followUps).toBeNull()
+  })
+
+  it('an item waiting in Later on another item, until that item closes or its deadline comes close', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Vestry',
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    const survey = await createItem(db, actor, { contextId: w.parish.id, kind: 'action', text: 'survey' })
+    const aimed = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'send the email',
+      target: { meetingId: meeting.id },
+    })
+    const tagged = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'tell Sarah',
+      projectId: w.retreat.id,
+      parties: [{ personId: w.sarah.id, role: 'with' }],
+    })
+    const dueSoon = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'due soon',
+      dueOn: '2026-10-08',
+      target: { meetingId: meeting.id },
+    })
+    for (const item of [aimed, tagged, dueSoon]) await parkItem(db, actor, item.id, { untilItem: survey.id })
+
+    const waiting = await getCandidates(db, meeting.id, NOW)
+    expect(ids(waiting.toPlace)).toEqual([dueSoon.id])
+    expect(offered(waiting)).toEqual([dueSoon.id])
+    expect(grouped(waiting.more)).toEqual([])
+
+    await completeItem(db, actor, survey.id)
+    const back = await getCandidates(db, meeting.id, NOW)
+    expect(ids(back.toPlace)).toEqual(ids([aimed, dueSoon]))
+    expect(grouped(back.suggested)).toEqual([tagged.id])
   })
 
   it('an item with no target is not placed on a meeting with no series', async () => {
@@ -1216,7 +1277,8 @@ describe('several groups', () => {
     const { updateSeries } = await import('../lib/meetings/series')
     const weekly = await createSeries(db, { contextId: w.parish.id, name: 'Weekly' })
     const past = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date('2026-09-28T15:00:00Z') })
-    const next = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date('2026-10-06T15:00:00Z') })
+    // Roster changes reach meetings not yet over by the clock, so this one is always ahead.
+    const next = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date(Date.now() + 86_400_000) })
     const forStaff = await createItem(db, actor, { contextId: w.parish.id, text: 'rota', parties: [{ groupId: w.staff.id, role: 'with' }] })
 
     await updateSeries(db, weekly.id, { groupIds: [w.staff.id] })

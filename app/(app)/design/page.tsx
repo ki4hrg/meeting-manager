@@ -1,5 +1,6 @@
 import { ActionSelect } from '@/components/ActionSelect'
 import { CopyButton } from '@/components/CopyButton'
+import { Export } from '@/components/Export'
 import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
@@ -11,19 +12,24 @@ import { WhenInputs } from '@/components/meetings/WhenInputs'
 import { DeleteButton } from '@/components/archive/DeleteButton'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
+import { ProjectTree, type ProjectTreeNode } from '@/components/projects/ProjectTree'
+import { MentionSuggestions, NewNames } from '@/components/QuickAdd'
+import { ItemPicker } from '@/components/items/ItemPicker'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
 import { RunState } from '@/components/processing/RunState'
 import { Button } from '@/components/ui/Button'
-import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile } from '@/components/ui/Card'
+import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile, TwoColumn } from '@/components/ui/Card'
 import { CheckList } from '@/components/ui/CheckList'
-import { Chip } from '@/components/ui/Chip'
+import { Chip, FilterChip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { RemovableChip } from '@/components/ui/RemovableChip'
+import { PartyRoles } from '@/components/items/PartyRoles'
+import { IconButton } from '@/components/ui/IconButton'
 import { Spinner } from '@/components/ui/Spinner'
 import {
   Badge,
@@ -38,6 +44,7 @@ import {
   type ItemStatus,
   type ProjectStatus,
 } from '@/components/ui/StatusBadge'
+import { only, type OutlinePart } from '@/lib/agenda/export'
 import type { ItemParty } from '@/lib/items/items'
 import type { MeetingView } from '@/lib/meetings/meetings'
 import type { UpcomingEntry } from '@/lib/meetings/prep'
@@ -92,10 +99,11 @@ const party = (role: ItemParty['role'], name: string, isSelf = false): ItemParty
   role,
   isSelf,
 })
-const WHO: { kind: ItemKind; parties: ItemParty[] }[] = [
+const WHO: { kind: ItemKind; parties: ItemParty[]; noOne?: boolean }[] = [
   { kind: 'action', parties: [party('owner', 'John', true), party('owner', 'Adlene Kufarimai'), party('with', 'Neil Carter')] },
   { kind: 'question', parties: [party('owner', 'Neil Carter')] },
   { kind: 'question', parties: [party('owner', 'John', true), party('with', 'Sarah Jones')] },
+  { kind: 'question', parties: [party('with', 'John', true)], noOne: true },
   { kind: 'decision', parties: [party('owner', 'Bishop Wright')] },
   { kind: 'topic', parties: [party('with', 'Sarah Jones')] },
 ]
@@ -163,6 +171,42 @@ const PROPOSALS: ProposalView[] = [
     unresolved: [],
   },
 ]
+const leaf = (id: string, name: string, extra: Partial<ProjectTreeNode> = {}): ProjectTreeNode => ({
+  id,
+  name,
+  status: 'active',
+  archived: false,
+  open: 0,
+  subtree: 0,
+  next: null,
+  children: [],
+  ...extra,
+})
+
+const PROJECT_TREE: ProjectTreeNode[] = [
+  leaf('design-ac', 'Annual Conference', {
+    open: 3,
+    subtree: 12,
+    next: { title: 'Venue contract', label: 'Tomorrow', dueOn: TOMORROW },
+    children: [
+      leaf('design-ac27', '2027 Annual Conference', {
+        open: 4,
+        subtree: 9,
+        next: { title: 'Registration opens', label: 'Today', dueOn: TODAY },
+        children: [
+          leaf('design-worship', 'AC2027 Worship', { open: 5, subtree: 5 }),
+          leaf('design-music', 'AC2027 Music', { status: 'paused' }),
+        ],
+      }),
+      leaf('design-ac26', '2026 Annual Conference', { status: 'done' }),
+    ],
+  }),
+  leaf('design-old', 'Building fund', {
+    archived: true,
+    children: [leaf('design-roof', 'Roof repair', { open: 2, subtree: 2 })],
+  }),
+]
+
 const RUN = {
   id: 'sample',
   noteId: 'sample',
@@ -174,6 +218,40 @@ const RUN = {
   finishedAt: null,
   createdAt: new Date('2026-10-01T15:00:00Z'),
 } satisfies Partial<Run>
+
+/* An agenda and a recap as the server hands them to Export, every optional piece marked. */
+const SAMPLE_AGENDA: OutlinePart[] = [
+  { type: 'h1', text: 'Staff meeting' },
+  { type: 'p', text: ['Tue, Oct 6 · 10:00 AM', { only: 'attendees', text: 'Sarah Jones, Tom Baker' }], join: ' · ' },
+  { type: 'h2', text: 'Agenda' },
+  {
+    type: 'list',
+    entries: [
+      {
+        text: [{ only: 'times', text: '10:00 AM · ' }, 'Budget', { only: 'details', text: ' — Sarah Jones' }, ' (15 min)'],
+        sub: [
+          { only: 'details', text: 'Second-quarter numbers', markdown: true, sub: [] },
+          { only: 'notes', text: 'Note: ask about the roof', markdown: true, sub: [] },
+        ],
+      },
+      { text: ['Who drives the minibus?', { only: 'owed', text: ' [question, Tom Baker]' }], sub: [] },
+    ],
+  },
+  ...only<OutlinePart>('followUps', [
+    { type: 'h2', text: 'Follow-ups due' },
+    { type: 'label', text: 'Tom Baker' },
+    { type: 'list', entries: [{ text: 'Send the deposit [action]', sub: [] }] },
+  ]),
+]
+
+const SAMPLE_RECAP: OutlinePart[] = [
+  { type: 'h1', text: 'Staff meeting' },
+  { type: 'p', text: ['Tue, Oct 6 · 10:00 AM', { only: 'attendees', text: 'Sarah Jones, Tom Baker' }], join: ' · ' },
+  ...only<OutlinePart>('decisions', [
+    { type: 'h2', text: 'Decisions' },
+    { type: 'list', entries: [{ text: "The retreat is at St Mary's", sub: [] }] },
+  ]),
+]
 
 export default function DesignPage() {
   return (
@@ -227,6 +305,60 @@ export default function DesignPage() {
         </CardGrid>
       </Section>
 
+      <Section
+        title="Waiting on"
+        count={0}
+        action={
+          <Button variant="secondary" size="sm">
+            <Icon name="plus" className="h-4 w-4" />
+            Add
+          </Button>
+        }
+      />
+
+      <TwoColumn
+        main={
+          <Section title="Owed" count={2}>
+            <CardGrid>
+              {SAMPLE.slice(1, 3).map((item) => (
+                <Card key={item.text}>
+                  <div className="flex items-start gap-3">
+                    <KindIcon kind={item.kind} />
+                    <p className="min-w-0 flex-1 text-sm font-medium text-gray-900 dark:text-gray-100">{item.text}</p>
+                  </div>
+                </Card>
+              ))}
+            </CardGrid>
+          </Section>
+        }
+        side={
+          <>
+            <Section title="Members" count={2}>
+              <Card>
+                <div className="flex flex-wrap gap-2">
+                  <Chip href="/design" icon="person">
+                    Sarah Jones
+                  </Chip>
+                  <Chip href="/design" icon="person">
+                    Tom Baker
+                  </Chip>
+                </div>
+              </Card>
+            </Section>
+            <Section
+              title="Links"
+              count={0}
+              action={
+                <Button variant="secondary" size="sm">
+                  <Icon name="plus" className="h-4 w-4" />
+                  Add
+                </Button>
+              }
+            />
+          </>
+        }
+      />
+
       <Section title="Cards">
         <CardGrid>
           <Card>
@@ -250,6 +382,10 @@ export default function DesignPage() {
           </LinkCard>
           <EmptyState icon="project" action={{ label: 'New project', href: '/design' }} />
         </CardGrid>
+      </Section>
+
+      <Section title="Projects">
+        <ProjectTree roots={PROJECT_TREE} today={TODAY} />
       </Section>
 
       <Section title="Attendance">
@@ -326,10 +462,10 @@ export default function DesignPage() {
             <div>
               <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Who</p>
               <div className="flex flex-col gap-2">
-                {WHO.map(({ kind, parties }) => (
-                  <div key={kind} className="flex items-center gap-2">
+                {WHO.map(({ kind, parties, noOne }, index) => (
+                  <div key={index} className="flex items-center gap-2">
                     <KindIcon kind={kind} />
-                    <PartyLine parties={parties} kind={kind} />
+                    <PartyLine parties={parties} kind={kind} noOne={noOne} />
                   </div>
                 ))}
               </div>
@@ -365,7 +501,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'share', 'printer', 'download', 'broadcast', 'log', 'search'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>
@@ -382,8 +518,8 @@ export default function DesignPage() {
             title="Staff meeting"
             actions={
               <>
-                <CopyButton label="Copy brief" variant="primary" text="# Staff meeting" html="<h1>Staff meeting</h1>" />
-                <CopyButton label="Copy agenda" text="# Staff meeting" />
+                <Export kind="agenda" outline={SAMPLE_AGENDA} title="Staff meeting" mailto="mailto:?subject=Staff%20meeting" />
+                <CopyButton label="Copy" text="# Staff meeting" />
                 <Button variant="secondary">
                   <Icon name="check" className="h-4 w-4" />
                   Review
@@ -441,6 +577,35 @@ export default function DesignPage() {
             <Chip href="/design" icon="refresh">
               Staff meeting
             </Chip>
+            <FilterChip href="/design" on label="Question" icon={<KindIcon kind="question" className="h-4 w-4" />} />
+            <FilterChip href="/design" on>
+              I owe
+            </FilterChip>
+            <FilterChip href="/design" on={false}>
+              Waiting on
+            </FilterChip>
+          </div>
+        </Card>
+      </Section>
+
+      {/* Presets set the toggles; a lock marks what the Shareable preset leaves out. */}
+      <Section title="Export">
+        <Card>
+          <div className="flex flex-wrap gap-2">
+            <Export
+              kind="agenda"
+              outline={SAMPLE_AGENDA}
+              title="Staff meeting"
+              mailto="mailto:?subject=Staff%20meeting"
+              variant="secondary"
+            />
+            <Export
+              kind="recap"
+              outline={SAMPLE_RECAP}
+              title="Recap: Staff meeting"
+              mailto="mailto:?subject=Recap%3A%20Staff%20meeting"
+              variant="secondary"
+            />
           </div>
         </Card>
       </Section>
@@ -524,6 +689,9 @@ export default function DesignPage() {
       <Section title="Picking and removing">
         <Card padding="md" className="max-w-xl">
           <div className="flex flex-col gap-4">
+            <PartyRoles itemId="sample" kind="action" parties={WHO[0]!.parties} move={sampleAction} remove={sampleAction}>
+              <IconButton icon="plus" label="People" />
+            </PartyRoles>
             <div className="flex flex-wrap items-center gap-2">
               <RemovableChip
                 icon="person"
@@ -649,6 +817,22 @@ export default function DesignPage() {
                     { value: 'tom', name: 'Tom Baker', icon: 'person' },
                   ]}
                   allowNew
+                />
+                <MentionSuggestions
+                  suggestions={[
+                    { name: 'Neil Campbell', icon: 'person', create: 'person' },
+                    { name: 'Neil Campbell', icon: 'group', create: 'group' },
+                  ]}
+                  highlighted={-1}
+                />
+                <NewNames names={[{ token: '@Neil-Campbell', type: 'person', name: 'Neil Campbell' }]} />
+                <ItemPicker
+                  label="Until done"
+                  name="untilItem"
+                  options={[
+                    { id: 'survey', text: 'Put together a post-event survey', kind: 'action' },
+                    { id: 'venue', text: 'Which venue?', kind: 'question' },
+                  ]}
                 />
                 <div>
                   <PendingBadge count={3} />

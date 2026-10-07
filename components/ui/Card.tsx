@@ -113,23 +113,54 @@ export function Tile({
   )
 }
 
-/** The responsive grid cards sit in: one, two, then three columns. */
+/** The responsive grid cards sit in: one, two, then three columns (fewer in a `TwoColumn`). */
 export function CardGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">{children}</div>
+  return <div className="card-grid grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">{children}</div>
 }
 
-/** A titled group of cards, with its action on the right. */
+/**
+ * A hub's two columns on a wide screen: the work (2/3) and the reference beside
+ * it (1/3). One column below `lg`, the main one first.
+ */
+export function TwoColumn({ main, side }: { main: React.ReactNode; side: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 gap-x-8 lg:grid-cols-3">
+      <div className="min-w-0 lg:col-span-2 lg:[&_.card-grid]:grid-cols-2">{main}</div>
+      <div className="min-w-0 lg:[&_.card-grid]:grid-cols-1">{side}</div>
+    </div>
+  )
+}
+
+/**
+ * A titled group of cards, with its action on the right. An empty one (count 0,
+ * or `empty`) is only its header, muted, with the action still on it.
+ */
 export function Section({
   title,
   count,
   action,
+  empty = count === 0,
   children,
 }: {
   title: string
   count?: number
   action?: React.ReactNode
-  children: React.ReactNode
+  empty?: boolean
+  children?: React.ReactNode
 }) {
+  if (empty) {
+    return (
+      <section className="mb-8 [[data-empty]+&]:-mt-5" data-empty>
+        <div className="flex min-h-8 items-center justify-between gap-3">
+          <h2 className="flex items-baseline gap-2 text-base font-medium text-gray-500 dark:text-gray-400">
+            {title}
+            {count !== undefined ? <span className="text-sm font-normal tabular-nums">{count}</span> : null}
+          </h2>
+          {action}
+        </div>
+      </section>
+    )
+  }
   return (
     <section className="mb-8">
       <div className="mb-4 flex items-center justify-between gap-3">

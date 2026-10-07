@@ -1,7 +1,6 @@
 import { ActionSelect } from '@/components/ActionSelect'
 import { FormModal } from '@/components/forms'
 import { Card, Section } from '@/components/ui/Card'
-import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { Badge } from '@/components/ui/StatusBadge'
@@ -172,6 +171,7 @@ export async function Granola() {
   return (
     <Section
       title="Granola"
+      empty={accounts.length === 0}
       action={
         <FormModal
           action={connectGranolaAction}
@@ -188,20 +188,16 @@ export async function Granola() {
         </FormModal>
       }
     >
-      {accounts.length === 0 ? (
-        <EmptyState icon="document" />
-      ) : (
-        <div className="flex flex-col gap-3">
-          {accounts.map((account) => (
-            <Account
-              key={account.id}
-              account={account}
-              bindings={bindings.filter((binding) => binding.connectionId === account.id)}
-              places={places}
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex flex-col gap-3">
+        {accounts.map((account) => (
+          <Account
+            key={account.id}
+            account={account}
+            bindings={bindings.filter((binding) => binding.connectionId === account.id)}
+            places={places}
+          />
+        ))}
+      </div>
     </Section>
   )
 }

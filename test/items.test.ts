@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../lib/core/types'
 import {
+  addItemParty,
   addNote,
   answerItem,
   answered,
@@ -24,6 +25,10 @@ import {
   unparkItem,
   updateItem,
 } from '../lib/items/items'
+import { addDays } from '../lib/core/dates'
+import { listContexts } from '../lib/directory/contexts'
+import { isLater } from '../lib/items/horizon'
+import { owedEverywhere } from '../lib/today'
 import { itemEvents } from '../lib/db/schema'
 import { createMeeting } from '../lib/meetings/meetings'
 import { createSeries } from '../lib/meetings/series'
@@ -248,6 +253,111 @@ describe('later', () => {
   })
 })
 
+describe('later, until another item is done', () => {
+  const TODAY = '2026-10-04'
+
+  async function emailAndSurvey() {
+    const w = await makeWorld()
+    const mine = { parties: [{ personId: w.john.id, role: 'owner' as const }] }
+    const survey = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'Put together a post-event survey',
+      ...mine,
+    })
+    const email = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'Send post-event email',
+      ...mine,
+    })
+    return { ...w, survey, email }
+  }
+
+  const owed = async (selfId: string) => owedEverywhere(db, await listContexts(db), selfId, TODAY)
+
+  it('leaves I owe, and is back in the same commit that closes what it waits on, with history on both', async () => {
+    const { survey, email } = await emailAndSurvey()
+    const parked = await parkItem(db, actor, email.id, { untilItem: survey.id })
+    expect(parked).toMatchObject({ laterUntilItemId: survey.id, laterOn: null })
+    expect(isLater(parked, TODAY)).toBe(true)
+    expect((await listItems(db, { contextId: email.contextId, waitingOn: survey.id })).map((i) => i.id)).toEqual([
+      email.id,
+    ])
+
+    // Parking again for a day keeps what it waits on.
+    expect((await parkItem(db, actor, email.id, { until: '2027-01-04' })).laterUntilItemId).toBe(survey.id)
+
+    await completeItem(db, actor, survey.id)
+    expect(await getItem(db, email.id)).toMatchObject({ parkedAt: null, laterOn: null, laterUntilItemId: null })
+    expect(isLater(await getItem(db, email.id), TODAY)).toBe(false)
+
+    const events = (await getThread(db, email.id)).events
+    const back = events.at(-1)!
+    expect(back).toMatchObject({ type: 'unparked', data: { itemId: survey.id, text: survey.text } })
+    expect(events.filter((event) => event.type === 'parked')[0]!.data).toEqual({ untilItem: survey.id })
+    const done = (await getThread(db, survey.id)).events.find((event) => event.type === 'completed')
+    expect(done?.data).toEqual({ released: [{ id: email.id, text: email.text }] })
+  })
+
+  it('is back when what it waits on is answered or dropped, too', async () => {
+    const { parish, survey, email } = await emailAndSurvey()
+    const question = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: 'Which venue?' })
+    await parkItem(db, actor, email.id, { untilItem: question.id })
+    await answerItem(db, actor, question.id, { answer: 'The hall' })
+    expect((await getItem(db, email.id)).parkedAt).toBeNull()
+
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    await dropItem(db, actor, survey.id)
+    expect(await getItem(db, email.id)).toMatchObject({ parkedAt: null, laterUntilItemId: null })
+  })
+
+  it('a deadline coming close brings it back while it still waits', async () => {
+    const { john, survey, email } = await emailAndSurvey()
+    await updateItem(db, actor, email.id, { dueOn: addDays(TODAY, 3) })
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    const now = await owed(john.id)
+    expect(now.later.mine.map((item) => item.id)).not.toContain(email.id)
+    expect(now.due.concat(now.mine).map((item) => item.id)).toContain(email.id)
+    expect((await getItem(db, email.id)).laterUntilItemId).toBe(survey.id)
+  })
+
+  it('refuses itself, another context, a closed item and a missing one; null stops the wait', async () => {
+    const { diocese, survey, email } = await emailAndSurvey()
+    await expect(parkItem(db, actor, email.id, { untilItem: email.id })).rejects.toThrow('wait on itself')
+    const elsewhere = await createItem(db, actor, { contextId: diocese.id, text: 'synod paper' })
+    await expect(parkItem(db, actor, email.id, { untilItem: elsewhere.id })).rejects.toThrow('another context')
+    const closed = await createItem(db, actor, { contextId: email.contextId, kind: 'action', text: 'old' })
+    await completeItem(db, actor, closed.id)
+    await expect(parkItem(db, actor, email.id, { untilItem: closed.id })).rejects.toThrow('already closed')
+    expect((await getItem(db, email.id)).parkedAt).toBeNull()
+
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    expect((await parkItem(db, actor, email.id, { untilItem: null })).laterUntilItemId).toBeNull()
+  })
+
+  it('two items waiting on each other both stay parked until one closes', async () => {
+    const { survey, email } = await emailAndSurvey()
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    await parkItem(db, actor, survey.id, { untilItem: email.id })
+    expect((await getItem(db, email.id)).parkedAt).not.toBeNull()
+    expect((await getItem(db, survey.id)).parkedAt).not.toBeNull()
+    await completeItem(db, actor, survey.id)
+    expect((await getItem(db, email.id)).parkedAt).toBeNull()
+  })
+
+  it('undoing a drop puts the wait back while what it waited on is still open', async () => {
+    const { survey, email } = await emailAndSurvey()
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    await dropItem(db, actor, email.id)
+    expect((await undropItem(db, actor, email.id)).laterUntilItemId).toBe(survey.id)
+
+    await dropItem(db, actor, email.id)
+    await completeItem(db, actor, survey.id)
+    expect(await undropItem(db, actor, email.id)).toMatchObject({ parkedAt: null, laterUntilItemId: null })
+  })
+})
+
 describe('threads', () => {
   it('follows topic to question to answer to decision to action on one thread', async () => {
     const { parish, retreat, sarah } = await makeWorld()
@@ -345,6 +455,63 @@ describe('threads', () => {
         { personId: sarah.id, role: 'with' },
       ]),
     ).rejects.toThrow('twice')
+  })
+})
+
+describe('changing a party\'s role', () => {
+  it('moves one party in place, keeps collaborators after the lead, and records one role change', async () => {
+    const { parish, john, sarah, tom } = await makeWorld()
+    const action = await createItem(db, actor, {
+      contextId: parish.id,
+      kind: 'action',
+      text: 'Book the hall',
+      parties: [
+        { personId: john.id, role: 'owner' },
+        { personId: sarah.id, role: 'with' },
+        { personId: tom.id, role: 'with' },
+      ],
+    })
+    const owners = async () =>
+      (await getItem(db, action.id)).parties.filter((p) => p.role === 'owner').map((p) => p.name)
+    const roles = async () =>
+      (await db.select().from(itemEvents).where(eq(itemEvents.itemId, action.id)))
+        .filter((event) => event.type === 'role')
+        .map((event) => event.data)
+
+    // To owner while there is one: a collaborator, after the lead.
+    await addItemParty(db, actor, action.id, { personId: sarah.id, role: 'owner' })
+    expect(await owners()).toEqual(['John', 'Sarah Jones'])
+    // Made lead: first among the owners.
+    await addItemParty(db, actor, action.id, { personId: tom.id, role: 'owner' }, { lead: true })
+    expect(await owners()).toEqual(['Tom Baker', 'John', 'Sarah Jones'])
+    // The lead made a collaborator: to the end, and the next owner leads.
+    await addItemParty(db, actor, action.id, { personId: tom.id, role: 'owner' }, { lead: false })
+    expect(await owners()).toEqual(['John', 'Sarah Jones', 'Tom Baker'])
+    // Back to who it is for.
+    await addItemParty(db, actor, action.id, { personId: sarah.id, role: 'with' })
+    expect(await owners()).toEqual(['John', 'Tom Baker'])
+    // Already there in that role: nothing changes, nothing is recorded.
+    await addItemParty(db, actor, action.id, { personId: john.id, role: 'owner' })
+
+    const item = await getItem(db, action.id)
+    expect(item.parties).toHaveLength(3)
+    expect(await roles()).toEqual([
+      { name: 'Sarah Jones', role: 'owner', collaborator: true },
+      { name: 'Tom Baker', role: 'owner', collaborator: false },
+      { name: 'Tom Baker', role: 'owner', collaborator: true },
+      { name: 'Sarah Jones', role: 'with', collaborator: false },
+    ])
+    const events = await db.select().from(itemEvents).where(eq(itemEvents.itemId, action.id))
+    expect(events.filter((event) => event.type === 'parties')).toHaveLength(0)
+  })
+
+  it('adds someone new as a change of people', async () => {
+    const { parish, sarah } = await makeWorld()
+    const question = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: 'Who has the key?' })
+    await addItemParty(db, actor, question.id, { personId: sarah.id, role: 'owner' })
+    const events = await db.select().from(itemEvents).where(eq(itemEvents.itemId, question.id))
+    expect(events.map((event) => event.type)).toContain('parties')
+    expect(events.map((event) => event.type)).not.toContain('role')
   })
 })
 

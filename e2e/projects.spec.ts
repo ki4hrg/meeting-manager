@@ -29,3 +29,20 @@ test('an answered question is recorded on a project with its answer', async ({ p
   await expect(answered.getByText('Who plays the organ?')).toBeVisible()
   await expect(answered.getByText('The cathedral organist')).toBeVisible()
 })
+
+test('sub-projects sit inside their top-level project, and fold away', async ({ page }) => {
+  await page.goto('/projects')
+  const year = page.getByRole('link').filter({ hasText: WORLD.projects.year })
+  const worship = page.getByRole('link').filter({ hasText: WORLD.projects.worship })
+  await expect(year).toBeVisible()
+  await expect(worship).toBeVisible()
+
+  await page.getByRole('button', { name: 'Collapse' }).first().click()
+  await expect(year).toHaveCount(0)
+  await expect(worship).toHaveCount(0)
+
+  await page.reload()
+  await expect(worship).toHaveCount(0)
+  await page.getByRole('button', { name: 'Expand' }).click()
+  await expect(worship).toBeVisible()
+})

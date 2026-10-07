@@ -1,26 +1,36 @@
 /*
- * The two things an agenda is copied out as (docs/SPEC.md, "Brief for Granola").
+ * An agenda as it is exported (docs/SPEC.md, "Private and shareable").
  *
- * The brief is John's own: the agenda with planned start times, his private
- * notes, who owes what, and the generated blocks. It is pasted into Granola's
- * notepad before the meeting. The public agenda is what can be sent round: no
- * private notes, nothing about who owes what. A line's description and its
- * leader go out in both.
- *
- * Both are built once as a small outline and written out twice, as Markdown
- * (text/plain) and as HTML (text/html), so a paste keeps its headings and
- * nesting wherever it lands.
+ * One outline holds everything: the agenda with planned start times, each
+ * line's description and leader, John's private notes, who owes what, and the
+ * generated blocks. What goes out is that outline filtered by the parts
+ * chosen (lib/agenda/export.ts). Two presets cover the common cases: Private,
+ * everything, for John's own notepad before the meeting; and Shareable, what
+ * can be sent round: no private notes, nothing about who owes what.
  *
  * An item's kind is written as a word in brackets, never as a `Q:` or `A:`
- * prefix: those prefixes in Granola's notepad mean "capture this line", and a
- * brief must not read as a list of new items.
+ * prefix: those prefixes in a notepad mean "capture this line", and an export
+ * must not read as a list of new items, whatever parts it holds.
  */
 
 import { formatClock, formatDay, formatSpan, formatTime, todayIn } from '../core/dates'
-import { inlineMarkdownToHtml } from '../core/markdown'
 import type { ItemView } from '../items/items'
 import type { Agenda, AgendaLine } from './lines'
+import {
+  only,
+  pick,
+  preset,
+  toHtml,
+  toMarkdown,
+  type Entry,
+  type OutlineEntry,
+  type OutlinePart,
+  type Part,
+  type Piece,
+} from './export'
 import type { GeneratedBlocks } from './types'
+
+export { toHtml, toMarkdown, type Entry, type Part }
 
 export type BriefInput = {
   meeting: {
@@ -37,20 +47,6 @@ export type BriefInput = {
   /** 'YYYY-MM-DD' in the user's zone; decides whether dates carry a year. */
   today?: string
 }
-
-/* A bullet, with whatever is nested under it. A section is a bold bullet whose
-   lines are nested, so it is plain where it ends and the loose lines resume. */
-export type Entry = {
-  text: string
-  bold?: boolean
-  /** Written by John in Markdown: the HTML copy renders it rather than showing the marks. */
-  markdown?: boolean
-  sub: Entry[]
-}
-
-export type Part =
-  | { type: 'h1' | 'h2' | 'p' | 'label'; text: string }
-  | { type: 'list'; entries: Entry[] }
 
 const leaf = (text: string): Entry => ({ text, sub: [] })
 /* A row of long text: Markdown, so the HTML copy renders its bold and links. */
@@ -78,31 +74,33 @@ function tag(item: ItemView | null, today: string): string {
   return ` [${bits.join(', ')}]`
 }
 
-function header(input: BriefInput, today: string): Part[] {
+function header(input: BriefInput, today: string): OutlinePart[] {
   const { meeting, agenda, timeZone } = input
-  const facts: string[] = []
+  const facts: Piece[] = []
   if (meeting.startsAt) facts.push(formatSpan(meeting.startsAt, meeting.endsAt ?? null, timeZone, today))
   if (agenda.overflowMinutes > 0) facts.push(`${agenda.overflowMinutes} min over`)
-  if (meeting.people.length > 0) facts.push(meeting.people.map((person) => person.name).join(', '))
+  if (meeting.people.length > 0) {
+    facts.push({ only: 'attendees', text: meeting.people.map((person) => person.name).join(', ') })
+  }
 
-  const parts: Part[] = [{ type: 'h1', text: meeting.title }]
-  if (facts.length > 0) parts.push({ type: 'p', text: facts.join(' · ') })
+  const parts: OutlinePart[] = [{ type: 'h1', text: meeting.title }]
+  if (facts.length > 0) parts.push({ type: 'p', text: facts, join: ' · ' })
   return parts
 }
 
-function agendaParts(input: BriefInput, today: string, opts: { private: boolean }): Part[] {
+function agendaParts(input: BriefInput, today: string): OutlinePart[] {
   const sessions = input.sessions ?? []
-  if (sessions.length === 0) return agendaOf(input.agenda, 'Agenda', null, today, opts)
+  if (sessions.length === 0) return agendaOf(input.agenda, 'Agenda', null, today)
   /* The meeting's own lines, from before it had sessions, then each session's. */
   return [
-    ...agendaOf(input.agenda, 'Agenda', null, today, opts),
+    ...agendaOf(input.agenda, 'Agenda', null, today),
     ...sessions.flatMap((session) =>
       agendaOf(
         session.agenda,
         session.title,
         session.startsAt ? formatSpan(session.startsAt, session.endsAt, input.timeZone, today) : null,
         today,
-        { ...opts, keepEmpty: true },
+        { keepEmpty: true },
       ),
     ),
   ]
@@ -113,21 +111,28 @@ function agendaOf(
   title: string,
   when: string | null,
   today: string,
-  opts: { private: boolean; keepEmpty?: boolean },
-): Part[] {
+  opts: { keepEmpty?: boolean } = {},
+): OutlinePart[] {
   if (agenda.nodes.length === 0 && !opts.keepEmpty) return []
 
-  const entry = (line: AgendaLine): Entry => ({
-    text: `${at(line.start)}${line.text}${led(line)}${opts.private ? tag(line.item, today) : ''}${minutes(line.minutes ?? line.shareMinutes ?? null)}`,
+  const entry = (line: AgendaLine): OutlineEntry => ({
+    text: [
+      { only: 'times', text: at(line.start) },
+      line.text,
+      { only: 'details', text: led(line) },
+      { only: 'owed', text: tag(line.item, today) },
+      minutes(line.minutes ?? line.shareMinutes ?? null),
+    ],
     sub: [
-      ...rows(line.description).map(markdownLeaf),
-      ...(opts.private
-        ? rows(line.privateNote).map((row, index) => markdownLeaf(index === 0 ? `Note: ${row}` : row))
-        : []),
+      ...only('details', rows(line.description).map(markdownLeaf)),
+      ...only(
+        'notes',
+        rows(line.privateNote).map((row, index) => markdownLeaf(index === 0 ? `Note: ${row}` : row)),
+      ),
     ],
   })
 
-  const parts: Part[] = [{ type: 'h2', text: title }]
+  const parts: OutlinePart[] = [{ type: 'h2', text: title }]
   if (when) parts.push({ type: 'p', text: when })
   if (agenda.nodes.length === 0) return parts
   parts.push(
@@ -137,7 +142,7 @@ function agendaOf(
         node.type === 'line'
           ? entry(node)
           : {
-              text: `${at(node.start)}${node.title}${minutes(node.minutes)}`,
+              text: [{ only: 'times', text: at(node.start) }, node.title, minutes(node.minutes)],
               bold: true,
               sub: node.lines.map(entry),
             },
@@ -146,7 +151,7 @@ function agendaOf(
   )
 
   if (agenda.end && agenda.totalMinutes > 0) {
-    parts.push({ type: 'p', text: `Ends ${formatClock(agenda.end)} · ${agenda.totalMinutes} min planned` })
+    parts.push({ only: 'times', type: 'p', text: `Ends ${formatClock(agenda.end)} · ${agenda.totalMinutes} min planned` })
   }
   return parts
 }
@@ -230,90 +235,37 @@ export function lookaheadParts(
   ]
 }
 
-function briefParts(input: BriefInput): Part[] {
-  const today = input.today ?? todayIn(input.timeZone)
-  return [
-    ...header(input, today),
-    ...agendaParts(input, today, { private: true }),
-    ...followUpParts(input, today),
-    ...sinceLastParts(input, today),
-    ...lookaheadParts(input, today),
-  ]
-}
-
-function publicParts(input: BriefInput): Part[] {
-  const today = input.today ?? todayIn(input.timeZone)
-  return [
-    ...header(input, today),
-    ...agendaParts(input, today, { private: false }),
-    ...lookaheadParts(input, today),
-  ]
-}
-
 // ─── writing out ─────────────────────────────────────────────────────────────
 
-export function toMarkdown(parts: Part[]): string {
-  const out: string[] = []
-  const bullets = (entries: Entry[], indent: string) => {
-    for (const entry of entries) {
-      out.push(`${indent}- ${entry.bold ? `**${entry.text}**` : entry.text}`)
-      bullets(entry.sub, `${indent}  `)
-    }
-  }
-
-  let previous: Part['type'] | null = null
-  for (const part of parts) {
-    if (part.type === 'list') bullets(part.entries, '')
-    else if (part.type === 'h1') out.push(`# ${part.text}`)
-    else if (part.type === 'h2') out.push('', `## ${part.text}`)
-    else if (part.type === 'label') out.push('', `**${part.text}**`)
-    // A paragraph straight after a list would read as part of its last bullet,
-    // and one after another paragraph as the same paragraph.
-    else if (previous === 'list' || previous === 'p') out.push('', part.text)
-    else out.push(part.text)
-    previous = part.type
-  }
-  return out.join('\n')
+/** Everything an agenda can export, each optional piece marked with its part. */
+export function briefOutline(input: BriefInput): OutlinePart[] {
+  const today = input.today ?? todayIn(input.timeZone)
+  return [
+    ...header(input, today),
+    ...agendaParts(input, today),
+    ...only('followUps', followUpParts(input, today)),
+    ...only('sinceLast', sinceLastParts(input, today)),
+    ...only('lookahead', lookaheadParts(input, today)),
+  ]
 }
 
-const escape = (text: string) =>
-  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const PRIVATE = preset('agenda', 'Private')
+const SHAREABLE = preset('agenda', 'Shareable')
 
-export function toHtml(parts: Part[]): string {
-  const bullets = (entries: Entry[]): string =>
-    entries.length === 0
-      ? ''
-      : `<ul>${entries
-          .map((entry) => {
-            const body = entry.markdown ? inlineMarkdownToHtml(entry.text) : escape(entry.text)
-            const text = entry.bold ? `<strong>${body}</strong>` : body
-            return `<li>${text}${bullets(entry.sub)}</li>`
-          })
-          .join('')}</ul>`
-
-  return parts
-    .map((part) => {
-      if (part.type === 'list') return bullets(part.entries)
-      if (part.type === 'label') return `<p><strong>${escape(part.text)}</strong></p>`
-      return `<${part.type}>${escape(part.text)}</${part.type}>`
-    })
-    .join('')
-}
-
-/** The brief for Granola, as Markdown: private notes, owners and every block. */
+/** The Private preset as Markdown: private notes, owners and every block. */
 export function renderBrief(input: BriefInput): string {
-  return toMarkdown(briefParts(input))
+  return toMarkdown(pick(briefOutline(input), PRIVATE))
 }
 
 export function renderBriefHtml(input: BriefInput): string {
-  return toHtml(briefParts(input))
+  return toHtml(pick(briefOutline(input), PRIVATE))
 }
 
-/** The agenda as it can be sent round: no private notes, nothing about who owes what. */
+/** The Shareable preset: no private notes, nothing about who owes what. */
 export function renderAgenda(input: BriefInput): string {
-  return toMarkdown(publicParts(input))
+  return toMarkdown(pick(briefOutline(input), SHAREABLE))
 }
 
 export function renderAgendaHtml(input: BriefInput): string {
-  return toHtml(publicParts(input))
+  return toHtml(pick(briefOutline(input), SHAREABLE))
 }

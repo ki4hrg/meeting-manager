@@ -3,7 +3,9 @@ import { archive } from '../lib/archive/archive'
 import { createContext, listContexts } from '../lib/directory/contexts'
 import { createItem, parkItem } from '../lib/items/items'
 import { createMeeting } from '../lib/meetings/meetings'
-import { owedEverywhere, upcomingEverywhere } from '../lib/today'
+import { saveNote } from '../lib/notes/notes'
+import { addProposals } from '../lib/processing/proposals'
+import { meetingsEverywhere, owedEverywhere } from '../lib/today'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 
@@ -79,11 +81,100 @@ describe('Today', () => {
     await createMeeting(db, actor, { contextId: parish.id, title: 'Staff', startsAt: at('2026-10-05T15:00:00Z'), endsAt: at('2026-10-05T16:00:00Z') })
     await createMeeting(db, actor, { contextId: parish.id, title: 'Vestry', startsAt: at('2026-10-07T15:00:00Z'), endsAt: at('2026-10-07T16:00:00Z') })
 
-    const next = await upcomingEverywhere(db, await listContexts(db), { now, events: [] })
+    const { today, next } = await meetingsEverywhere(db, await listContexts(db), { timeZone: 'UTC', now, events: [] })
+    expect(today).toEqual([])
     expect(next.map((entry) => [entry.meeting?.title, entry.contextId])).toEqual([
       ['Staff', parish.id],
       ['Council', diocese.id],
       ['Vestry', parish.id],
     ])
+  })
+
+  it('counts a question I asked of no one in particular as Waiting on', async () => {
+    const { parish, john, sarah } = await makeWorld()
+    const question = (text: string, parties: Parameters<typeof createItem>[2]['parties'], dueOn?: string) =>
+      createItem(db, actor, { contextId: parish.id, kind: 'question', text, dueOn, parties })
+
+    await question('per-delegate cost', [{ personId: john.id, role: 'with' }], '2026-10-08')
+    await question('nobody named', [], '2026-10-09')
+    await question('undated, asked by me', [{ personId: john.id, role: 'with' }])
+    // Sarah asked it and nobody answers: not mine to wait on.
+    await question('Sarah wonders', [{ personId: sarah.id, role: 'with' }], '2026-10-08')
+    // Asked of me: I owe it.
+    await question('asked of me', [{ personId: john.id, role: 'owner' }], '2026-10-08')
+    // An action with nobody on it is not waited on.
+    await createItem(db, actor, { contextId: parish.id, kind: 'action', text: 'loose action', dueOn: '2026-10-08' })
+
+    const owed = await owedEverywhere(db, await listContexts(db), john.id, TODAY)
+    expect(owed.waiting.map((item) => item.text)).toEqual(['per-delegate cost', 'nobody named'])
+    // No date: it waits in Later, findable without crowding the list.
+    expect(owed.later.waiting.map((item) => item.text)).toEqual(['undated, asked by me'])
+    expect(owed.mine.map((item) => item.text)).toEqual(['asked of me'])
+  })
+
+  it("lists today's meetings by the user's clock, apart from Next up", async () => {
+    const { parish, diocese } = await makeWorld()
+    // 10:00 in New York (UTC-4) on Oct 4.
+    const now = new Date('2026-10-04T14:00:00Z')
+    const meeting = (contextId: string, title: string, startsAt: string, endsAt: string) =>
+      createMeeting(db, actor, { contextId, title, startsAt: new Date(startsAt), endsAt: new Date(endsAt) })
+
+    await meeting(parish.id, 'Last night', '2026-10-04T03:00:00Z', '2026-10-04T03:45:00Z') // 23:00 on Oct 3
+    const early = await meeting(parish.id, 'Early', '2026-10-04T04:30:00Z', '2026-10-04T05:00:00Z') // 00:30
+    const noted = await meeting(diocese.id, 'Noted', '2026-10-04T12:00:00Z', '2026-10-04T13:00:00Z')
+    const proposed = await meeting(parish.id, 'Proposed', '2026-10-04T12:30:00Z', '2026-10-04T13:30:00Z')
+    await meeting(diocese.id, 'Under way', '2026-10-04T13:30:00Z', '2026-10-04T14:30:00Z')
+    await meeting(parish.id, 'Late', '2026-10-05T03:30:00Z', '2026-10-05T04:00:00Z') // 23:30, Oct 5 in UTC
+    await meeting(parish.id, 'After midnight', '2026-10-05T04:30:00Z', '2026-10-05T05:00:00Z') // 00:30 on Oct 5
+
+    await saveNote(db, actor, { meetingId: noted.id, source: 'pasted', body: 'We met.' })
+    const note = await saveNote(db, actor, { meetingId: proposed.id, source: 'pasted', body: 'Book the hall.' })
+    await addProposals(db, { meetingId: proposed.id, noteId: note.note.id }, [
+      { payload: { type: 'item', kind: 'action', text: 'Book the hall', parties: [] } },
+    ])
+
+    const { today, next } = await meetingsEverywhere(db, await listContexts(db), {
+      timeZone: 'America/New_York',
+      now,
+      events: [],
+    })
+    expect(today.map((entry) => [entry.meeting?.title, entry.phase, entry.step])).toEqual([
+      ['Early', 'done', 'log'],
+      ['Noted', 'done', 'recap'],
+      ['Proposed', 'done', 'review'],
+      ['Under way', 'now', null],
+      ['Late', 'later', null],
+    ])
+    expect(today.find((entry) => entry.meeting?.id === proposed.id)?.pending).toBe(1)
+    expect(today[0]!.meeting!.id).toBe(early.id)
+    expect(next.map((entry) => entry.meeting?.title)).toEqual(['After midnight'])
+  })
+
+  it("lists a meeting's sessions of today in its place", async () => {
+    const { parish } = await makeWorld()
+    const now = new Date('2026-10-05T14:00:00Z')
+    const conference = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Annual Conference',
+      startsAt: new Date('2026-10-04T13:00:00Z'),
+      endsAt: new Date('2026-10-06T21:00:00Z'),
+    })
+    const session = (title: string, startsAt: string, endsAt: string) =>
+      createMeeting(db, actor, {
+        contextId: parish.id,
+        parentMeetingId: conference.id,
+        title,
+        startsAt: new Date(startsAt),
+        endsAt: new Date(endsAt),
+      })
+    await session('Day one', '2026-10-04T13:00:00Z', '2026-10-04T21:00:00Z')
+    await session('Day two', '2026-10-05T13:00:00Z', '2026-10-05T21:00:00Z')
+    await session('Day three', '2026-10-06T13:00:00Z', '2026-10-06T21:00:00Z')
+
+    const { today, next } = await meetingsEverywhere(db, await listContexts(db), { timeZone: 'UTC', now, events: [] })
+    expect(today.map((entry) => [entry.meeting?.title, entry.phase])).toEqual([
+      ['Annual Conference · Day two', 'now'],
+    ])
+    expect(next).toEqual([])
   })
 })

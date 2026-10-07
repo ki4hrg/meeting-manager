@@ -1075,7 +1075,7 @@ export const getBriefingTool = defineTool({
   name: 'get_briefing',
   title: 'Get the brief for a meeting',
   description:
-    'The brief for one meeting, as it is pasted into Granola: markdown with the agenda, ' +
+    'The brief for one meeting, as its private export: markdown with the agenda, ' +
     'planned starts, my private notes and the generated blocks, so it is for me and not for ' +
     'the room. Also the same blocks as data, and the suggested items not yet on the agenda. ' +
     `${BLOCKS_RULE} Given here, blocks overrides the meeting's settings for this one render. ` +

@@ -74,6 +74,7 @@ export default async function PastMeetingsPage({ searchParams }: { searchParams:
       <Section
         title="Past"
         count={entries.length}
+        empty={false}
         action={
           <div className="flex items-center gap-2">
             {beforeDay ? (

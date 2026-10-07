@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { archive } from '../lib/archive/archive'
+import { createContext } from '../lib/directory/contexts'
+import { addMember, createGroup, groupsOf } from '../lib/directory/groups'
 import {
   addPersonEmail,
   createPerson,
@@ -33,5 +36,24 @@ describe('a person’s addresses', () => {
     await expect(createPerson(db, { name: 'Other', emails: ['sarah@example.test'] })).rejects.toThrow(
       'Sarah Jones',
     )
+  })
+})
+
+describe('the groups a person is in', () => {
+  it('lists the live ones in the context asked about, by name', async () => {
+    const parish = await createContext(db, { name: 'Parish' })
+    const school = await createContext(db, { name: 'School' })
+    const sarah = await createPerson(db, { name: 'Sarah' })
+    const vestry = await createGroup(db, { contextId: parish.id, name: 'Vestry' })
+    const altar = await createGroup(db, { contextId: parish.id, name: 'altar guild' })
+    const choir = await createGroup(db, { contextId: parish.id, name: 'Choir' })
+    const board = await createGroup(db, { contextId: school.id, name: 'Board' })
+    for (const group of [vestry, altar, choir, board]) await addMember(db, group.id, sarah.id)
+    await archive(db, 'group', choir.id)
+
+    expect(await groupsOf(db, parish.id, sarah.id)).toEqual([
+      { id: altar.id, name: 'altar guild' },
+      { id: vestry.id, name: 'Vestry' },
+    ])
   })
 })

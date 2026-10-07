@@ -6,7 +6,8 @@
  * A kind prefix (T: Q: A: D:) and any number of @mentions, all optional.
  * An @ names a person or group, a project, or a series to raise it at
  * (`resolveMention`); #project and >series say which outright. With none of
- * them the line is a topic in the Inbox.
+ * them the line is a topic in the Inbox. A token picked as new (`NewMention`)
+ * is made in the same transaction as the item.
  *
  * Who a mention is depends on the kind, by the rule that separates the kinds
  * themselves: a topic is raised `with` someone; a question or an action is
@@ -17,6 +18,7 @@
 import { eq } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
 import { meetingProjects, meetings } from '../db/schema'
+import { createNamed, type NewKind } from '../directory/create'
 import { resolveMention, resolveProject, resolveSeries, type Mention, type Party } from '../directory/resolve'
 import { createItem, type ItemKind, type ItemView, type PartyInput, type PartyRole } from './items'
 
@@ -144,10 +146,22 @@ function sameParty(a: PartyInput, b: PartyInput): boolean {
   return (a.personId ?? a.groupId) === (b.personId ?? b.groupId)
 }
 
+/**
+ * A token picked as something new: `@Pat-Smith` as the person "Pat Smith".
+ * `@` makes a person or group, `#` a project, `>` a series.
+ */
+export type NewMention = { token: string; type: NewKind; name: string }
+
+const NEW_BY_SIGIL: Record<string, NewKind[]> = {
+  '@': ['person', 'group'],
+  '#': ['project'],
+  '>': ['series'],
+}
+
 export async function captureLine(
   exec: Executor,
   actor: ActorContext,
-  input: { contextId: string; line: string; presets?: CapturePresets },
+  input: { contextId: string; line: string; presets?: CapturePresets; create?: NewMention[] },
 ): Promise<ItemView> {
   const parsed = parseLine(input.line, { series: true })
   const presets = input.presets ?? {}
@@ -157,6 +171,18 @@ export async function captureLine(
     /* One @ for everything: each mention is a person or group, a project or a
        series. # and > still say which outright. */
     const resolved = new Map<string, Mention>()
+    /* What was picked as new is made first, in this transaction, so a line
+       refused for any reason makes nothing. One no longer in the line is not
+       made at all. */
+    for (const one of input.create ?? []) {
+      const sigil = one.token.slice(0, 1)
+      const name = one.token.slice(1)
+      if (!NEW_BY_SIGIL[sigil]?.includes(one.type)) throw new ValidationError(`${one.token} cannot be a new ${one.type}.`)
+      const key = sigil === '@' ? name : one.token
+      const present = sigil === '@' ? parsed.mentions : sigil === '#' ? parsed.projects : parsed.series
+      if (resolved.has(key) || !present.includes(name)) continue
+      resolved.set(key, await createNamed(tx, input.contextId, one.type, one.name))
+    }
     for (const name of parsed.mentions) {
       if (!resolved.has(name)) resolved.set(name, await resolveMention(tx, input.contextId, name))
     }

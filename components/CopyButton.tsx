@@ -13,6 +13,21 @@ import { Modal } from '@/components/ui/Modal'
  * `navigator.clipboard` does not exist on a plain-http origin. There the text
  * is shown selected instead, so a manual copy is one keystroke.
  */
+/** Writes to the clipboard, rich when `html` is given. Throws where there is none. */
+export async function copyRich(text: string, html?: string) {
+  if (!navigator.clipboard) throw new Error('no clipboard')
+  if (html && typeof ClipboardItem !== 'undefined') {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+        'text/html': new Blob([html], { type: 'text/html' }),
+      }),
+    ])
+  } else {
+    await navigator.clipboard.writeText(text)
+  }
+}
+
 export function CopyButton({
   text,
   html,
@@ -32,17 +47,7 @@ export function CopyButton({
 
   async function copy() {
     try {
-      if (!navigator.clipboard) throw new Error('no clipboard')
-      if (html && typeof ClipboardItem !== 'undefined') {
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            'text/plain': new Blob([text], { type: 'text/plain' }),
-            'text/html': new Blob([html], { type: 'text/html' }),
-          }),
-        ])
-      } else {
-        await navigator.clipboard.writeText(text)
-      }
+      await copyRich(text, html)
       toast.success('Copied')
     } catch {
       setManual(true)

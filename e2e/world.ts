@@ -17,6 +17,7 @@ export const WORLD = {
     lunch: 'Arrange the staff Christmas lunch',
     bulletin: 'Draft the bulletin insert',
     accountability: 'Accountability process for team-to-team collaborations',
+    delegateCost: 'Estimated per-delegate cost for General Conference',
   },
   meetings: { checkIn: 'Adlene/John Check-In', finance: 'Finance committee' },
   proposal: 'Get three quotes for the boiler',

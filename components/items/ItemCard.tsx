@@ -3,7 +3,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { Badge, ContextBadge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDay } from '@/lib/core/dates'
-import { isLater } from '@/lib/items/horizon'
+import { askedOfNoOne, isLater } from '@/lib/items/horizon'
 import { isOpen, type ItemKind, type ItemParty, type ItemView } from '@/lib/items/items'
 import { COLLABORATOR, hasCollaborators, roleLabel, roleOrder, type PartyRole } from '@/lib/items/roles'
 import { switches } from '@/lib/web/open'
@@ -20,18 +20,21 @@ const mark = (list: ItemParty[]): IconName =>
  * comes first under a person or group icon, collaborators follow the two-way
  * mark, and the arrow points at who it is for: on a question, who it is asked
  * of; on a decision, who decides (`lib/items/roles.ts`). An owner that is only
- * a guess is marked on the owner itself.
+ * a guess is marked on the owner itself. `noOne` puts the no-one-in-particular
+ * mark where who a question is asked of would be (`askedOfNoOne`).
  */
 export function PartyLine({
   parties,
   kind = 'action',
   ownerGuessed = false,
+  noOne = false,
 }: {
   parties: ItemParty[]
   kind?: ItemKind
   ownerGuessed?: boolean
+  noOne?: boolean
 }) {
-  if (parties.length === 0) return <span />
+  if (parties.length === 0 && !noOne) return <span />
   const [lead, target] = roleOrder(kind)
   const of = (role: PartyRole) => parties.filter((party) => party.role === role)
   const leading = of(lead)
@@ -58,7 +61,7 @@ export function PartyLine({
     )
     if (role === 'owner' && ownerGuessed) {
       return (
-        <span title="Owner is a guess" className="flex min-w-0">
+        <span title={`${roleLabel(kind, 'owner')}: a guess`} className="flex min-w-0">
           <Badge tone="amber">
             {body}
             <span aria-hidden>?</span>
@@ -90,6 +93,12 @@ export function PartyLine({
             <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0" label={roleLabel(kind, target)} />,
           )
         : null}
+      {noOne && pointed.length === 0 ? (
+        <>
+          <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0" label={roleLabel(kind, target)} />
+          <Icon name="broadcast" className="h-3.5 w-3.5 shrink-0" label="No one in particular" />
+        </>
+      ) : null}
     </span>
   )
 }
@@ -134,7 +143,7 @@ export function ItemCard({
             </p>
           ) : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-            <PartyLine parties={item.parties} kind={item.kind} />
+            <PartyLine parties={item.parties} kind={item.kind} noOne={open && askedOfNoOne(item)} />
             <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
               {context ? <ContextBadge name={context} /> : null}
               {showProject && item.project ? <Badge>{item.project.name}</Badge> : null}
@@ -149,6 +158,7 @@ export function ItemCard({
               {open && isLater(item, today) ? (
                 <Badge>
                   <Icon name="later" className="h-3 w-3" label="Later" />
+                  {item.laterUntilItemId ? <Icon name="link" className="h-3 w-3" label="Waits on an item" /> : null}
                   {item.laterOn ? formatDay(item.laterOn, today) : null}
                 </Badge>
               ) : null}

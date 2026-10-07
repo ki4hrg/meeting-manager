@@ -83,7 +83,8 @@ function AgendaMark({ rows }: { rows: number }) {
  * One meeting as a card. `when` is how its time reads in the list it sits in;
  * `pending` is how many proposals are waiting for review, and `to` sends the
  * card straight to that review instead of the meeting's page. `agenda`, when
- * given, is how many rows its agenda has, shown as whether it is prepped.
+ * given, is how many rows its agenda has, shown as whether it is prepped;
+ * `mark` says where it opens, when that is not its page.
  */
 export function MeetingCard({
   meeting,
@@ -91,6 +92,7 @@ export function MeetingCard({
   pending,
   to,
   agenda,
+  mark,
   href = to === 'review' ? `/meetings/${meeting.id}/review` : `/meetings/${meeting.id}`,
   context,
 }: {
@@ -99,6 +101,7 @@ export function MeetingCard({
   pending?: number
   to?: 'review'
   agenda?: number
+  mark?: React.ReactNode
   /** Where it opens, when not its page in the selected context (`openHref`). */
   href?: string
   /** Its context's name, where meetings from several are listed together. */
@@ -120,6 +123,7 @@ export function MeetingCard({
           ) : null}
         </div>
         <PendingBadge count={pending} />
+        {mark}
         {agenda !== undefined ? <AgendaMark rows={agenda} /> : null}
         <SeriesMark series={meeting.series} />
       </div>
