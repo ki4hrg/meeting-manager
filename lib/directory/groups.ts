@@ -92,6 +92,20 @@ export async function listMembers(exec: Executor, groupId: string): Promise<Memb
     .orderBy(sql`lower(${people.name})`)
 }
 
+/** The live groups in a context that a person is in. */
+export async function groupsOf(
+  exec: Executor,
+  contextId: string,
+  personId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  return exec
+    .select({ id: groups.id, name: groups.name })
+    .from(groupMembers)
+    .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+    .where(and(eq(groupMembers.personId, personId), eq(groups.contextId, contextId), onShelf(groups, 'live')))
+    .orderBy(sql`lower(${groups.name})`)
+}
+
 export async function addMember(exec: Executor, groupId: string, personId: string): Promise<void> {
   await getGroup(exec, groupId)
   await getPerson(exec, personId)

@@ -12,7 +12,7 @@ import { MeetingFields, WhenFields } from '@/components/meetings/MeetingFields'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { Suggestions } from '@/components/meetings/Suggestions'
 import { QuickAdd } from '@/components/QuickAdd'
-import { Card, CardGrid, Section } from '@/components/ui/Card'
+import { Card, CardGrid, Section, TwoColumn } from '@/components/ui/Card'
 import { DocumentCard } from '@/components/documents/DocumentCard'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { Chip } from '@/components/ui/Chip'
@@ -286,78 +286,86 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
           </Section>
         ) : null}
 
-        {rollup ? (
-          <>
-            {/* What was on the meeting itself before it had sessions. */}
-            {agenda.nodes.length > 0 ? (
-              <Section title="Agenda">
-                <AgendaCard agenda={agenda} today={today} people={leaders} />
-              </Section>
-            ) : null}
-            <Section title="Sessions" count={sessions.length} action={addSession}>
-              <div className="flex flex-col gap-6">
-                {sessions.map((session) => (
-                  <SessionAgenda
-                    key={session.id}
-                    session={session}
-                    agenda={session.agenda}
-                    today={today}
-                    timeZone={timeZone}
-                    people={leaders}
-                    sessions={sessions}
-                    tools={agendaTools(session.id)}
-                  />
-                ))}
-              </div>
-            </Section>
-          </>
-        ) : (
-          <>
-            <Section title="Agenda" action={agendaTools(meeting.id)}>
-              <AgendaCard agenda={agenda} today={today} people={leaders} sessions={parent?.sessions} />
-            </Section>
-            <Suggestions candidates={candidates} meetingId={meeting.id} />
-          </>
-        )}
+        <TwoColumn
+          main={
+            <>
+              {rollup ? (
+                <>
+                  {/* What was on the meeting itself before it had sessions. */}
+                  {agenda.nodes.length > 0 ? (
+                    <Section title="Agenda">
+                      <AgendaCard agenda={agenda} today={today} people={leaders} />
+                    </Section>
+                  ) : null}
+                  <Section title="Sessions" count={sessions.length} action={addSession}>
+                    <div className="flex flex-col gap-6">
+                      {sessions.map((session) => (
+                        <SessionAgenda
+                          key={session.id}
+                          session={session}
+                          agenda={session.agenda}
+                          today={today}
+                          timeZone={timeZone}
+                          people={leaders}
+                          sessions={sessions}
+                          tools={agendaTools(session.id)}
+                        />
+                      ))}
+                    </div>
+                  </Section>
+                </>
+              ) : (
+                <Section title="Agenda" action={agendaTools(meeting.id)}>
+                  <AgendaCard agenda={agenda} today={today} people={leaders} sessions={parent?.sessions} />
+                </Section>
+              )}
 
-        {started || outcome.length > 0 ? (
-          <Section
-            title="Outcomes"
-            count={outcome.length}
-            action={<QuickAdd presets={{ kind: 'action', originMeetingId: meeting.id }} />}
-          >
-            <ItemGrid items={outcome} today={today} empty="action" />
-          </Section>
-        ) : null}
+              {started || outcome.length > 0 ? (
+                <Section
+                  title="Outcomes"
+                  count={outcome.length}
+                  action={<QuickAdd presets={{ kind: 'action', originMeetingId: meeting.id }} />}
+                >
+                  <ItemGrid items={outcome} today={today} empty="action" />
+                </Section>
+              ) : null}
 
-        {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
-        {documents.length > 0 ? (
-          <Section title="Documents" count={documents.length}>
-            <div id="documents" className="scroll-mt-4">
-              <CardGrid>
-                {documents.map((document) => (
-                  <DocumentCard
-                    key={document.id}
-                    title={document.title}
-                    body={document.body}
-                    meta={formatDay(todayIn(timeZone, document.updatedAt), today)}
-                  />
-                ))}
-              </CardGrid>
-            </div>
-          </Section>
-        ) : null}
+              {/* One level only: a session has no sessions of its own. */}
+              {rollup || parent ? null : <Section title="Sessions" count={0} action={addSession} />}
+            </>
+          }
+          side={
+            <>
+              {rollup ? null : <Suggestions candidates={candidates} meetingId={meeting.id} />}
 
-        <Blocks
-          meetingId={meeting.id}
-          settings={meeting.blocks}
-          blocks={blocks}
-          today={today}
-          timeZone={timeZone}
+              {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
+              {documents.length > 0 ? (
+                <Section title="Documents" count={documents.length}>
+                  <div id="documents" className="scroll-mt-4">
+                    <CardGrid>
+                      {documents.map((document) => (
+                        <DocumentCard
+                          key={document.id}
+                          title={document.title}
+                          body={document.body}
+                          meta={formatDay(todayIn(timeZone, document.updatedAt), today)}
+                        />
+                      ))}
+                    </CardGrid>
+                  </div>
+                </Section>
+              ) : null}
+
+              <Blocks
+                meetingId={meeting.id}
+                settings={meeting.blocks}
+                blocks={blocks}
+                today={today}
+                timeZone={timeZone}
+              />
+            </>
+          }
         />
-
-        {/* One level only: a session has no sessions of its own. */}
-        {rollup || parent ? null : <Section title="Sessions" count={0} action={addSession}>{null}</Section>}
       </Muted>
     </>
   )

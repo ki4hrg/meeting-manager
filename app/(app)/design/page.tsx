@@ -20,7 +20,7 @@ import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
 import { RunState } from '@/components/processing/RunState'
 import { Button } from '@/components/ui/Button'
-import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile } from '@/components/ui/Card'
+import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile, TwoColumn } from '@/components/ui/Card'
 import { CheckList } from '@/components/ui/CheckList'
 import { Chip, FilterChip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -304,6 +304,60 @@ export default function DesignPage() {
           ))}
         </CardGrid>
       </Section>
+
+      <Section
+        title="Waiting on"
+        count={0}
+        action={
+          <Button variant="secondary" size="sm">
+            <Icon name="plus" className="h-4 w-4" />
+            Add
+          </Button>
+        }
+      />
+
+      <TwoColumn
+        main={
+          <Section title="Owed" count={2}>
+            <CardGrid>
+              {SAMPLE.slice(1, 3).map((item) => (
+                <Card key={item.text}>
+                  <div className="flex items-start gap-3">
+                    <KindIcon kind={item.kind} />
+                    <p className="min-w-0 flex-1 text-sm font-medium text-gray-900 dark:text-gray-100">{item.text}</p>
+                  </div>
+                </Card>
+              ))}
+            </CardGrid>
+          </Section>
+        }
+        side={
+          <>
+            <Section title="Members" count={2}>
+              <Card>
+                <div className="flex flex-wrap gap-2">
+                  <Chip href="/design" icon="person">
+                    Sarah Jones
+                  </Chip>
+                  <Chip href="/design" icon="person">
+                    Tom Baker
+                  </Chip>
+                </div>
+              </Card>
+            </Section>
+            <Section
+              title="Links"
+              count={0}
+              action={
+                <Button variant="secondary" size="sm">
+                  <Icon name="plus" className="h-4 w-4" />
+                  Add
+                </Button>
+              }
+            />
+          </>
+        }
+      />
 
       <Section title="Cards">
         <CardGrid>

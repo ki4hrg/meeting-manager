@@ -4,7 +4,8 @@ import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
-import { Section } from '@/components/ui/Card'
+import { Card, Section, TwoColumn } from '@/components/ui/Card'
+import { Chip } from '@/components/ui/Chip'
 import { Field, Input } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -12,6 +13,7 @@ import { RemovableChip } from '@/components/ui/RemovableChip'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
+import { groupsOf } from '@/lib/directory/groups'
 import { getPerson } from '@/lib/directory/people'
 import { listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
@@ -137,6 +139,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
 
   const meetings = await listMeetings(db, { contextId: context.id, personId: id, topLevelOnly: true })
   const pending = await pendingOnCards(db, context.id)
+  const groups = await groupsOf(db, context.id, id)
   const archived = !!person.archivedAt
   const theyOwe = open.filter((item) => has(item, id, 'owner'))
   const iOwe = open.filter((item) => has(item, id, 'with') && has(item, self.id, 'owner'))
@@ -149,51 +152,74 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
       <Muted archived={archived}>
         {emails}
 
-        <Section
-          title="Raise"
-          count={raise.length}
-          action={<QuickAdd presets={{ parties: [{ personId: id, role: 'with' }] }} />}
-        >
-          <ItemGrid items={raise} today={today} empty="topic" />
-        </Section>
+        <TwoColumn
+          main={
+            <>
+              <Section
+                title="Raise"
+                count={raise.length}
+                action={<QuickAdd presets={{ parties: [{ personId: id, role: 'with' }] }} />}
+              >
+                <ItemGrid items={raise} today={today} empty="topic" />
+              </Section>
 
-        <Section
-          title="They owe"
-          count={theyOwe.length}
-          action={
-            <QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />
+              <Section
+                title="They owe"
+                count={theyOwe.length}
+                action={
+                  <QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />
+                }
+              >
+                <ItemGrid items={theyOwe} today={today} empty="action" />
+              </Section>
+
+              <Section
+                title="I owe"
+                count={iOwe.length}
+                action={
+                  <QuickAdd
+                    presets={{
+                      kind: 'action',
+                      parties: [
+                        { personId: self.id, role: 'owner' },
+                        { personId: id, role: 'with' },
+                      ],
+                    }}
+                  />
+                }
+              >
+                <ItemGrid items={iOwe} today={today} empty="action" />
+              </Section>
+
+              {closed.length > 0 ? (
+                <Section title="Closed">
+                  <ItemGrid items={closed} today={today} empty="check" />
+                </Section>
+              ) : null}
+            </>
           }
-        >
-          <ItemGrid items={theyOwe} today={today} empty="action" />
-        </Section>
+          side={
+            <>
+              <Section title="Meetings" empty={meetings.length === 0}>
+                <MeetingGrid meetings={meetings} timeZone={user.timeZone} pending={pending} />
+              </Section>
 
-        <Section
-          title="I owe"
-          count={iOwe.length}
-          action={
-            <QuickAdd
-              presets={{
-                kind: 'action',
-                parties: [
-                  { personId: self.id, role: 'owner' },
-                  { personId: id, role: 'with' },
-                ],
-              }}
-            />
+              {groups.length > 0 ? (
+                <Section title="Groups" count={groups.length}>
+                  <Card>
+                    <div className="flex flex-wrap gap-2">
+                      {groups.map((group) => (
+                        <Chip key={group.id} href={`/groups/${group.id}`} icon="group">
+                          {group.name}
+                        </Chip>
+                      ))}
+                    </div>
+                  </Card>
+                </Section>
+              ) : null}
+            </>
           }
-        >
-          <ItemGrid items={iOwe} today={today} empty="action" />
-        </Section>
-
-        <Section title="Meetings">
-          <MeetingGrid meetings={meetings} timeZone={user.timeZone} pending={pending} />
-        </Section>
-
-        {closed.length > 0 ? (
-          <Section title="Closed">
-            <ItemGrid items={closed} today={today} empty="check" />
-          </Section>
-        ) : null}
+        />
       </Muted>
     </>
   )

@@ -7,11 +7,10 @@ import { ItemGrid } from '@/components/items/ItemCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { SkeletonEditor } from '@/components/series/SkeletonEditor'
-import { Card, CardHeader, LinkCard, Section } from '@/components/ui/Card'
+import { Card, CardHeader, LinkCard, Section, TwoColumn } from '@/components/ui/Card'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { CheckList } from '@/components/ui/CheckList'
 import { Chip } from '@/components/ui/Chip'
-import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -116,6 +115,8 @@ export default async function SeriesPage({
   const invitedKnown = (link?.next?.attendees ?? []).some(
     (attendee) => attendee.personId && !attendee.declined && !onRoster.has(attendee.personId),
   )
+  // Nobody on the roster and nobody to add from the calendar.
+  const unlisted = series.people.length + series.groups.length === 0 && strangers.length === 0
   const weekdayTime = (at: Date) =>
     new Intl.DateTimeFormat('en-US', { timeZone: user.timeZone ?? undefined, weekday: 'short' }).format(at) +
     ' ' +
@@ -206,280 +207,283 @@ export default async function SeriesPage({
       {archived ? <ArchivedBar kind="series" id={series.id} /> : null}
       <Muted archived={archived}>
 
-        <Section
-          title="Next"
-          action={
-            next ? null : (
-              <ActionButton action={prepNextInSeriesAction} fields={{ id: series.id }} size="sm">
-                <Icon name="meeting" className="h-4 w-4" />
-                Prep next
-              </ActionButton>
-            )
-          }
-        >
-          {next ? (
-            <LinkCard href={`/meetings/${next.id}`}>
-              <CardHeader
-                title={next.title}
-                aside={
-                  next.startsAt ? (
-                    <Badge tone="teal">{formatMoment(next.startsAt, user.timeZone)}</Badge>
-                  ) : null
+        <TwoColumn
+          main={
+            <>
+              <Section
+                title="Next"
+                empty={!next}
+                action={
+                  next ? null : (
+                    <ActionButton action={prepNextInSeriesAction} fields={{ id: series.id }} size="sm">
+                      <Icon name="meeting" className="h-4 w-4" />
+                      Prep next
+                    </ActionButton>
+                  )
                 }
-              />
-              {rows.length > 0 ? (
-                <ul className="flex flex-col gap-1 text-sm">
-                  {rows.slice(0, PREVIEW).map((row) => (
-                    <li
-                      key={row.id}
-                      className={
-                        row.section
-                          ? 'truncate font-semibold text-gray-900 dark:text-gray-100'
-                          : 'truncate pl-3 text-gray-600 dark:text-gray-300'
+              >
+                {next ? (
+                  <LinkCard href={`/meetings/${next.id}`}>
+                    <CardHeader
+                      title={next.title}
+                      aside={
+                        next.startsAt ? (
+                          <Badge tone="teal">{formatMoment(next.startsAt, user.timeZone)}</Badge>
+                        ) : null
                       }
-                    >
-                      {row.text}
-                    </li>
-                  ))}
-                  {rows.length > PREVIEW ? (
-                    <li className="pl-3 text-xs tabular-nums text-gray-500 dark:text-gray-400">
-                      +{rows.length - PREVIEW}
-                    </li>
-                  ) : null}
-                </ul>
-              ) : null}
-            </LinkCard>
-          ) : (
-            <EmptyState icon="meeting" />
-          )}
-        </Section>
+                    />
+                    {rows.length > 0 ? (
+                      <ul className="flex flex-col gap-1 text-sm">
+                        {rows.slice(0, PREVIEW).map((row) => (
+                          <li
+                            key={row.id}
+                            className={
+                              row.section
+                                ? 'truncate font-semibold text-gray-900 dark:text-gray-100'
+                                : 'truncate pl-3 text-gray-600 dark:text-gray-300'
+                            }
+                          >
+                            {row.text}
+                          </li>
+                        ))}
+                        {rows.length > PREVIEW ? (
+                          <li className="pl-3 text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                            +{rows.length - PREVIEW}
+                          </li>
+                        ) : null}
+                      </ul>
+                    ) : null}
+                  </LinkCard>
+                ) : null}
+              </Section>
 
-        <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
-          <Section
-            title="Roster"
-            count={series.people.length + series.groups.length}
-            action={
-              <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
-                <input type="hidden" name="id" value={series.id} />
-                <PartyPicker
-                  label="People"
-                  name="personIds"
-                  options={[
-                    ...otherPeople.map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
-                    ...groups
-                      .filter((group) => !series.groups.some((one) => one.id === group.id))
-                      .map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
-                  ]}
-                  allowNew
-                  me
-                />
-              </FormModal>
-            }
-          >
-            {series.people.length + series.groups.length === 0 && strangers.length === 0 ? (
-              <EmptyState icon="person" />
-            ) : (
-              <Card>
-                <div className="flex flex-wrap gap-2">
-                  {/* John is at every meeting: shown first, never removed. Then who is on it
-                      by name, then each group with the people it brings. */}
-                  <MeChip href={self ? `/people/${self.id}` : undefined} />
-                  {series.people.map((person) => (
-                    <RemovableChip
-                      key={person.id}
-                      icon="person"
-                      href={`/people/${person.id}`}
-                      remove={{
-                        action: removeSeriesPersonAction,
-                        fields: { id: series.id, personId: person.id },
-                        label: `Remove ${person.name}`,
-                      }}
-                    >
-                      {person.name}
-                    </RemovableChip>
-                  ))}
-                  {series.groups.map((group, index) => (
-                    <GroupCluster
-                      key={group.id}
-                      chip={
+              <Section
+                title="Topics"
+                count={topics.length}
+                action={<QuickAdd presets={{ kind: 'topic', targetSeriesId: series.id }} />}
+              >
+                <ItemGrid items={topics} today={today} empty="topic" />
+              </Section>
+
+              <Section
+                title="Owed"
+                count={owed.length}
+                action={<QuickAdd presets={{ kind: 'action', targetSeriesId: series.id }} />}
+              >
+                <ItemGrid items={owed} today={today} empty="action" />
+              </Section>
+
+              {/* Made at its meetings: nothing to add from here. */}
+              {decisions.length > 0 ? (
+                <Section title="Decisions" count={decisions.length}>
+                  <ItemGrid items={decisions} today={today} empty="decision" />
+                </Section>
+              ) : null}
+
+              <Answered items={answers} today={today} on={{ seriesId: series.id }} />
+
+              <HubMeetings
+                hub={{ kind: 'series', id: series.id }}
+                contextId={context.id}
+                path={`/series/${series.id}`}
+                query={await searchParams}
+                timeZone={user.timeZone}
+                today={today}
+                skip={next?.id}
+              />
+            </>
+          }
+          side={
+            <>
+              <Section
+                title="Roster"
+                count={series.people.length + series.groups.length}
+                empty={unlisted && !invitedKnown && behind.length === 0}
+                action={
+                  <FormModal action={addSeriesPeopleAction} title="Add to roster" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
+                    <input type="hidden" name="id" value={series.id} />
+                    <PartyPicker
+                      label="People"
+                      name="personIds"
+                      options={[
+                        ...otherPeople.map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
+                        ...groups
+                          .filter((group) => !series.groups.some((one) => one.id === group.id))
+                          .map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
+                      ]}
+                      allowNew
+                      me
+                    />
+                  </FormModal>
+                }
+              >
+                {unlisted ? null : (
+                  <Card>
+                    <div className="flex flex-wrap gap-2">
+                      {/* John is at every meeting: shown first, never removed. Then who is on it
+                          by name, then each group with the people it brings. */}
+                      <MeChip href={self ? `/people/${self.id}` : undefined} />
+                      {series.people.map((person) => (
                         <RemovableChip
-                          icon="group"
-                          href={`/groups/${group.id}`}
+                          key={person.id}
+                          icon="person"
+                          href={`/people/${person.id}`}
                           remove={{
-                            action: removeSeriesGroupAction,
-                            fields: { id: series.id, groupId: group.id },
-                            label: `Remove ${group.name}`,
+                            action: removeSeriesPersonAction,
+                            fields: { id: series.id, personId: person.id },
+                            label: `Remove ${person.name}`,
                           }}
                         >
-                          {group.name}
+                          {person.name}
                         </RemovableChip>
-                      }
-                    >
-                      {brought[index]!.map((member) => (
-                        <MemberLink key={member.id} person={member} />
                       ))}
-                    </GroupCluster>
-                  ))}
-                </div>
-              </Card>
-            )}
-            {strangers.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {strangers.map((stranger) => (
-                  <FormModal
-                    key={stranger.email}
-                    action={rosterInviteeAction}
-                    title={stranger.email}
-                    label={stranger.name ?? stranger.email}
-                    icon="plus"
-                    variant="secondary"
-                    size="sm"
-                    submit="Add"
-                  >
-                    <input type="hidden" name="id" value={series.id} />
-                    <input type="hidden" name="email" value={stranger.email} />
-                    <Field label="This is">
-                      <Select name="personId" defaultValue="">
-                        <option value="">—</option>
-                        <optgroup label="People">
-                          {allPeople
-                            .filter((person) => !person.isSelf)
-                            .map((person) => (
-                              <option key={person.id} value={person.id}>
-                                {person.name}
-                              </option>
-                            ))}
-                        </optgroup>
-                        {groups.length > 0 ? (
-                          <optgroup label="Groups">
-                            {groups.map((group) => (
-                              <option key={group.id} value={`group:${group.id}`}>
-                                {group.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ) : null}
-                      </Select>
-                    </Field>
-                    <Field label="Name">
-                      <Input name="name" defaultValue={stranger.name ?? ''} />
-                    </Field>
-                  </FormModal>
-                ))}
-              </div>
-            ) : null}
-            {invitedKnown ? (
-              <div className="mt-3 flex justify-end">
-                <ActionButton action={rosterFromCalendarAction} fields={{ id: series.id }} variant="secondary" size="sm">
-                  <Icon name="meeting" className="h-4 w-4" />
-                  From calendar
-                </ActionButton>
-              </div>
-            ) : null}
-            {/* Meetings edited by hand do not follow the roster on their own. */}
-            {behind.length > 0 ? (
-              <div className="mt-3 flex justify-end">
-                <ActionButton action={syncRosterAction} fields={{ id: series.id }} variant="secondary" size="sm">
-                  <Icon name="refresh" className="h-4 w-4" />
-                  {`Update ${behind.length} upcoming`}
-                </ActionButton>
-              </div>
-            ) : null}
-          </Section>
+                      {series.groups.map((group, index) => (
+                        <GroupCluster
+                          key={group.id}
+                          chip={
+                            <RemovableChip
+                              icon="group"
+                              href={`/groups/${group.id}`}
+                              remove={{
+                                action: removeSeriesGroupAction,
+                                fields: { id: series.id, groupId: group.id },
+                                label: `Remove ${group.name}`,
+                              }}
+                            >
+                              {group.name}
+                            </RemovableChip>
+                          }
+                        >
+                          {brought[index]!.map((member) => (
+                            <MemberLink key={member.id} person={member} />
+                          ))}
+                        </GroupCluster>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+                {strangers.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {strangers.map((stranger) => (
+                      <FormModal
+                        key={stranger.email}
+                        action={rosterInviteeAction}
+                        title={stranger.email}
+                        label={stranger.name ?? stranger.email}
+                        icon="plus"
+                        variant="secondary"
+                        size="sm"
+                        submit="Add"
+                      >
+                        <input type="hidden" name="id" value={series.id} />
+                        <input type="hidden" name="email" value={stranger.email} />
+                        <Field label="This is">
+                          <Select name="personId" defaultValue="">
+                            <option value="">—</option>
+                            <optgroup label="People">
+                              {allPeople
+                                .filter((person) => !person.isSelf)
+                                .map((person) => (
+                                  <option key={person.id} value={person.id}>
+                                    {person.name}
+                                  </option>
+                                ))}
+                            </optgroup>
+                            {groups.length > 0 ? (
+                              <optgroup label="Groups">
+                                {groups.map((group) => (
+                                  <option key={group.id} value={`group:${group.id}`}>
+                                    {group.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ) : null}
+                          </Select>
+                        </Field>
+                        <Field label="Name">
+                          <Input name="name" defaultValue={stranger.name ?? ''} />
+                        </Field>
+                      </FormModal>
+                    ))}
+                  </div>
+                ) : null}
+                {invitedKnown ? (
+                  <div className="mt-3 flex justify-end">
+                    <ActionButton action={rosterFromCalendarAction} fields={{ id: series.id }} variant="secondary" size="sm">
+                      <Icon name="meeting" className="h-4 w-4" />
+                      From calendar
+                    </ActionButton>
+                  </div>
+                ) : null}
+                {/* Meetings edited by hand do not follow the roster on their own. */}
+                {behind.length > 0 ? (
+                  <div className="mt-3 flex justify-end">
+                    <ActionButton action={syncRosterAction} fields={{ id: series.id }} variant="secondary" size="sm">
+                      <Icon name="refresh" className="h-4 w-4" />
+                      {`Update ${behind.length} upcoming`}
+                    </ActionButton>
+                  </div>
+                ) : null}
+              </Section>
 
-          <Section
-            title="Projects"
-            count={series.projects.length}
-            action={
-              otherProjects.length > 0 ? (
-                <FormModal action={addSeriesProjectsAction} title="Add projects" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
-                  <input type="hidden" name="id" value={series.id} />
-                  <CheckList label="Projects" name="projectIds" options={otherProjects} />
-                </FormModal>
-              ) : null
-            }
-          >
-            {series.projects.length === 0 ? (
-              <EmptyState icon="project" />
-            ) : (
-              <Card>
-                <div className="flex flex-wrap gap-2">
-                  {series.projects.map((project) => (
-                    <RemovableChip
-                      key={project.id}
-                      icon="project"
-                      href={`/projects/${project.id}`}
-                      remove={{
-                        action: removeSeriesProjectAction,
-                        fields: { id: series.id, projectId: project.id },
-                        label: `Remove ${project.name}`,
-                      }}
-                    >
-                      {project.name}
-                    </RemovableChip>
-                  ))}
-                </div>
-              </Card>
-            )}
-          </Section>
-        </div>
+              <Section
+                title="Projects"
+                count={series.projects.length}
+                action={
+                  otherProjects.length > 0 ? (
+                    <FormModal action={addSeriesProjectsAction} title="Add projects" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
+                      <input type="hidden" name="id" value={series.id} />
+                      <CheckList label="Projects" name="projectIds" options={otherProjects} />
+                    </FormModal>
+                  ) : null
+                }
+              >
+                {series.projects.length === 0 ? null : (
+                  <Card>
+                    <div className="flex flex-wrap gap-2">
+                      {series.projects.map((project) => (
+                        <RemovableChip
+                          key={project.id}
+                          icon="project"
+                          href={`/projects/${project.id}`}
+                          remove={{
+                            action: removeSeriesProjectAction,
+                            fields: { id: series.id, projectId: project.id },
+                            label: `Remove ${project.name}`,
+                          }}
+                        >
+                          {project.name}
+                        </RemovableChip>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+              </Section>
 
-        <SkeletonEditor seriesId={series.id} skeleton={series.skeleton} />
+              <Section
+                title="Blocks"
+                action={
+                  <div className="flex items-center gap-1">
+                    {BLOCKS.map(({ block, icon, label }) => (
+                      <IconAction
+                        key={block}
+                        action={setSeriesBlockAction}
+                        fields={{ id: series.id, block, on: String(!series.blocks[block]) }}
+                        icon={icon}
+                        label={label}
+                        tone={series.blocks[block] ? 'on' : 'gray'}
+                        aria-pressed={series.blocks[block]}
+                      />
+                    ))}
+                  </div>
+                }
+              >
+                {null}
+              </Section>
 
-        <Section
-          title="Blocks"
-          action={
-            <div className="flex items-center gap-1">
-              {BLOCKS.map(({ block, icon, label }) => (
-                <IconAction
-                  key={block}
-                  action={setSeriesBlockAction}
-                  fields={{ id: series.id, block, on: String(!series.blocks[block]) }}
-                  icon={icon}
-                  label={label}
-                  tone={series.blocks[block] ? 'on' : 'gray'}
-                  aria-pressed={series.blocks[block]}
-                />
-              ))}
-            </div>
+              <SkeletonEditor seriesId={series.id} skeleton={series.skeleton} />
+            </>
           }
-        >
-          {null}
-        </Section>
-
-        <Section
-          title="Topics"
-          count={topics.length}
-          action={<QuickAdd presets={{ kind: 'topic', targetSeriesId: series.id }} />}
-        >
-          <ItemGrid items={topics} today={today} empty="topic" />
-        </Section>
-
-        <Section
-          title="Owed"
-          count={owed.length}
-          action={<QuickAdd presets={{ kind: 'action', targetSeriesId: series.id }} />}
-        >
-          <ItemGrid items={owed} today={today} empty="action" />
-        </Section>
-
-        {/* Made at its meetings: nothing to add from here. */}
-        {decisions.length > 0 ? (
-          <Section title="Decisions" count={decisions.length}>
-            <ItemGrid items={decisions} today={today} empty="decision" />
-          </Section>
-        ) : null}
-
-        <Answered items={answers} today={today} on={{ seriesId: series.id }} />
-
-        <HubMeetings
-          hub={{ kind: 'series', id: series.id }}
-          contextId={context.id}
-          path={`/series/${series.id}`}
-          query={await searchParams}
-          timeZone={user.timeZone}
-          today={today}
-          skip={next?.id}
         />
       </Muted>
     </>

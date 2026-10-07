@@ -2,7 +2,6 @@ import { ActionSelect } from '@/components/ActionSelect'
 import { FormModal } from '@/components/forms'
 import { buttonClasses } from '@/components/ui/Button'
 import { Card, Section } from '@/components/ui/Card'
-import { EmptyState } from '@/components/ui/EmptyState'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Badge } from '@/components/ui/StatusBadge'
@@ -141,6 +140,7 @@ async function GoogleCalendar() {
   return (
     <Section
       title="Google Calendar"
+      empty={connections.length === 0}
       action={
         /* A plain link, not next/link: this is a route that redirects off the
            site and sets a cookie, and must not be prefetched. */
@@ -150,20 +150,16 @@ async function GoogleCalendar() {
         </a>
       }
     >
-      {connections.length === 0 ? (
-        <EmptyState icon="meeting" />
-      ) : (
-        <div className="flex flex-col gap-3">
-          {connections.map((connection) => (
-            <GoogleAccount
-              key={connection.id}
-              connection={connection}
-              bindings={bindings.filter((binding) => binding.connectionId === connection.id)}
-              places={places}
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex flex-col gap-3">
+        {connections.map((connection) => (
+          <GoogleAccount
+            key={connection.id}
+            connection={connection}
+            bindings={bindings.filter((binding) => binding.connectionId === connection.id)}
+            places={places}
+          />
+        ))}
+      </div>
     </Section>
   )
 }
