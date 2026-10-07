@@ -11,6 +11,7 @@ import { WhenInputs } from '@/components/meetings/WhenInputs'
 import { DeleteButton } from '@/components/archive/DeleteButton'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
+import { MentionSuggestions, NewNames } from '@/components/QuickAdd'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
@@ -650,6 +651,14 @@ export default function DesignPage() {
                   ]}
                   allowNew
                 />
+                <MentionSuggestions
+                  suggestions={[
+                    { name: 'Neil Campbell', icon: 'person', create: 'person' },
+                    { name: 'Neil Campbell', icon: 'group', create: 'group' },
+                  ]}
+                  highlighted={-1}
+                />
+                <NewNames names={[{ token: '@Neil-Campbell', type: 'person', name: 'Neil Campbell' }]} />
                 <div>
                   <PendingBadge count={3} />
                 </div>

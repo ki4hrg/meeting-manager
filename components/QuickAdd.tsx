@@ -11,7 +11,8 @@ import { Modal } from '@/components/ui/Modal'
 import { Spinner } from '@/components/ui/Spinner'
 import { ContextBadge, KIND, KindIcon, type ItemKind } from '@/components/ui/StatusBadge'
 import { matchName, normalise, tokenFor } from '@/lib/core/match'
-import type { CapturePresets } from '@/lib/items/capture'
+import type { NewKind } from '@/lib/directory/create'
+import type { CapturePresets, NewMention } from '@/lib/items/capture'
 
 const PREFIX: Record<ItemKind, string> = { topic: 'T', question: 'Q', action: 'A', decision: 'D' }
 const KINDS = Object.keys(PREFIX) as ItemKind[]
@@ -20,7 +21,38 @@ const KIND_OF_PREFIX = /^([tqad]):\s*/i
 /* The @, # or > token the caret is at the end of, if any. */
 const ACTIVE_TOKEN = /(?:^|\s)([@#>])([\p{L}\p{N}_/-]*)$/u
 
-type Suggestion = { name: string; icon: 'person' | 'group' | 'project' | 'refresh' }
+/* A whole token in the line, as the server reads it. */
+const WHOLE_TOKEN = /^([@#>])([\p{L}\p{N}][\p{L}\p{N}_/-]*)[.,;:!?]*$/u
+
+const NEW_FOR: Record<string, NewKind[]> = { '@': ['person', 'group'], '#': ['project'], '>': ['series'] }
+
+type SuggestionIcon = 'person' | 'group' | 'project' | 'refresh'
+
+const ICON_OF: Record<NewKind, SuggestionIcon> = {
+  person: 'person',
+  group: 'group',
+  project: 'project',
+  series: 'refresh',
+}
+
+/** Something to complete the token with; with `create`, a new one by that name. */
+export type Suggestion = { name: string; icon: SuggestionIcon; create?: NewKind }
+
+/* `Neil-Campbell` as the name it stands for. */
+function nameFromToken(token: string): string {
+  return token.replace(/[-_]+/g, ' ').trim()
+}
+
+function newRows(sigil: string, token: string): Suggestion[] {
+  return (NEW_FOR[sigil] ?? []).map((kind) => ({ name: nameFromToken(token), icon: ICON_OF[kind], create: kind }))
+}
+
+function tokensIn(line: string): string[] {
+  return line.split(/\s+/).flatMap((word) => {
+    const token = WHOLE_TOKEN.exec(word)
+    return token ? [`${token[1]}${token[2]}`] : []
+  })
+}
 
 function kindOf(line: string, fallback: ItemKind): ItemKind {
   const prefix = KIND_OF_PREFIX.exec(line.trimStart())
@@ -57,6 +89,8 @@ export function QuickAdd({
   const [caret, setCaret] = useState(0)
   const [highlighted, setHighlighted] = useState(0)
   const [error, setError] = useState<string>()
+  /* Tokens picked as new, and the name each is to be made with. */
+  const [fresh, setFresh] = useState<NewMention[]>([])
   const [pending, startTransition] = useTransition()
 
   useEffect(() => {
@@ -76,6 +110,9 @@ export function QuickAdd({
 
   const active = ACTIVE_TOKEN.exec(line.slice(0, caret))
   const partial = active?.[2] ?? ''
+  const present = new Set(tokensIn(line))
+  const picked = fresh.filter((one) => present.has(one.token))
+  const isFresh = (token: string) => picked.some((one) => one.token === token)
   let suggestions: Suggestion[] = []
   /* In the server's order of precedence: who, then projects, then series. */
   const tiers: Suggestion[][] = [
@@ -92,21 +129,72 @@ export function QuickAdd({
     suggestions = offered
       .flatMap((pool) => (partial === '' ? pool : matchName(pool, partial)))
       .slice(0, 6)
+    const exact = offered.some((pool) => pool.some((one) => normalise(one.name) === normalise(partial)))
     // Already typed out in full: nothing left to suggest, so Enter submits.
-    if (suggestions.length === 1 && normalise(suggestions[0]!.name) === normalise(partial)) {
-      suggestions = []
+    if (suggestions.length === 1 && exact) suggestions = []
+    if (isFresh(`${active[1]}${partial}`)) suggestions = []
+    else if (!exact && WHOLE_TOKEN.test(`${active[1]}${partial}`) && partial.toLowerCase() !== 'me') {
+      suggestions = [...suggestions, ...newRows(active[1]!, partial)]
     }
   }
+
+  /* After a refusal, the first token that matches nothing, offered as new in place. */
+  const unknown =
+    error && suggestions.length === 0
+      ? tokensIn(line).find((token) => {
+          const name = token.slice(1)
+          if (isFresh(token) || name.toLowerCase() === 'me') return false
+          const pools = token[0] === '@' ? tiers : token[0] === '#' ? [tiers[1]!] : [tiers[2]!]
+          return pools.every((pool) => matchName(pool, name).length === 0)
+        })
+      : undefined
+  if (unknown) suggestions = newRows(unknown[0]!, unknown.slice(1))
+
+  /* While a token is typed, a new one is highlighted only with the arrows: a
+     line typed out in full and entered is refused, not filled with new
+     people. Once refused, the fix is first. */
+  const current =
+    highlighted >= 0 && highlighted < suggestions.length
+      ? highlighted
+      : suggestions[0] && (!suggestions[0].create || unknown)
+        ? 0
+        : -1
 
   function edit(next: string, nextCaret: number) {
     setLine(next)
     setCaret(nextCaret)
-    setHighlighted(0)
+    setHighlighted(-1)
     setError(undefined)
   }
 
+  function markNew(token: string, suggestion: Suggestion) {
+    setFresh((now) => [
+      ...now.filter((one) => one.token !== token),
+      { token, type: suggestion.create!, name: suggestion.name },
+    ])
+  }
+
   function pick(suggestion: Suggestion) {
+    if (suggestion.create && unknown) {
+      markNew(unknown, suggestion)
+      setError(undefined)
+      setHighlighted(-1)
+      inputRef.current?.focus()
+      return
+    }
     if (!active) return
+    if (suggestion.create) {
+      // The token stays as typed; the name it is made with is fixed below the line.
+      markNew(`${active[1]}${partial}`, suggestion)
+      const rest = line.slice(caret)
+      const next = line.slice(0, caret) + (rest.startsWith(' ') ? '' : ' ') + rest
+      edit(next, caret + 1)
+      requestAnimationFrame(() => {
+        inputRef.current?.focus()
+        inputRef.current?.setSelectionRange(caret + 1, caret + 1)
+      })
+      return
+    }
     /* An @ that would reach something else of the same name first (a group
        and a project both called "Retreat") is written as # or > instead. */
     const tier = tiers.findIndex((pool) => pool.some((one) => one.icon === suggestion.icon))
@@ -136,12 +224,15 @@ export function QuickAdd({
     const data = new FormData()
     data.set('line', value)
     data.set('presets', JSON.stringify(presets ?? {}))
+    const created = picked
+    data.set('create', JSON.stringify(created))
 
     /* Capture often comes in batches, so the field is cleared at once and
        nothing is disabled while a line is saved: the next can be typed and
        entered before this one has landed. (A disabled submit button would
        swallow Enter.) */
     edit('', 0)
+    setFresh([])
     inputRef.current?.focus()
     startTransition(async () => {
       const result = await captureAction(data)
@@ -152,6 +243,7 @@ export function QuickAdd({
       // Back to be corrected, unless the next line is already being typed.
       if (inputRef.current?.value === '') {
         edit(value, value.length)
+        setFresh(created)
         setError(result.error)
       } else {
         toast.error(`${value}: ${result.error}`)
@@ -164,11 +256,16 @@ export function QuickAdd({
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const step = event.key === 'ArrowDown' ? 1 : -1
-      setHighlighted((index) => (index + step + suggestions.length) % suggestions.length)
-    } else if (event.key === 'Enter' || event.key === 'Tab') {
+      const from = current < 0 ? (step === 1 ? -1 : 0) : current
+      setHighlighted((from + step + suggestions.length) % suggestions.length)
+    } else if ((event.key === 'Enter' || event.key === 'Tab') && current >= 0) {
       event.preventDefault()
-      pick(suggestions[highlighted] ?? suggestions[0]!)
+      pick(suggestions[current]!)
     }
+  }
+
+  function rename(token: string, name: string) {
+    setFresh((now) => now.map((one) => (one.token === token ? { ...one, name } : one)))
   }
 
   return (
@@ -223,28 +320,12 @@ export function QuickAdd({
             />
           </div>
 
-          {suggestions.length > 0 ? (
-            <ul role="listbox" className="flex flex-wrap gap-2">
-              {suggestions.map((suggestion, index) => (
-                <li key={`${suggestion.icon}:${suggestion.name}`}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={index === highlighted}
-                    onClick={() => pick(suggestion)}
-                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${
-                      index === highlighted
-                        ? 'border-blue-500 bg-blue-50 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
-                        : 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
-                    }`}
-                  >
-                    <Icon name={suggestion.icon} className="h-3.5 w-3.5" />
-                    {suggestion.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <MentionSuggestions suggestions={suggestions} highlighted={current} onPick={pick} />
+          <NewNames
+            names={picked}
+            onRename={rename}
+            onRemove={(token) => setFresh((now) => now.filter((one) => one.token !== token))}
+          />
 
           <FormError>{error}</FormError>
 
@@ -279,5 +360,88 @@ export function QuickAdd({
         </form>
       </Modal>
     </>
+  )
+}
+
+/** What the token at the caret could be; a `create` row makes it new. */
+export function MentionSuggestions({
+  suggestions,
+  highlighted,
+  onPick,
+}: {
+  suggestions: Suggestion[]
+  highlighted: number
+  onPick?: (suggestion: Suggestion) => void
+}) {
+  if (suggestions.length === 0) return null
+  return (
+    <ul role="listbox" className="flex flex-wrap gap-2">
+      {suggestions.map((suggestion, index) => (
+        <li key={`${suggestion.create ?? ''}${suggestion.icon}:${suggestion.name}`}>
+          <button
+            type="button"
+            role="option"
+            aria-selected={index === highlighted}
+            aria-label={suggestion.create ? `New ${suggestion.create} ${suggestion.name}` : undefined}
+            title={suggestion.create ? `New ${suggestion.create}` : undefined}
+            onClick={() => onPick?.(suggestion)}
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${
+              index === highlighted
+                ? 'border-blue-500 bg-blue-50 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
+                : `border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 ${
+                    suggestion.create ? 'border-dashed' : ''
+                  }`
+            }`}
+          >
+            {suggestion.create ? <Icon name="plus" className="h-3.5 w-3.5" /> : null}
+            <Icon name={suggestion.icon} className="h-3.5 w-3.5" />
+            {suggestion.name}
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** The tokens picked as new, each with the name it will be made with, to fix first. */
+export function NewNames({
+  names,
+  onRename,
+  onRemove,
+}: {
+  names: NewMention[]
+  onRename?: (token: string, name: string) => void
+  onRemove?: (token: string) => void
+}) {
+  if (names.length === 0) return null
+  return (
+    <ul className="flex flex-wrap gap-2">
+      {names.map((one) => (
+        <li
+          key={one.token}
+          className="inline-flex max-w-full items-center gap-1 rounded-full bg-gray-100 py-0.5 pl-2.5 pr-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+        >
+          <Icon name="plus" className="h-3 w-3 shrink-0" />
+          <Icon name={ICON_OF[one.type]} className="h-3.5 w-3.5 shrink-0" label={`New ${one.type}`} />
+          <input
+            value={one.name}
+            onChange={(event) => onRename?.(one.token, event.target.value)}
+            readOnly={!onRename}
+            aria-label={`Name for ${one.token}`}
+            size={Math.max(one.name.length, 4)}
+            className="min-w-0 rounded bg-transparent px-0.5 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:bg-gray-800"
+          />
+          <button
+            type="button"
+            onClick={() => onRemove?.(one.token)}
+            aria-label="Remove"
+            title="Remove"
+            className="rounded-full p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-gray-200"
+          >
+            <Icon name="close" className="h-3 w-3" />
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
