@@ -266,6 +266,27 @@ describe('what is never a candidate', () => {
     expect(offered(await getCandidates(db, next.id, NOW))).toEqual([outcome.id])
   })
 
+  it('a question asked of no one in particular is owed by nobody: never offered, never a follow-up', async () => {
+    const w = await makeWorld()
+    const asked = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'per-delegate cost?',
+      parties: [{ personId: w.john.id, role: 'with' }],
+    })
+    await createItem(db, actor, { contextId: w.parish.id, kind: 'question', text: 'nobody named?' })
+
+    const oneOnOne = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id] })
+    const candidates = await getCandidates(db, oneOnOne.id, NOW)
+    expect(offered(candidates)).toEqual([])
+    expect(grouped(candidates.more)).toEqual([])
+
+    // Aimed at a meeting by hand, it is on the agenda, and still nobody owes it.
+    await placeItem(db, actor, oneOnOne.id, asked.id)
+    const blocks = await computeBlocks(db, oneOnOne.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(blocks.followUps).toBeNull()
+  })
+
   it('an item with no target is not placed on a meeting with no series', async () => {
     const w = await makeWorld()
     await createItem(db, actor, { contextId: w.parish.id, text: 'loose' })

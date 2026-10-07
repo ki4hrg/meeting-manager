@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { watchErrors } from './helpers'
 
-const PAGES = ['/', '/inbox', '/meetings', '/meetings/past', '/projects', '/people', '/groups', '/series', '/settings', '/design']
+const PAGES = ['/', '/inbox', '/items', '/meetings', '/meetings/past', '/projects', '/people', '/groups', '/series', '/settings', '/design']
 
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`at phone width, ${scheme}`, () => {

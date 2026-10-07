@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic'
 const SECTIONS: NavSection[] = [
   { href: '/meetings', label: 'Meetings' },
   { href: '/inbox', label: 'Inbox', tone: 'blue' },
+  { href: '/items', label: 'Items' },
   { href: '/projects', label: 'Projects' },
   { href: '/people', label: 'People' },
   { href: '/groups', label: 'Groups' },

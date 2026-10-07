@@ -34,6 +34,8 @@ export async function seed() {
   await createItem(db, actor, { contextId: church.id, kind: 'action', text: WORLD.items.lunch, dueOn: addDays(today, 6), parties: mine })
   await createItem(db, actor, { contextId: church.id, kind: 'action', text: WORLD.items.bulletin, dueOn: addDays(today, 3), parties: [{ personId: sarah.id, role: 'owner' }] })
   await createItem(db, actor, { contextId: conference.id, kind: 'topic', text: WORLD.items.accountability, parties: [{ personId: adlene.id, role: 'with' }] })
+  // Asked by John of no one in particular: it will come as a press release.
+  await createItem(db, actor, { contextId: conference.id, kind: 'question', text: WORLD.items.delegateCost, dueOn: addDays(today, 5), parties: [{ personId: john.id, role: 'with' }], projectId: year.id })
 
   const at = (days: number, hour: number) => {
     const moment = new Date()
@@ -42,7 +44,8 @@ export async function seed() {
     return moment
   }
   await createMeeting(db, actor, { contextId: conference.id, title: WORLD.meetings.checkIn, startsAt: at(1, 10), endsAt: at(1, 11), personIds: [adlene.id] })
-  const finance = await createMeeting(db, actor, { contextId: church.id, title: WORLD.meetings.finance, startsAt: at(-1, 18), endsAt: at(-1, 19), personIds: [sarah.id] })
+  // Two days back, so on any clock it is an earlier day's, reviewed under Review rather than Today.
+  const finance = await createMeeting(db, actor, { contextId: church.id, title: WORLD.meetings.finance, startsAt: at(-2, 18), endsAt: at(-2, 19), personIds: [sarah.id] })
   await addProposals(db, { meetingId: finance.id }, [
     { payload: { type: 'item', kind: 'action', text: WORLD.proposal, parties: [] } },
   ])
