@@ -16,7 +16,7 @@ Decisions made with John:
 
 - **Greenfield, start empty.** Lift working code from Meeter; migrate no data.
 - **Hybrid interface:** web UI plus Claude via MCP.
-- **Granola is always the live screen.** The tool hands it a pasted brief and has no run view in the MVP.
+- **Granola is always the live screen.** The tool hands it a pasted private agenda and has no run view in the MVP.
 - **Processing is automatic, then reviewed** on one screen.
 - **Todoist:** two-way sync.
 - **Keep** multi-day sessions, timed agendas, group ownership, project lookahead in agendas and recaps.
@@ -102,19 +102,19 @@ One pipeline; every stage is optional, with no rail.
 |---|---|---|---|---|
 | Capture | n/a | Items tagged with people/projects | Items tagged with the person | Items tagged with the project |
 | Prep | None | Skeleton + placed items; skim suggestions | "Prep a meeting with…" places the batch | Full timed agenda |
-| Run | Granola only | Brief pasted into Granola | Brief pasted into Granola | Timed brief pasted into Granola |
+| Run | Granola only | Private agenda pasted in | Private agenda pasted in | Timed private agenda pasted in |
 | Process | Automatic, or Log a meeting | Automatic | Automatic | Automatic |
 | Review | One screen | One screen | One screen | One screen |
 | Export | Optional | Optional | Optional | Recap to attendees |
 
 - **Capture:** global quick-add (one `@` for a person, group, project or series; kind prefix optional; everything optional) and MCP `capture_item`. *(2026-10-03)* An `@` resolves people and groups first, then projects, then series (an exact name of any kind beats a prefix), so `@sarah` stays Sarah while `@check-in` reaches "Adlene/John Check-In" and raises the item at that series' next meeting. `#project` and `>series` still say which outright, and the completion writes them when an `@` would reach something else of the same name.
-- **Agenda:** two levels (section, line). A line is free text or a reference to a live item, with public text, a public description, a leader (any person, John included) and a private note. The description and leader go out in the brief and the agenda copy; the private note only in the brief.
+- **Agenda:** two levels (section, line). A line is free text or a reference to a live item, with public text, a public description, a leader (any person, John included) and a private note. The description and leader go out in the private and the shareable export; the private note only in the private one.
 - **Timing (optional):** minutes per line, computed start times, pinned starts, overflow flagged.
 - **Generated blocks**, computed on render, defaults set on the series (on for project/committee meetings, off for 1:1s and drop-ins):
   - *Follow-ups due:* what attending people and groups owe, from placed items.
   - *Since last time:* decisions made, items closed and still open from the previous occurrence.
   - *Lookahead:* upcoming milestones and deadlines for the meeting's projects, plus the next linked meetings.
-- **Brief for Granola:** agenda with planned start times, John's private notes and what attendees owe. A new renderer; Meeter's deliberately strips private notes.
+- **Private and shareable:** *(John, 2026-10-05)* a meeting's page has one **Export**: presets, the parts it includes, and where it goes (clipboard as Markdown and rich text, PDF, email, a Markdown file). The parts are attendees, start times, descriptions and leaders, private notes, who owes what, follow-ups, since last time and lookahead. **Private** is everything: the agenda with planned start times, John's private notes and what attendees owe, for his own notepad. **Shareable** is what can be sent round: no private notes, nothing about who owes what, no follow-ups or since last time. A private part carries a lock. The last choice is remembered per kind of export. An item's kind is never written as a `Q:`/`A:` prefix, whatever is chosen.
 - **Scratchpad:** Granola's own notepad, read through the API's `private_notes_markdown`. Processing sorts it three ways:
   - drafted content (a brainstormed event agenda) is saved whole as a `document` on the project hub, never split into items;
   - an unresolved circle-back becomes a proposed question or topic;
@@ -129,7 +129,7 @@ One pipeline; every stage is optional, with no rail.
   - A meeting can hold several Granola notes. A note for a multi-day event asks which session at review.
   - A reconcile job catches missed webhook deliveries.
 - **Review:** one screen; accept, edit or reject each proposal, or approve all. Proposals whose owner was guessed are marked on the owner and excluded from approve-all. Accepted proposals can be undone. Nothing reaches real items or Todoist before approval.
-- **Export:** recap computed on demand: summary, decisions, owed items grouped by person and group, lookahead. *(John, 2026-10-05)* Its prose (the summary and what was said under each line) can be reworded from the recap page; the edits are kept on the meeting (`recap_edits`), stand over later runs part by part, and can be cleared. Items are edited as items. Copy as rich text or Markdown; `mailto:` fills recipients and subject while the body goes to the clipboard. Also a per-person "your items" snippet.
+- **Export:** recap computed on demand: summary, decisions, owed items grouped by person and group, lookahead. *(John, 2026-10-05)* Its prose (the summary and what was said under each line) can be reworded from the recap page; the edits are kept on the meeting (`recap_edits`), stand over later runs part by part, and can be cleared. Items are edited as items. It goes out through the same Export, with its own parts (attendees, summary, discussed, decisions, follow-ups, closed, lookahead): copy as rich text or Markdown, PDF, a Markdown file, or `mailto:`, which fills recipients and subject while the body goes to the clipboard. Also a per-person "your items" snippet.
 
 ## Hubs
 
@@ -187,7 +187,7 @@ Deploy per the global notes: image built in Actions and pushed to GHCR, compose 
 
 0. **Spec and scaffold.** `docs/SPEC.md`, `CLAUDE.md` with the UI rules, `git init`, scaffold, shared UI components, single login, OAuth/MCP plumbing, deploy pipeline. Live checks against Granola: when `note.generated` and `note.edited` fire, and what a no-calendar note contains.
 1. **Items and hubs.** Contexts, people, groups, projects, milestones, links, items, events, quick-add, Inbox, the four hub pages, and `capture_item` over MCP. *Usable for capture.*
-2. **Meetings and agendas.** Calendar feed, series, lazy meetings, stubs, sessions, candidate placement and suggestions, agenda editor with timing, generated blocks, outline import, brief for Granola. *Usable daily for prep.*
+2. **Meetings and agendas.** Calendar feed, series, lazy meetings, stubs, sessions, candidate placement and suggestions, agenda editor with timing, generated blocks, outline import, private and shareable export. *Usable daily for prep.*
 3. **Processing.** Log a meeting with pasted notes first; then Granola ingest, reconcile job, extraction, review screen, recap export. *Closes the loop.*
 4. **Todoist and the remaining MCP tools.** *(John, 2026-10-04)* Built after everything else in this list that is not post-MVP: the time zone on Settings, Today (6), the hubs' reach (7), the New meeting form's events (8), pausing sub-projects (11). Phase 4 then carries the Todoist sync, Fold into and Combine (9), and `get_hub`.
 5. **Cutover from Meeter** *(done, John, 2026-10-03)*: disconnect Meeter's Todoist link and Granola webhook, replace the installed `meeting-briefing` and `meeting-processing` skills, re-enter what is still open, leave Meeter read-only.
@@ -290,7 +290,7 @@ Deploy per the global notes: image built in Actions and pushed to GHCR, compose 
 - Vitest against a real Postgres (Testcontainers) for the item lifecycle, candidate rules and Todoist merge.
 - Walkthroughs in the browser, each assigned to the phase that completes it:
   - Phase 2: sporadic (six items across two projects tagged to one person are all placed when a meeting is prepped; the stub later attaches to its calendar event without a duplicate); routine 1:1 (person items pre-placed).
-  - Phase 3: drop-in from a Granola note with no calendar event; unrecorded drop-in via Log a meeting; committee meeting with a timed brief and recap.
+  - Phase 3: drop-in from a Granola note with no calendar event; unrecorded drop-in via Log a meeting; committee meeting with a timed private agenda and recap.
 - Step budget: routine prep and drop-in review each take no more than three actions.
 - Candidate tests: a ten-person staff meeting places nothing person-only; a private 1:1 item never appears in a group agenda or recap; an item taken off an agenda is never buried.
 - Context isolation: nothing from one context appears in another's agenda, hub or recap.

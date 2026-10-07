@@ -15,12 +15,14 @@ import { addLine, addSection, removeLine } from '../lib/agenda/lines'
 import {
   getRecap,
   recapMailto,
+  recapOutline,
   renderPersonSnippet,
   renderRecap,
   renderRecapHtml,
   setRecapEdits,
   type Recap,
 } from '../lib/agenda/recap'
+import { pick, toMarkdown } from '../lib/agenda/export'
 import { notes, personEmails, processingRuns, type RunOutput } from '../lib/db/schema'
 import { createPerson } from '../lib/directory/people'
 import {
@@ -209,6 +211,23 @@ describe('the committee walkthrough', () => {
         '## Lookahead',
         '- Mar 13 · Retreat: Registration opens [milestone]',
         '- Mar 20, 10:00 AM · Retreat planning [meeting]',
+      ].join('\n'),
+    )
+
+    // An export can leave whole sections out.
+    expect(
+      toMarkdown(pick(recapOutline(recap), new Set(['decisions', 'closed']))),
+    ).toBe(
+      [
+        '# Retreat committee',
+        'Thu, Mar 6 · 10:00 AM – 11:00 AM',
+        '',
+        '## Decisions',
+        "- The retreat is at St Mary's",
+        '- Registration closes two weeks before',
+        '',
+        '## Closed',
+        '- Budget update — Approved as drafted',
       ].join('\n'),
     )
 

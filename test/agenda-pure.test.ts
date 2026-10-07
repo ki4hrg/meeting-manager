@@ -4,7 +4,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { parseOutline } from '../lib/agenda/outline'
-import { renderAgenda, renderAgendaHtml, renderBrief, renderBriefHtml } from '../lib/agenda/brief'
+import {
+  briefOutline,
+  renderAgenda,
+  renderAgendaHtml,
+  renderBrief,
+  renderBriefHtml,
+} from '../lib/agenda/brief'
+import { EXPORTS, pick, preset, toMarkdown } from '../lib/agenda/export'
 import { type Agenda } from '../lib/agenda/lines'
 import { type GeneratedBlocks } from '../lib/agenda/types'
 import { scheduleAgenda, type SchedulableNode } from '../lib/agenda/schedule'
@@ -472,6 +479,38 @@ describe('brief rendering', () => {
     )
     expect(html).toContain('Q&amp;A session')
     expect(renderAgendaHtml(input)).not.toContain('Keep it brief')
+  })
+
+  it('exports only the parts chosen', () => {
+    const text = toMarkdown(pick(briefOutline(input), new Set(['details', 'notes'])))
+    expect(text.split('\n').slice(0, 2)).toEqual(['# Team standup', 'Wed, Oct 7 · 9:00 AM – 10:00 AM'])
+    expect(text).toContain(
+      ['- **Welcome (10 min)**', '  - Opening remarks — Sarah (5 min)', '    - Five minutes each', '    - Note: Keep it brief'].join(
+        '\n',
+      ),
+    )
+    expect(text).not.toContain('Ends')
+    expect(text).not.toContain('Follow-ups due')
+
+    const bare = toMarkdown(pick(briefOutline({ ...input, meeting: { ...input.meeting, startsAt: null } }), new Set()))
+    // A header line with nothing left in it goes.
+    expect(bare.split('\n').slice(0, 3)).toEqual(['# Team standup', '', '## Agenda'])
+    expect(bare).toContain('  - Opening remarks (5 min)')
+  })
+
+  it('never writes a capture prefix, whatever is chosen', () => {
+    const outline = briefOutline(input)
+    const keys = EXPORTS.agenda.options.map((option) => option.key)
+    for (const key of keys) {
+      expect(toMarkdown(pick(outline, new Set([key])))).not.toMatch(/(^|[-\s])[TQAD]: /m)
+    }
+  })
+
+  it('marks private every part Shareable leaves out', () => {
+    const shareable = preset('agenda', 'Shareable')
+    for (const option of EXPORTS.agenda.options) {
+      expect(!!option.private).toBe(!shareable.has(option.key))
+    }
   })
 })
 

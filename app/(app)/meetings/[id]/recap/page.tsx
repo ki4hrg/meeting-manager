@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import { CopyButton } from '@/components/CopyButton'
+import { Export } from '@/components/Export'
 import { FormModal, IconAction } from '@/components/forms'
 import { LivesIn } from '@/components/meetings/Move'
-import { MailButton } from '@/components/processing/MailButton'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ButtonLink } from '@/components/ui/Button'
 import { Card, CardGrid, CardHeader, Section } from '@/components/ui/Card'
@@ -12,8 +12,9 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import {
   getRecap,
   recapMailto,
+  recapOutline,
+  recapSubject,
   renderPersonSnippet,
-  renderRecap,
   renderRecapHtml,
   type RecapParty,
 } from '@/lib/agenda/recap'
@@ -95,7 +96,6 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
     getRecap(db, id, { today, timeZone: user.timeZone, selfId: self.id }),
     pendingOnCards(db, context.id),
   ])
-  const text = renderRecap(recap)
   const html = renderRecapHtml(recap)
 
   /* Everyone the recap names who is not John: who was there, then anyone else
@@ -154,8 +154,7 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <CopyButton label="Copy" variant="primary" text={text} html={html} />
-            <MailButton href={recapMailto(recap)} text={text} html={html} />
+            <Export kind="recap" outline={recapOutline(recap)} title={recapSubject(recap)} mailto={recapMailto(recap)} />
             <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
               <Icon name="check" className="h-4 w-4" />
               Review
