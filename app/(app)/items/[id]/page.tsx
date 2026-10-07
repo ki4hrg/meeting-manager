@@ -4,6 +4,7 @@ import { ActionSelect } from '@/components/ActionSelect'
 import { ActionButton, ActionForm, FormModal } from '@/components/forms'
 import { ItemCard } from '@/components/items/ItemCard'
 import { PartyOptions } from '@/components/items/PartyOptions'
+import { PartyRoles } from '@/components/items/PartyRoles'
 import { PartyPicker, type PartyOption } from '@/components/processing/PartyPicker'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs'
@@ -28,8 +29,8 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
-import { canDeleteItem, getThread, isOpen, type ItemEvent, type ItemParty } from '@/lib/items/items'
-import { COLLABORATOR, hasCollaborators, roleLabel, roleOrder } from '@/lib/items/roles'
+import { canDeleteItem, getThread, isOpen, type ItemEvent } from '@/lib/items/items'
+import { COLLABORATOR, hasCollaborators, roleLabel } from '@/lib/items/roles'
 import { getProject, listProjectChoices } from '@/lib/projects/projects'
 import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
@@ -44,6 +45,7 @@ import {
   parkItemAction,
   recordDecisionAction,
   removePartyAction,
+  setPartyRoleAction,
   supersedeDecisionAction,
   unparkItemAction,
   updateItemAction,
@@ -56,6 +58,7 @@ const EVENT: Record<ItemEvent['type'], { icon: IconName; label: string }> = {
   created: { icon: 'plus', label: 'Created' },
   edited: { icon: 'pencil', label: 'Edited' },
   parties: { icon: 'group', label: 'People' },
+  role: { icon: 'refresh', label: 'Role' },
   note: { icon: 'topic', label: 'Note' },
   converted: { icon: 'refresh', label: 'Converted' },
   answered: { icon: 'check', label: 'Answered' },
@@ -70,7 +73,7 @@ const EVENT: Record<ItemEvent['type'], { icon: IconName; label: string }> = {
   unparked: { icon: 'undo', label: 'Back' },
 }
 
-function eventDetail(event: ItemEvent): React.ReactNode {
+function eventDetail(event: ItemEvent, kind: ItemKind): React.ReactNode {
   const data = event.data as Record<string, string | string[] | undefined>
   switch (event.type) {
     case 'note':
@@ -97,58 +100,19 @@ function eventDetail(event: ItemEvent): React.ReactNode {
         .join(', ')
     case 'parties':
       return [...((data.owners as string[]) ?? []), ...((data.with as string[]) ?? [])].join(', ')
+    case 'role': {
+      const role = event.data as { name: string; role: 'owner' | 'with'; collaborator?: boolean }
+      return (
+        <span className="inline-flex items-center gap-1 align-middle">
+          {role.name}
+          <Icon name="arrowRight" className="h-3 w-3" />
+          {role.collaborator && hasCollaborators(kind) ? COLLABORATOR : roleLabel(kind, role.role)}
+        </span>
+      )
+    }
     default:
       return null
   }
-}
-
-/* One party, marked as the item's kind reads its role: the arrow on who it
-   points at, the two-way mark on a collaborator (`lib/items/roles.ts`). */
-function PartyChip({
-  itemId,
-  party,
-  kind,
-  collaborator,
-}: {
-  itemId: string
-  party: ItemParty
-  kind: ItemKind
-  collaborator: boolean
-}) {
-  const label = collaborator ? COLLABORATOR : roleLabel(kind, party.role)
-  return (
-    <span
-      title={label}
-      className="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 py-0.5 pl-2 pr-0.5 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200"
-    >
-      {collaborator ? (
-        <Icon name="mutual" className="h-3.5 w-3.5 shrink-0 text-gray-400" label={label} />
-      ) : party.role === roleOrder(kind)[1] ? (
-        <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0 text-gray-400" label={label} />
-      ) : null}
-      <Icon
-        name={party.type === 'group' ? 'group' : 'person'}
-        className="h-3.5 w-3.5 shrink-0 text-gray-400"
-        label={party.role === roleOrder(kind)[0] && !collaborator ? label : undefined}
-      />
-      <Link
-        href={party.type === 'group' ? `/groups/${party.id}` : `/people/${party.id}`}
-        className="min-w-0 truncate hover:underline"
-      >
-        {party.isSelf ? 'Me' : party.name}
-      </Link>
-      <ActionButton
-        action={removePartyAction}
-        fields={{ id: itemId, party: `${party.type}:${party.id}` }}
-        variant="ghost"
-        size="sm"
-        aria-label={`Remove ${party.name}`}
-        className="!rounded-full !p-1 !text-gray-400"
-      >
-        <Icon name="close" className="h-3 w-3" />
-      </ActionButton>
-    </span>
-  )
 }
 
 /* One item, the thread it belongs to, and everything that has happened to it. */
@@ -284,48 +248,43 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               </div>
             ) : null}
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {roleOrder(item.kind).flatMap((role) =>
-                item.parties
-                  .filter((party) => party.role === role)
-                  .map((party, index) => (
-                    <PartyChip
-                      key={party.id}
-                      itemId={item.id}
-                      party={party}
-                      kind={item.kind}
-                      collaborator={index > 0 && role === 'owner' && hasCollaborators(item.kind)}
-                    />
-                  )),
-              )}
-              <FormModal
-                action={addPartyAction}
-                title="People"
-                icon="plus"
-                compact
-                submit={roleLabel(item.kind, 'with')}
-                also={{ label: roleLabel(item.kind, 'owner'), name: 'role', value: 'owner' }}
+            <div className="mt-4">
+              <PartyRoles
+                itemId={item.id}
+                kind={item.kind}
+                parties={item.parties}
+                move={setPartyRoleAction}
+                remove={removePartyAction}
               >
-                <input type="hidden" name="id" value={item.id} />
-                <PartyPicker
-                  label="Person or group"
-                  name="party"
-                  options={[
-                    ...people.map((person): PartyOption => ({
-                      value: `person:${person.id}`,
-                      name: person.name,
-                      icon: 'person',
-                    })),
-                    ...groups.map((group): PartyOption => ({
-                      value: `group:${group.id}`,
-                      name: group.name,
-                      icon: 'group',
-                    })),
-                  ]}
-                  required
-                  allowNew
-                />
-              </FormModal>
+                <FormModal
+                  action={addPartyAction}
+                  title="People"
+                  icon="plus"
+                  compact
+                  submit={roleLabel(item.kind, 'with')}
+                  also={{ label: roleLabel(item.kind, 'owner'), name: 'role', value: 'owner' }}
+                >
+                  <input type="hidden" name="id" value={item.id} />
+                  <PartyPicker
+                    label="Person or group"
+                    name="party"
+                    options={[
+                      ...people.map((person): PartyOption => ({
+                        value: `person:${person.id}`,
+                        name: person.name,
+                        icon: 'person',
+                      })),
+                      ...groups.map((group): PartyOption => ({
+                        value: `group:${group.id}`,
+                        name: group.name,
+                        icon: 'group',
+                      })),
+                    ]}
+                    required
+                    allowNew
+                  />
+                </FormModal>
+              </PartyRoles>
             </div>
 
             {raisable || target || origin || (open && item.parkedAt) ? (
@@ -598,7 +557,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
         <Card>
           <ul className="flex flex-col gap-3">
             {events.map((event) => {
-              const detail = eventDetail(event)
+              const detail = eventDetail(event, item.kind)
               return (
                 <li key={event.id} className="flex items-start gap-3 text-sm">
                   <Icon

@@ -24,6 +24,8 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { RemovableChip } from '@/components/ui/RemovableChip'
+import { PartyRoles } from '@/components/items/PartyRoles'
+import { IconButton } from '@/components/ui/IconButton'
 import { Spinner } from '@/components/ui/Spinner'
 import {
   Badge,
@@ -524,6 +526,9 @@ export default function DesignPage() {
       <Section title="Picking and removing">
         <Card padding="md" className="max-w-xl">
           <div className="flex flex-col gap-4">
+            <PartyRoles itemId="sample" kind="action" parties={WHO[0]!.parties} move={sampleAction} remove={sampleAction}>
+              <IconButton icon="plus" label="People" />
+            </PartyRoles>
             <div className="flex flex-wrap items-center gap-2">
               <RemovableChip
                 icon="person"

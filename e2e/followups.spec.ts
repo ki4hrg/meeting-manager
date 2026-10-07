@@ -15,6 +15,15 @@ test('someone not yet in the directory is added to an item as who it is for', as
 
   // An action points at who it is for.
   await expect(page.getByTitle('For').filter({ hasText: 'Neil Carter' })).toBeVisible()
+
+  // From the chip, Neil changes role in place: he joins as a collaborator, then is for it again.
+  await page.getByRole('button', { name: 'For: change' }).click()
+  await page.getByRole('menuitem', { name: 'With', exact: true }).click()
+  await expect(page.getByTitle('With').filter({ hasText: 'Neil Carter' })).toBeVisible()
+  await page.getByRole('button', { name: 'With: change' }).click()
+  await page.getByRole('menuitem', { name: 'For', exact: true }).click()
+  await expect(page.getByTitle('For').filter({ hasText: 'Neil Carter' })).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: /^Role/ })).toHaveCount(2)
   await page.goto('/people')
   await expect(page.getByText('Neil Carter')).toBeVisible()
 })

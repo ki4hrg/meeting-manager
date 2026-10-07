@@ -1,7 +1,7 @@
 'use client'
 
 import { useId, useRef, useState } from 'react'
-import { Icon } from '@/components/ui/icons'
+import { Icon, type IconName } from '@/components/ui/icons'
 import { matchName } from '@/lib/core/match'
 
 export type PartyOption = {
@@ -25,6 +25,9 @@ export type PartyOption = {
  *
  * With `me`, a fixed "Me" chip leads the box: John is at every meeting, so he
  * is never picked, but a roster without him reads as missing him.
+ *
+ * With `chosen` and `onChosen` the picks are held by the caller, and `move`
+ * puts a button on each chip that hands it to another picker.
  */
 export function PartyPicker({
   label,
@@ -34,6 +37,9 @@ export function PartyPicker({
   required = false,
   allowNew = false,
   me = false,
+  chosen: held,
+  onChosen,
+  move,
 }: {
   label: string
   name: string
@@ -42,10 +48,16 @@ export function PartyPicker({
   required?: boolean
   allowNew?: boolean
   me?: boolean
+  chosen?: PartyOption[]
+  onChosen?: (chosen: PartyOption[]) => void
+  move?: { label: string; icon: IconName; to: (option: PartyOption) => void }
 }) {
   const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
-  const [chosen, setChosen] = useState(selected)
+  const [own, setOwn] = useState(selected)
+  const chosen = held ?? own
+  const setChosen = (next: (current: PartyOption[]) => PartyOption[]) =>
+    onChosen ? onChosen(next(chosen)) : setOwn(next)
   const [text, setText] = useState('')
   const [highlighted, setHighlighted] = useState(0)
 
@@ -131,6 +143,17 @@ export function PartyPicker({
               label={option.icon === 'alert' ? 'Not matched' : undefined}
             />
             <span className="truncate">{option.name}</span>
+            {move ? (
+              <button
+                type="button"
+                aria-label={`${option.name}: ${move.label}`}
+                title={move.label}
+                onClick={() => move.to(option)}
+                className="flex h-4 w-4 items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-400 dark:hover:bg-gray-500 dark:hover:text-gray-100"
+              >
+                <Icon name={move.icon} className="h-3 w-3" />
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label={`Remove ${option.name}`}

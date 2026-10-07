@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../lib/core/types'
 import {
+  addItemParty,
   addNote,
   answerItem,
   answered,
@@ -345,6 +346,63 @@ describe('threads', () => {
         { personId: sarah.id, role: 'with' },
       ]),
     ).rejects.toThrow('twice')
+  })
+})
+
+describe('changing a party\'s role', () => {
+  it('moves one party in place, keeps collaborators after the lead, and records one role change', async () => {
+    const { parish, john, sarah, tom } = await makeWorld()
+    const action = await createItem(db, actor, {
+      contextId: parish.id,
+      kind: 'action',
+      text: 'Book the hall',
+      parties: [
+        { personId: john.id, role: 'owner' },
+        { personId: sarah.id, role: 'with' },
+        { personId: tom.id, role: 'with' },
+      ],
+    })
+    const owners = async () =>
+      (await getItem(db, action.id)).parties.filter((p) => p.role === 'owner').map((p) => p.name)
+    const roles = async () =>
+      (await db.select().from(itemEvents).where(eq(itemEvents.itemId, action.id)))
+        .filter((event) => event.type === 'role')
+        .map((event) => event.data)
+
+    // To owner while there is one: a collaborator, after the lead.
+    await addItemParty(db, actor, action.id, { personId: sarah.id, role: 'owner' })
+    expect(await owners()).toEqual(['John', 'Sarah Jones'])
+    // Made lead: first among the owners.
+    await addItemParty(db, actor, action.id, { personId: tom.id, role: 'owner' }, { lead: true })
+    expect(await owners()).toEqual(['Tom Baker', 'John', 'Sarah Jones'])
+    // The lead made a collaborator: to the end, and the next owner leads.
+    await addItemParty(db, actor, action.id, { personId: tom.id, role: 'owner' }, { lead: false })
+    expect(await owners()).toEqual(['John', 'Sarah Jones', 'Tom Baker'])
+    // Back to who it is for.
+    await addItemParty(db, actor, action.id, { personId: sarah.id, role: 'with' })
+    expect(await owners()).toEqual(['John', 'Tom Baker'])
+    // Already there in that role: nothing changes, nothing is recorded.
+    await addItemParty(db, actor, action.id, { personId: john.id, role: 'owner' })
+
+    const item = await getItem(db, action.id)
+    expect(item.parties).toHaveLength(3)
+    expect(await roles()).toEqual([
+      { name: 'Sarah Jones', role: 'owner', collaborator: true },
+      { name: 'Tom Baker', role: 'owner', collaborator: false },
+      { name: 'Tom Baker', role: 'owner', collaborator: true },
+      { name: 'Sarah Jones', role: 'with', collaborator: false },
+    ])
+    const events = await db.select().from(itemEvents).where(eq(itemEvents.itemId, action.id))
+    expect(events.filter((event) => event.type === 'parties')).toHaveLength(0)
+  })
+
+  it('adds someone new as a change of people', async () => {
+    const { parish, sarah } = await makeWorld()
+    const question = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: 'Who has the key?' })
+    await addItemParty(db, actor, question.id, { personId: sarah.id, role: 'owner' })
+    const events = await db.select().from(itemEvents).where(eq(itemEvents.itemId, question.id))
+    expect(events.map((event) => event.type)).toContain('parties')
+    expect(events.map((event) => event.type)).not.toContain('role')
   })
 })
 
