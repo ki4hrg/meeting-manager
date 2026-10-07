@@ -133,6 +133,20 @@ async function setPrimaryEmail(exec: Executor, personId: string, email: string |
   if (email) await exec.insert(personEmails).values({ personId, email, isPrimary: true })
 }
 
+/**
+ * Refuses a name someone already has. `createPerson` does not ask, since two
+ * people can share a name; one made from a name alone, with nothing else to
+ * tell them apart, must not.
+ */
+export async function assertPersonNameFree(exec: Executor, name: string): Promise<void> {
+  const [taken] = await exec
+    .select({ archivedAt: people.archivedAt, deletedAt: people.deletedAt })
+    .from(people)
+    .where(sql`lower(${people.name}) = lower(${name.trim()})`)
+    .limit(1)
+  if (taken) throw new ValidationError(`There is already a person called ${name.trim()}${shelvedNote(taken)}.`)
+}
+
 /** A new person. With `emails`, the first is the primary; `email` alone is the same as one. */
 export async function createPerson(
   exec: Executor,

@@ -80,7 +80,9 @@ export const captureItemTool = defineTool({
     'decision, owners are who decides. Several owners of an action are doing it together. "me" names the account holder. target_meeting, target_series or target_project aims it at ' +
     'one meeting, or at the next occurrence of a series, where prep places it on the agenda. ' +
     'from_meeting records the meeting it came out of: it is listed there and in its recap. ' +
-    'The context is inferred from the project, the meetings, the target or a group when there is more than one.',
+    'The context is inferred from the project, the meetings, the target or a group when there is more than one. ' +
+    'A name that matches nothing is refused by name: make it with create_person, create_group, ' +
+    'create_project or create_series, then capture again.',
   scope: 'meetings:write',
   input: z.object({
     text: z.string().min(1).describe('One line, in the wording to keep.'),

@@ -32,7 +32,7 @@ These apply to every screen.
 - `app/oauth/`, `app/.well-known/`, `lib/oauth/` — the OAuth 2.1 server MCP clients sign in through.
 - `lib/mcp/` — the MCP server. Tools are data in `lib/mcp/tools/`, registered in `allTools` in `server.ts`.
 - `lib/db/schema.ts` — Drizzle tables. `lib/core/types.ts` — `Executor`, `ActorContext`, `AppError`.
-- `lib/directory/` — contexts, people, groups, and `resolve.ts`, which turns a typed name into a row.
+- `lib/directory/` — contexts, people, groups, `resolve.ts`, which turns a typed name into a row, and `create.ts` (`createNamed`), which makes a person, group, project or series from its name alone when one matches nothing, refusing a name already taken.
 - `lib/projects/` — projects, milestones, links.
 - `lib/items/` — `items.ts` (the item lifecycle and every item query), `capture.ts` (the quick-add line).
 - `lib/meetings/` — `meetings.ts` and `series.ts` (CRUD), `prep.ts` (what turns a person, a series or a calendar event into a meeting with its agenda started; `eventTakes` says where an event's meeting would go), `hub.ts` (a project, series or group hub's meetings and events).

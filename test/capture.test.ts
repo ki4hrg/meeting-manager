@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { matchName, tokenFor } from '../lib/core/match'
-import { inferContext } from '../lib/directory/resolve'
-import { captureLine, parseLine } from '../lib/items/capture'
+import { inferContext, resolveGroup, resolvePerson, resolveProject, resolveSeries } from '../lib/directory/resolve'
+import { captureLine, parseLine, type NewMention } from '../lib/items/capture'
 import { createMeeting } from '../lib/meetings/meetings'
 import { createSeries } from '../lib/meetings/series'
 import { db, resetBetweenTests } from './helpers/db'
@@ -193,6 +193,96 @@ describe('captureLine', () => {
     await expect(
       captureLine(db, actor, { contextId: parish.id, line: 'x @retreat @campaign' }),
     ).rejects.toThrow('one project')
+  })
+
+  it('makes a person or a group picked as new, in the same go as the item', async () => {
+    const { parish } = await makeWorld()
+    const question = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'Q: budget timing @Pat-Smith',
+      create: [{ token: '@Pat-Smith', type: 'person', name: 'Pat Smith' }],
+    })
+    const pat = await resolvePerson(db, 'Pat Smith')
+    expect(question).toMatchObject({ kind: 'question', text: 'budget timing' })
+    expect(question.parties).toMatchObject([{ id: pat.id, name: 'Pat Smith', role: 'owner' }])
+
+    const topic = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'ask @Choir-Parents about robes',
+      create: [{ token: '@Choir-Parents', type: 'group', name: 'Choir parents' }],
+    })
+    const choir = await resolveGroup(db, parish.id, 'Choir parents')
+    expect(topic).toMatchObject({ text: 'ask Choir parents about robes' })
+    expect(topic.parties).toMatchObject([{ id: choir.id, role: 'with' }])
+  })
+
+  it('makes a project or a series picked as new, in the selected context', async () => {
+    const { parish, diocese } = await makeWorld()
+    const onProject = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'order chairs #Hall-Refit',
+      create: [{ token: '#Hall-Refit', type: 'project', name: 'Hall refit' }],
+    })
+    const hall = await resolveProject(db, parish.id, 'Hall refit')
+    expect(onProject.project?.id).toBe(hall.id)
+    await expect(resolveProject(db, diocese.id, 'Hall refit')).rejects.toThrow('No project matches')
+
+    const raised = await captureLine(db, actor, {
+      contextId: parish.id,
+      line: 'review the rota >Wardens',
+      create: [{ token: '>Wardens', type: 'series', name: 'Wardens' }],
+    })
+    const wardens = await resolveSeries(db, parish.id, 'Wardens')
+    expect(raised).toMatchObject({ targetSeriesId: wardens.id, targetMeetingId: null })
+  })
+
+  it('makes nothing when the line is refused, or the new name is taken', async () => {
+    const { parish } = await makeWorld()
+    // Refused for something else: Pat Smith is not made either.
+    await expect(
+      captureLine(db, actor, {
+        contextId: parish.id,
+        line: 'x @Pat-Smith @nobody',
+        create: [{ token: '@Pat-Smith', type: 'person', name: 'Pat Smith' }],
+      }),
+    ).rejects.toThrow('matches nobody')
+    await expect(resolvePerson(db, 'Pat Smith')).rejects.toThrow('No person matches')
+
+    // Typed in full and not picked: refused as unknown, as before.
+    await expect(captureLine(db, actor, { contextId: parish.id, line: 'x @Pat-Smith' })).rejects.toThrow(
+      'matches Pat-Smith',
+    )
+
+    const taken: Array<[NewMention, string]> = [
+      [{ token: '@Sarah', type: 'person', name: 'sarah jones' }, 'already a person called sarah jones'],
+      [{ token: '@Staffing', type: 'group', name: 'Staff' }, 'already a group called Staff'],
+      [{ token: '#Retreats', type: 'project', name: 'retreat' }, 'already a project called retreat'],
+    ]
+    for (const [one, message] of taken) {
+      // Pat Smith is made first, and goes with the line.
+      const pat: NewMention = { token: '@Pat-Smith', type: 'person', name: 'Pat Smith' }
+      await expect(
+        captureLine(db, actor, { contextId: parish.id, line: `x @Pat-Smith ${one.token}`, create: [pat, one] }),
+      ).rejects.toThrow(message)
+    }
+    await createSeries(db, { contextId: parish.id, name: 'Wardens' })
+    await expect(
+      captureLine(db, actor, {
+        contextId: parish.id,
+        line: 'x >Warden',
+        create: [{ token: '>Warden', type: 'series', name: 'wardens' }],
+      }),
+    ).rejects.toThrow('already a series called wardens')
+    await expect(resolvePerson(db, 'Pat Smith')).rejects.toThrow('No person matches')
+
+    // A token can only be new as what its sigil names.
+    await expect(
+      captureLine(db, actor, {
+        contextId: parish.id,
+        line: 'x #Thing',
+        create: [{ token: '#Thing', type: 'person', name: 'Thing' }],
+      }),
+    ).rejects.toThrow('cannot be a new person')
   })
 
   it('applies presets, and lets the line override the kind', async () => {
