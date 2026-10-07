@@ -1216,7 +1216,8 @@ describe('several groups', () => {
     const { updateSeries } = await import('../lib/meetings/series')
     const weekly = await createSeries(db, { contextId: w.parish.id, name: 'Weekly' })
     const past = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date('2026-09-28T15:00:00Z') })
-    const next = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date('2026-10-06T15:00:00Z') })
+    // Roster changes reach meetings not yet over by the clock, so this one is always ahead.
+    const next = await createMeeting(db, actor, { contextId: w.parish.id, seriesId: weekly.id, startsAt: new Date(Date.now() + 86_400_000) })
     const forStaff = await createItem(db, actor, { contextId: w.parish.id, text: 'rota', parties: [{ groupId: w.staff.id, role: 'with' }] })
 
     await updateSeries(db, weekly.id, { groupIds: [w.staff.id] })
