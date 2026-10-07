@@ -18,7 +18,7 @@ import { RunState } from '@/components/processing/RunState'
 import { Button } from '@/components/ui/Button'
 import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile } from '@/components/ui/Card'
 import { CheckList } from '@/components/ui/CheckList'
-import { Chip } from '@/components/ui/Chip'
+import { Chip, FilterChip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
@@ -92,10 +92,11 @@ const party = (role: ItemParty['role'], name: string, isSelf = false): ItemParty
   role,
   isSelf,
 })
-const WHO: { kind: ItemKind; parties: ItemParty[] }[] = [
+const WHO: { kind: ItemKind; parties: ItemParty[]; noOne?: boolean }[] = [
   { kind: 'action', parties: [party('owner', 'John', true), party('owner', 'Adlene Kufarimai'), party('with', 'Neil Carter')] },
   { kind: 'question', parties: [party('owner', 'Neil Carter')] },
   { kind: 'question', parties: [party('owner', 'John', true), party('with', 'Sarah Jones')] },
+  { kind: 'question', parties: [party('with', 'John', true)], noOne: true },
   { kind: 'decision', parties: [party('owner', 'Bishop Wright')] },
   { kind: 'topic', parties: [party('with', 'Sarah Jones')] },
 ]
@@ -326,10 +327,10 @@ export default function DesignPage() {
             <div>
               <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Who</p>
               <div className="flex flex-col gap-2">
-                {WHO.map(({ kind, parties }) => (
-                  <div key={kind} className="flex items-center gap-2">
+                {WHO.map(({ kind, parties, noOne }, index) => (
+                  <div key={index} className="flex items-center gap-2">
                     <KindIcon kind={kind} />
-                    <PartyLine parties={parties} kind={kind} />
+                    <PartyLine parties={parties} kind={kind} noOne={noOne} />
                   </div>
                 ))}
               </div>
@@ -365,7 +366,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'broadcast', 'log', 'search'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>
@@ -441,6 +442,13 @@ export default function DesignPage() {
             <Chip href="/design" icon="refresh">
               Staff meeting
             </Chip>
+            <FilterChip href="/design" on label="Question" icon={<KindIcon kind="question" className="h-4 w-4" />} />
+            <FilterChip href="/design" on>
+              I owe
+            </FilterChip>
+            <FilterChip href="/design" on={false}>
+              Waiting on
+            </FilterChip>
           </div>
         </Card>
       </Section>
