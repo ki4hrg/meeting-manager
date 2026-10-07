@@ -139,9 +139,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
   const noteList = (
     <Section title="Notes" count={notes.length} action={addNote}>
-      {notes.length === 0 ? (
-        <EmptyState icon="clipboard" />
-      ) : (
+      {notes.length === 0 ? null : (
         <Card>
           <ul className="divide-y divide-gray-100 dark:divide-gray-700">
             {notes.map((note) => (

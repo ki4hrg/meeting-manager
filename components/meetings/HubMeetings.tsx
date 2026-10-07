@@ -1,6 +1,5 @@
 import { ButtonLink } from '@/components/ui/Button'
 import { CardGrid, Section } from '@/components/ui/Card'
-import { EmptyState } from '@/components/ui/EmptyState'
 import { Icon } from '@/components/ui/icons'
 import { agendaCounts } from '@/lib/agenda/lines'
 import { formatMoment } from '@/lib/core/dates'
@@ -83,10 +82,8 @@ export async function HubMeetings({
 
   return (
     <>
-      <Section title="Upcoming" count={count}>
-        {count === 0 ? (
-          <EmptyState icon="meeting" />
-        ) : (
+      <Section title="Upcoming" count={count} empty={count === 0 && !further}>
+        {count === 0 ? null : (
           <div className="flex flex-col gap-5">
             {ahead.length > 0 ? (
               <DayList
@@ -123,21 +120,17 @@ export async function HubMeetings({
       </Section>
 
       <Section title="Past" count={held.meetings.length}>
-        {held.meetings.length === 0 ? (
-          <EmptyState icon="clock" />
-        ) : (
-          <CardGrid>
-            {held.meetings.map((meeting) => (
-              <div key={meeting.id} className="opacity-70">
-                <MeetingCard
-                  meeting={meeting}
-                  when={meeting.startsAt ? formatMoment(meeting.startsAt, timeZone) : null}
-                  pending={pending.get(meeting.id)}
-                />
-              </div>
-            ))}
-          </CardGrid>
-        )}
+        <CardGrid>
+          {held.meetings.map((meeting) => (
+            <div key={meeting.id} className="opacity-70">
+              <MeetingCard
+                meeting={meeting}
+                when={meeting.startsAt ? formatMoment(meeting.startsAt, timeZone) : null}
+                pending={pending.get(meeting.id)}
+              />
+            </div>
+          ))}
+        </CardGrid>
         {held.more ? (
           <div className="mt-4 flex justify-center">
             <ButtonLink href={withParam(path, query, 'past', past + PAGE)} scroll={false} variant="ghost">

@@ -11,7 +11,8 @@ These apply to every screen.
   - Don't narrate the UI or explain design choices on screen.
   - Let icons, colour, position and grouping direct the user instead of prose.
   - Labels are short and action-oriented ("Add", "New project", "Copy").
-  - No helper paragraphs, no subtitles that restate the title, no explanatory empty states. An empty list shows its icon and the one action that fills it.
+  - No helper paragraphs, no subtitles that restate the title, no explanatory empty states. An empty section inside a page collapses to its muted header, its action still on the right (`Section` does this at count 0, or with `empty`). A page whose only list is empty shows the `EmptyState`: its icon and the one action that fills it.
+- **Hubs are two columns** (`TwoColumn`): on a wide screen the work (2/3: the items, an agenda) beside the reference that rarely changes (1/3: roster, members, milestones, links, documents). Inside a column, `CardGrid` takes fewer columns. One column on a phone, the main one first.
 - **Kind, owner type and status are shown visually**, not with text labels: `KindIcon`, the person/group icon, `StatusBadge`.
 - **Buttons** (issue #2):
   - **Blue (`primary`): at most one per screen**, the thing the page is for (Copy brief, Approve all, New project, Prep). A card in a list never has one.
@@ -21,7 +22,7 @@ These apply to every screen.
   - **One shape per verb:** Edit is the pencil; Remove is the `close` `IconAction`; Delete is the trash, with a confirm; Restore is icon and label.
   - **"New X"** in a page header makes something that stands on its own; in a section titled for it, just "New". **"Add"** attaches something to the page.
 - **One colour map.** Every tone comes from `components/ui/StatusBadge.tsx`. Don't invent a colour for a status inline.
-- **Use the shared components** in `components/ui/` (`Card`, `LinkCard`, `Tile`, `Section`, `CardGrid`, `PageHeader`, `Field`/`Input`, `Modal`, `Button`, `EmptyState`, `Icon`, `IconButton`, `Chip`, `RemovableChip`, `CheckList`, `DueBadge`, `ProjectStatusBadge`) and `components/` (`FormModal`, `ActionForm`, `ActionButton`, `IconAction`, `ActionSelect`, `CopyButton`, `QuickAdd`, `ItemCard`/`ItemGrid`, `MeetingCard`, `Roster`/`GroupCluster`/`MeChip`) instead of repeating class strings. `/design` shows them all; add new shared pieces there.
+- **Use the shared components** in `components/ui/` (`Card`, `LinkCard`, `Tile`, `Section`, `CardGrid`, `TwoColumn`, `PageHeader`, `Field`/`Input`, `Modal`, `Button`, `EmptyState`, `Icon`, `IconButton`, `Chip`, `RemovableChip`, `CheckList`, `DueBadge`, `ProjectStatusBadge`) and `components/` (`FormModal`, `ActionForm`, `ActionButton`, `IconAction`, `ActionSelect`, `CopyButton`, `QuickAdd`, `ItemCard`/`ItemGrid`, `MeetingCard`, `Roster`/`GroupCluster`/`MeChip`) instead of repeating class strings. `/design` shows them all; add new shared pieces there.
 - Every colour class has a `dark:` partner. Check new screens in light, dark and at phone width.
 
 ## Layout

@@ -9,8 +9,7 @@ import { ItemGrid } from '@/components/items/ItemCard'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { StatusField } from '@/components/projects/StatusField'
 import { QuickAdd } from '@/components/QuickAdd'
-import { Card, CardGrid, CardHeader, LinkCard, Section } from '@/components/ui/Card'
-import { EmptyState } from '@/components/ui/EmptyState'
+import { Card, CardGrid, CardHeader, LinkCard, Section, TwoColumn } from '@/components/ui/Card'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { Markdown } from '@/components/ui/Markdown'
@@ -221,191 +220,192 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           )}
         </Section>
 
-        {forNext.length > 0 ? (
-          <Section title="For the next meeting" count={forNext.length}>
-            <ItemGrid items={forNext} today={today} empty="meeting" />
-          </Section>
-        ) : null}
+        <TwoColumn
+          main={
+            <>
+              {forNext.length > 0 ? (
+                <Section title="For the next meeting" count={forNext.length}>
+                  <ItemGrid items={forNext} today={today} empty="meeting" />
+                </Section>
+              ) : null}
 
-        <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
-          <Section
-            title="Milestones"
-            count={milestones.length}
-            action={
-              <FormModal action={addMilestoneAction} title="New milestone" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
-                <input type="hidden" name="projectId" value={project.id} />
-                <Field label="Title" required>
-                  <Input name="title" required />
-                </Field>
-                <Field label="Date">
-                  <Input name="dueOn" type="date" />
-                </Field>
-              </FormModal>
-            }
-          >
-            {milestones.length === 0 ? (
-              <EmptyState icon="flag" />
-            ) : (
-              <Card>
-                <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {ordered.map((milestone) => {
-                    const past = milestone.dueOn !== null && milestone.dueOn < today
-                    return (
-                      <li key={milestone.id} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
-                        <Icon
-                          name="flag"
-                          className={`h-4 w-4 shrink-0 ${
-                            past ? 'text-gray-300 dark:text-gray-600' : 'text-gray-400 dark:text-gray-500'
-                          }`}
-                        />
-                        <span
-                          className={`min-w-0 flex-1 truncate text-sm font-medium ${
-                            past ? 'text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-gray-100'
-                          }`}
-                        >
-                          {milestone.title}
-                        </span>
-                        {milestone.dueOn ? (
-                          <DueBadge
-                            label={formatDay(milestone.dueOn, today)}
-                            dueOn={milestone.dueOn}
-                            today={today}
-                            open={!past}
+              <Section
+                title="Owed"
+                count={owed.length}
+                action={<QuickAdd presets={{ kind: 'action', projectId: id }} />}
+              >
+                {owed.length === 0 ? null : (
+                  <div className="flex flex-col gap-5">
+                    {byOwner(owed).map((owner) => (
+                      <div key={owner.key}>
+                        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-300">
+                          <Icon name={owner.group ? 'group' : 'person'} className="h-4 w-4" />
+                          {owner.name}
+                        </h3>
+                        <ItemGrid items={owner.items} today={today} empty="action" showProject={rolled} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Section>
+
+              <Section
+                title="Topics"
+                count={topics.length}
+                action={<QuickAdd presets={{ kind: 'topic', projectId: id }} />}
+              >
+                <ItemGrid items={topics} today={today} empty="topic" showProject={rolled} />
+              </Section>
+
+              <Section
+                title="Decisions"
+                count={decisions.length}
+                action={<QuickAdd presets={{ kind: 'decision', projectId: id }} />}
+              >
+                <ItemGrid items={decisions} today={today} empty="decision" showProject={rolled} />
+              </Section>
+
+              <Answered items={answers} today={today} on={{ projectId: id }} showProject={rolled} />
+
+              {closed.length > 0 ? (
+                <Section title="Closed">
+                  <ItemGrid items={closed} today={today} empty="check" showProject={rolled} />
+                </Section>
+              ) : null}
+            </>
+          }
+          side={
+            <>
+              <Section
+                title="Milestones"
+                count={milestones.length}
+                action={
+                  <FormModal action={addMilestoneAction} title="New milestone" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <Field label="Title" required>
+                      <Input name="title" required />
+                    </Field>
+                    <Field label="Date">
+                      <Input name="dueOn" type="date" />
+                    </Field>
+                  </FormModal>
+                }
+              >
+                {milestones.length === 0 ? null : (
+                  <Card>
+                    <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {ordered.map((milestone) => {
+                        const past = milestone.dueOn !== null && milestone.dueOn < today
+                        return (
+                          <li key={milestone.id} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
+                            <Icon
+                              name="flag"
+                              className={`h-4 w-4 shrink-0 ${
+                                past ? 'text-gray-300 dark:text-gray-600' : 'text-gray-400 dark:text-gray-500'
+                              }`}
+                            />
+                            <span
+                              className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                                past ? 'text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-gray-100'
+                              }`}
+                            >
+                              {milestone.title}
+                            </span>
+                            {milestone.dueOn ? (
+                              <DueBadge
+                                label={formatDay(milestone.dueOn, today)}
+                                dueOn={milestone.dueOn}
+                                today={today}
+                                open={!past}
+                              />
+                            ) : null}
+                            <IconAction
+                              action={deleteMilestoneAction}
+                              fields={{ id: milestone.id }}
+                              icon="close"
+                              label={`Remove ${milestone.title}`}
+                              done="Removed"
+                              undo={{ action: restoreDeletedAction, fields: { kind: 'milestone', id: milestone.id } }}
+                            />
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </Card>
+                )}
+              </Section>
+
+              <Section
+                title="Links"
+                count={links.length}
+                action={
+                  <FormModal action={addLinkAction} title="New link" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <Field label="URL" required>
+                      <Input name="url" required inputMode="url" />
+                    </Field>
+                    <Field label="Label">
+                      <Input name="label" />
+                    </Field>
+                  </FormModal>
+                }
+              >
+                {links.length === 0 ? null : (
+                  <Card>
+                    <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {links.map((link) => (
+                        <li key={link.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                          <Icon name="link" className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                          <a
+                            href={link.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="min-w-0 flex-1 truncate text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            {link.label}
+                          </a>
+                          <IconAction
+                            action={deleteLinkAction}
+                            fields={{ id: link.id }}
+                            icon="close"
+                            label={`Remove ${link.label}`}
+                            done="Removed"
+                            undo={{ action: restoreDeletedAction, fields: { kind: 'link', id: link.id } }}
                           />
-                        ) : null}
-                        <IconAction
-                          action={deleteMilestoneAction}
-                          fields={{ id: milestone.id }}
-                          icon="close"
-                          label={`Remove ${milestone.title}`}
-                          done="Removed"
-                          undo={{ action: restoreDeletedAction, fields: { kind: 'milestone', id: milestone.id } }}
-                        />
-                      </li>
-                    )
-                  })}
-                </ul>
-              </Card>
-            )}
-          </Section>
+                        </li>
+                      ))}
+                    </ul>
+                  </Card>
+                )}
+              </Section>
 
-          <Section
-            title="Links"
-            count={links.length}
-            action={
-              <FormModal action={addLinkAction} title="New link" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
-                <input type="hidden" name="projectId" value={project.id} />
-                <Field label="URL" required>
-                  <Input name="url" required inputMode="url" />
-                </Field>
-                <Field label="Label">
-                  <Input name="label" />
-                </Field>
-              </FormModal>
-            }
-          >
-            {links.length === 0 ? (
-              <EmptyState icon="link" />
-            ) : (
-              <Card>
-                <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {links.map((link) => (
-                    <li key={link.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-                      <Icon name="link" className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="min-w-0 flex-1 truncate text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        {link.label}
-                      </a>
-                      <IconAction
-                        action={deleteLinkAction}
-                        fields={{ id: link.id }}
-                        icon="close"
-                        label={`Remove ${link.label}`}
-                        done="Removed"
-                        undo={{ action: restoreDeletedAction, fields: { kind: 'link', id: link.id } }}
+              {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
+              {documents.length > 0 ? (
+                <Section title="Documents" count={documents.length}>
+                  <CardGrid>
+                    {documents.map((document) => (
+                      <DocumentCard
+                        key={document.id}
+                        title={document.title}
+                        body={document.body}
+                        meta={formatDay(todayIn(user.timeZone, document.updatedAt), today)}
                       />
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            )}
-          </Section>
-        </div>
+                    ))}
+                  </CardGrid>
+                </Section>
+              ) : null}
 
-        {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
-        {documents.length > 0 ? (
-          <Section title="Documents" count={documents.length}>
-            <CardGrid>
-              {documents.map((document) => (
-                <DocumentCard
-                  key={document.id}
-                  title={document.title}
-                  body={document.body}
-                  meta={formatDay(todayIn(user.timeZone, document.updatedAt), today)}
-                />
-              ))}
-            </CardGrid>
-          </Section>
-        ) : null}
-
-        <Section
-          title="Owed"
-          count={owed.length}
-          action={<QuickAdd presets={{ kind: 'action', projectId: id }} />}
-        >
-          {owed.length === 0 ? (
-            <EmptyState icon="action" />
-          ) : (
-            <div className="flex flex-col gap-5">
-              {byOwner(owed).map((owner) => (
-                <div key={owner.key}>
-                  <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-300">
-                    <Icon name={owner.group ? 'group' : 'person'} className="h-4 w-4" />
-                    {owner.name}
-                  </h3>
-                  <ItemGrid items={owner.items} today={today} empty="action" showProject={rolled} />
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section
-          title="Topics"
-          count={topics.length}
-          action={<QuickAdd presets={{ kind: 'topic', projectId: id }} />}
-        >
-          <ItemGrid items={topics} today={today} empty="topic" showProject={rolled} />
-        </Section>
-
-        <Section
-          title="Decisions"
-          count={decisions.length}
-          action={<QuickAdd presets={{ kind: 'decision', projectId: id }} />}
-        >
-          <ItemGrid items={decisions} today={today} empty="decision" showProject={rolled} />
-        </Section>
-
-        <Answered items={answers} today={today} on={{ projectId: id }} showProject={rolled} />
-
-        <HubMeetings
-          hub={{ kind: 'project', ids: scope }}
-          contextId={project.contextId}
-          path={`/projects/${id}`}
-          query={query}
-          timeZone={user.timeZone}
-          today={today}
+              <HubMeetings
+                hub={{ kind: 'project', ids: scope }}
+                contextId={project.contextId}
+                path={`/projects/${id}`}
+                query={query}
+                timeZone={user.timeZone}
+                today={today}
+              />
+            </>
+          }
         />
-
-        {closed.length > 0 ? (
-          <Section title="Closed">
-            <ItemGrid items={closed} today={today} empty="check" showProject={rolled} />
-          </Section>
-        ) : null}
       </Muted>
     </>
   )
