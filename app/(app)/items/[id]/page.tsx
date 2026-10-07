@@ -251,11 +251,12 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
         <div className="flex items-start gap-4">
           <KindIcon kind={item.kind} className="h-7 w-7" />
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <h1 className="min-w-0 flex-1 text-xl font-bold text-gray-900 dark:text-gray-100">
+            {/* Badges under the title on a phone, beside it from sm up. */}
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+              <h1 className="w-full min-w-0 text-xl font-bold text-gray-900 sm:flex-1 dark:text-gray-100">
                 {item.text}
               </h1>
-              <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+              <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 sm:justify-end">
                 {item.project ? (
                   <Link href={`/projects/${item.project.id}`} className="inline-flex min-w-0 max-w-full">
                     <Badge>{item.project.name}</Badge>
@@ -345,7 +346,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 ) : null}
                 {origin ? (
                   <Chip icon="undo" href={`/meetings/${origin.id}`}>
-                    {origin.title}
+                    <span className="text-gray-500 dark:text-gray-400">From</span> {origin.title}
                   </Chip>
                 ) : null}
                 {target && raisable ? (
@@ -379,7 +380,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                       label="Raise at"
                       className="!w-auto max-w-[14rem] !py-1 !text-sm"
                     >
-                      <option value="">—</option>
+                      <option value="">Raise at…</option>
                       {meetings.length > 0 ? (
                         <optgroup label="Meetings">
                           {meetings.map((meeting) => (
