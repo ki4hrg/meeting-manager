@@ -20,7 +20,7 @@ import { getRecap, renderPersonSnippet, renderRecap, renderRecapHtml } from '../
 import { agendaLines, items } from '../lib/db/schema'
 import { createPerson } from '../lib/directory/people'
 import { addMember } from '../lib/directory/groups'
-import { completeItem, createItem, getItem, markDiscussed, recordDecision } from '../lib/items/items'
+import { completeItem, createItem, getItem, markDiscussed, parkItem, recordDecision } from '../lib/items/items'
 import { createMeeting, getMeeting, setMeetingPeople, updateMeeting } from '../lib/meetings/meetings'
 import type { CalendarEvent } from '../lib/calendar/feed'
 import { prepFromEvent, prepMeeting, prepWithPerson } from '../lib/meetings/prep'
@@ -285,6 +285,46 @@ describe('what is never a candidate', () => {
     await placeItem(db, actor, oneOnOne.id, asked.id)
     const blocks = await computeBlocks(db, oneOnOne.id, { today: TODAY, now: NOW, force: ALL_ON })
     expect(blocks.followUps).toBeNull()
+  })
+
+  it('an item waiting in Later on another item, until that item closes or its deadline comes close', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Vestry',
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    const survey = await createItem(db, actor, { contextId: w.parish.id, kind: 'action', text: 'survey' })
+    const aimed = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'send the email',
+      target: { meetingId: meeting.id },
+    })
+    const tagged = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'tell Sarah',
+      projectId: w.retreat.id,
+      parties: [{ personId: w.sarah.id, role: 'with' }],
+    })
+    const dueSoon = await createItem(db, actor, {
+      contextId: w.parish.id,
+      text: 'due soon',
+      dueOn: '2026-10-08',
+      target: { meetingId: meeting.id },
+    })
+    for (const item of [aimed, tagged, dueSoon]) await parkItem(db, actor, item.id, { untilItem: survey.id })
+
+    const waiting = await getCandidates(db, meeting.id, NOW)
+    expect(ids(waiting.toPlace)).toEqual([dueSoon.id])
+    expect(offered(waiting)).toEqual([dueSoon.id])
+    expect(grouped(waiting.more)).toEqual([])
+
+    await completeItem(db, actor, survey.id)
+    const back = await getCandidates(db, meeting.id, NOW)
+    expect(ids(back.toPlace)).toEqual(ids([aimed, dueSoon]))
+    expect(grouped(back.suggested)).toEqual([tagged.id])
   })
 
   it('an item with no target is not placed on a meeting with no series', async () => {

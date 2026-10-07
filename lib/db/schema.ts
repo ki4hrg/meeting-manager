@@ -404,6 +404,11 @@ export const items = pgTable(
        when null) or until its deadline comes close. Neither is a deadline. */
     parkedAt: timestamp('parked_at', { withTimezone: true }),
     laterOn: date('later_on'),
+    /* Parked until this item closes, in the same context; whichever of this and
+       later_on comes first brings it back. */
+    laterUntilItemId: uuid('later_until_item_id').references((): AnyPgColumn => items.id, {
+      onDelete: 'set null',
+    }),
     ...timestamps,
     ...deletable,
   },
@@ -419,6 +424,8 @@ export const items = pgTable(
     index('items_target_series_idx').on(t.targetSeriesId),
     index('items_target_project_idx').on(t.targetProjectId),
     index('items_origin_meeting_idx').on(t.originMeetingId),
+    index('items_later_until_item_idx').on(t.laterUntilItemId),
+    check('items_later_until_other', sql`${t.laterUntilItemId} <> ${t.id}`),
   ],
 )
 

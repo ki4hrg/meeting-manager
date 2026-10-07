@@ -169,6 +169,32 @@ describe('the thread through the tools', () => {
     const back = dataOf<{ item: Item }>(await call('update_item', { id: item.id, later: false })).item
     expect(back).not.toHaveProperty('later')
   })
+
+  it('parks an item until another is done, and get_item shows both ends', async () => {
+    const capture = async (text: string) =>
+      dataOf<{ item: Item }>(await call('capture_item', { text, kind: 'action', context: 'Parish' })).item
+    const survey = await capture('Put together the survey')
+    const email = await capture('Send post-event email')
+
+    const parked = dataOf<{ item: Item }>(
+      await call('update_item', { id: email.id, later_until_item: survey.id }),
+    ).item
+    expect(parked).toMatchObject({ later: true, later_on: null, later_until_item_id: survey.id })
+
+    const waiting = dataOf<{ waits_on: Item }>(await call('get_item', { id: email.id }))
+    expect(waiting.waits_on).toMatchObject({ id: survey.id, text: 'Put together the survey' })
+    const holding = dataOf<{ holds_up: Item[] }>(await call('get_item', { id: survey.id }))
+    expect(holding.holds_up.map((one) => one.id)).toEqual([email.id])
+
+    const self = await call('update_item', { id: email.id, later_until_item: email.id })
+    expect(self.isError).toBe(true)
+    expect(textOf(self)).toContain('itself')
+
+    await call('update_item', { id: survey.id, status: 'done' })
+    const back = dataOf<{ item: Item }>(await call('get_item', { id: email.id }))
+    expect(back.item).not.toHaveProperty('later')
+    expect(back).not.toHaveProperty('waits_on')
+  })
 })
 
 describe('directory tools', () => {

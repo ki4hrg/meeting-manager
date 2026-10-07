@@ -300,6 +300,7 @@ describe('brief rendering', () => {
           targetProjectId: null,
           parkedAt: null,
           laterOn: null,
+          laterUntilItemId: null,
           createdAt: new Date(),
           updatedAt: new Date(),
           parties: [],

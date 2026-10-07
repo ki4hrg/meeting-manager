@@ -25,6 +25,10 @@ import {
   unparkItem,
   updateItem,
 } from '../lib/items/items'
+import { addDays } from '../lib/core/dates'
+import { listContexts } from '../lib/directory/contexts'
+import { isLater } from '../lib/items/horizon'
+import { owedEverywhere } from '../lib/today'
 import { itemEvents } from '../lib/db/schema'
 import { createMeeting } from '../lib/meetings/meetings'
 import { createSeries } from '../lib/meetings/series'
@@ -246,6 +250,111 @@ describe('later', () => {
     const { parish } = await makeWorld()
     const item = await createItem(db, actor, { contextId: parish.id, text: 'x' })
     await expect(parkItem(db, actor, item.id, { until: 'soon' })).rejects.toBeInstanceOf(ValidationError)
+  })
+})
+
+describe('later, until another item is done', () => {
+  const TODAY = '2026-10-04'
+
+  async function emailAndSurvey() {
+    const w = await makeWorld()
+    const mine = { parties: [{ personId: w.john.id, role: 'owner' as const }] }
+    const survey = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'Put together a post-event survey',
+      ...mine,
+    })
+    const email = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'Send post-event email',
+      ...mine,
+    })
+    return { ...w, survey, email }
+  }
+
+  const owed = async (selfId: string) => owedEverywhere(db, await listContexts(db), selfId, TODAY)
+
+  it('leaves I owe, and is back in the same commit that closes what it waits on, with history on both', async () => {
+    const { survey, email } = await emailAndSurvey()
+    const parked = await parkItem(db, actor, email.id, { untilItem: survey.id })
+    expect(parked).toMatchObject({ laterUntilItemId: survey.id, laterOn: null })
+    expect(isLater(parked, TODAY)).toBe(true)
+    expect((await listItems(db, { contextId: email.contextId, waitingOn: survey.id })).map((i) => i.id)).toEqual([
+      email.id,
+    ])
+
+    // Parking again for a day keeps what it waits on.
+    expect((await parkItem(db, actor, email.id, { until: '2027-01-04' })).laterUntilItemId).toBe(survey.id)
+
+    await completeItem(db, actor, survey.id)
+    expect(await getItem(db, email.id)).toMatchObject({ parkedAt: null, laterOn: null, laterUntilItemId: null })
+    expect(isLater(await getItem(db, email.id), TODAY)).toBe(false)
+
+    const events = (await getThread(db, email.id)).events
+    const back = events.at(-1)!
+    expect(back).toMatchObject({ type: 'unparked', data: { itemId: survey.id, text: survey.text } })
+    expect(events.filter((event) => event.type === 'parked')[0]!.data).toEqual({ untilItem: survey.id })
+    const done = (await getThread(db, survey.id)).events.find((event) => event.type === 'completed')
+    expect(done?.data).toEqual({ released: [{ id: email.id, text: email.text }] })
+  })
+
+  it('is back when what it waits on is answered or dropped, too', async () => {
+    const { parish, survey, email } = await emailAndSurvey()
+    const question = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: 'Which venue?' })
+    await parkItem(db, actor, email.id, { untilItem: question.id })
+    await answerItem(db, actor, question.id, { answer: 'The hall' })
+    expect((await getItem(db, email.id)).parkedAt).toBeNull()
+
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    await dropItem(db, actor, survey.id)
+    expect(await getItem(db, email.id)).toMatchObject({ parkedAt: null, laterUntilItemId: null })
+  })
+
+  it('a deadline coming close brings it back while it still waits', async () => {
+    const { john, survey, email } = await emailAndSurvey()
+    await updateItem(db, actor, email.id, { dueOn: addDays(TODAY, 3) })
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    const now = await owed(john.id)
+    expect(now.later.mine.map((item) => item.id)).not.toContain(email.id)
+    expect(now.due.concat(now.mine).map((item) => item.id)).toContain(email.id)
+    expect((await getItem(db, email.id)).laterUntilItemId).toBe(survey.id)
+  })
+
+  it('refuses itself, another context, a closed item and a missing one; null stops the wait', async () => {
+    const { diocese, survey, email } = await emailAndSurvey()
+    await expect(parkItem(db, actor, email.id, { untilItem: email.id })).rejects.toThrow('wait on itself')
+    const elsewhere = await createItem(db, actor, { contextId: diocese.id, text: 'synod paper' })
+    await expect(parkItem(db, actor, email.id, { untilItem: elsewhere.id })).rejects.toThrow('another context')
+    const closed = await createItem(db, actor, { contextId: email.contextId, kind: 'action', text: 'old' })
+    await completeItem(db, actor, closed.id)
+    await expect(parkItem(db, actor, email.id, { untilItem: closed.id })).rejects.toThrow('already closed')
+    expect((await getItem(db, email.id)).parkedAt).toBeNull()
+
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    expect((await parkItem(db, actor, email.id, { untilItem: null })).laterUntilItemId).toBeNull()
+  })
+
+  it('two items waiting on each other both stay parked until one closes', async () => {
+    const { survey, email } = await emailAndSurvey()
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    await parkItem(db, actor, survey.id, { untilItem: email.id })
+    expect((await getItem(db, email.id)).parkedAt).not.toBeNull()
+    expect((await getItem(db, survey.id)).parkedAt).not.toBeNull()
+    await completeItem(db, actor, survey.id)
+    expect((await getItem(db, email.id)).parkedAt).toBeNull()
+  })
+
+  it('undoing a drop puts the wait back while what it waited on is still open', async () => {
+    const { survey, email } = await emailAndSurvey()
+    await parkItem(db, actor, email.id, { untilItem: survey.id })
+    await dropItem(db, actor, email.id)
+    expect((await undropItem(db, actor, email.id)).laterUntilItemId).toBe(survey.id)
+
+    await dropItem(db, actor, email.id)
+    await completeItem(db, actor, survey.id)
+    expect(await undropItem(db, actor, email.id)).toMatchObject({ parkedAt: null, laterUntilItemId: null })
   })
 })
 

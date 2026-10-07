@@ -186,7 +186,10 @@ export async function undropItemAction(formData: FormData): Promise<ActionResult
 
 export async function parkItemAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await parkItem(db, actor, field(formData, 'id'), { until: field(formData, 'until') })
+    await parkItem(db, actor, field(formData, 'id'), {
+      until: field(formData, 'until'),
+      untilItem: field(formData, 'untilItem'),
+    })
   })
 }
 
