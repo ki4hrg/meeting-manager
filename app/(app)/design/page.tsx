@@ -11,6 +11,7 @@ import { WhenInputs } from '@/components/meetings/WhenInputs'
 import { DeleteButton } from '@/components/archive/DeleteButton'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
+import { ProjectTree, type ProjectTreeNode } from '@/components/projects/ProjectTree'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
@@ -163,6 +164,42 @@ const PROPOSALS: ProposalView[] = [
     unresolved: [],
   },
 ]
+const leaf = (id: string, name: string, extra: Partial<ProjectTreeNode> = {}): ProjectTreeNode => ({
+  id,
+  name,
+  status: 'active',
+  archived: false,
+  open: 0,
+  subtree: 0,
+  next: null,
+  children: [],
+  ...extra,
+})
+
+const PROJECT_TREE: ProjectTreeNode[] = [
+  leaf('design-ac', 'Annual Conference', {
+    open: 3,
+    subtree: 12,
+    next: { title: 'Venue contract', label: 'Tomorrow', dueOn: TOMORROW },
+    children: [
+      leaf('design-ac27', '2027 Annual Conference', {
+        open: 4,
+        subtree: 9,
+        next: { title: 'Registration opens', label: 'Today', dueOn: TODAY },
+        children: [
+          leaf('design-worship', 'AC2027 Worship', { open: 5, subtree: 5 }),
+          leaf('design-music', 'AC2027 Music', { status: 'paused' }),
+        ],
+      }),
+      leaf('design-ac26', '2026 Annual Conference', { status: 'done' }),
+    ],
+  }),
+  leaf('design-old', 'Building fund', {
+    archived: true,
+    children: [leaf('design-roof', 'Roof repair', { open: 2, subtree: 2 })],
+  }),
+]
+
 const RUN = {
   id: 'sample',
   noteId: 'sample',
@@ -250,6 +287,10 @@ export default function DesignPage() {
           </LinkCard>
           <EmptyState icon="project" action={{ label: 'New project', href: '/design' }} />
         </CardGrid>
+      </Section>
+
+      <Section title="Projects">
+        <ProjectTree roots={PROJECT_TREE} today={TODAY} />
       </Section>
 
       <Section title="Attendance">
