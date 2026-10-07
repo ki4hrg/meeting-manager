@@ -3,7 +3,7 @@ import { Roster } from '@/components/meetings/Roster'
 import { rollCall, settleIfOver } from '@/lib/meetings/attendance'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
-import { CopyButton } from '@/components/CopyButton'
+import { Export } from '@/components/Export'
 import { FormModal } from '@/components/forms'
 import { AgendaCard, type LeaderChoice } from '@/components/meetings/AgendaCard'
 import { Blocks } from '@/components/meetings/Blocks'
@@ -22,7 +22,7 @@ import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ButtonLink } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Badge } from '@/components/ui/StatusBadge'
-import { renderAgenda, renderAgendaHtml, renderBrief, renderBriefHtml } from '@/lib/agenda/brief'
+import { briefOutline } from '@/lib/agenda/brief'
 import { getCandidates, placeAutomatic } from '@/lib/agenda/candidates'
 import { computeBlocks } from '@/lib/agenda/generated'
 import { getAgenda } from '@/lib/agenda/lines'
@@ -204,13 +204,12 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         ]}
         actions={
           <>
-            <CopyButton
-              label="Copy brief"
-              variant="primary"
-              text={renderBrief(brief)}
-              html={renderBriefHtml(brief)}
+            <Export
+              kind="agenda"
+              outline={briefOutline(brief)}
+              title={meeting.title}
+              mailto={`mailto:?subject=${encodeURIComponent(meeting.title)}`}
             />
-            <CopyButton label="Copy agenda" text={renderAgenda(brief)} html={renderAgendaHtml(brief)} />
             <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
               <Icon name="check" className="h-4 w-4" />
               Review

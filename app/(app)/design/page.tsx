@@ -1,5 +1,6 @@
 import { ActionSelect } from '@/components/ActionSelect'
 import { CopyButton } from '@/components/CopyButton'
+import { Export } from '@/components/Export'
 import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
@@ -40,6 +41,7 @@ import {
   type ItemStatus,
   type ProjectStatus,
 } from '@/components/ui/StatusBadge'
+import { only, type OutlinePart } from '@/lib/agenda/export'
 import type { ItemParty } from '@/lib/items/items'
 import type { MeetingView } from '@/lib/meetings/meetings'
 import type { UpcomingEntry } from '@/lib/meetings/prep'
@@ -212,6 +214,40 @@ const RUN = {
   finishedAt: null,
   createdAt: new Date('2026-10-01T15:00:00Z'),
 } satisfies Partial<Run>
+
+/* An agenda and a recap as the server hands them to Export, every optional piece marked. */
+const SAMPLE_AGENDA: OutlinePart[] = [
+  { type: 'h1', text: 'Staff meeting' },
+  { type: 'p', text: ['Tue, Oct 6 · 10:00 AM', { only: 'attendees', text: 'Sarah Jones, Tom Baker' }], join: ' · ' },
+  { type: 'h2', text: 'Agenda' },
+  {
+    type: 'list',
+    entries: [
+      {
+        text: [{ only: 'times', text: '10:00 AM · ' }, 'Budget', { only: 'details', text: ' — Sarah Jones' }, ' (15 min)'],
+        sub: [
+          { only: 'details', text: 'Second-quarter numbers', markdown: true, sub: [] },
+          { only: 'notes', text: 'Note: ask about the roof', markdown: true, sub: [] },
+        ],
+      },
+      { text: ['Who drives the minibus?', { only: 'owed', text: ' [question, Tom Baker]' }], sub: [] },
+    ],
+  },
+  ...only<OutlinePart>('followUps', [
+    { type: 'h2', text: 'Follow-ups due' },
+    { type: 'label', text: 'Tom Baker' },
+    { type: 'list', entries: [{ text: 'Send the deposit [action]', sub: [] }] },
+  ]),
+]
+
+const SAMPLE_RECAP: OutlinePart[] = [
+  { type: 'h1', text: 'Staff meeting' },
+  { type: 'p', text: ['Tue, Oct 6 · 10:00 AM', { only: 'attendees', text: 'Sarah Jones, Tom Baker' }], join: ' · ' },
+  ...only<OutlinePart>('decisions', [
+    { type: 'h2', text: 'Decisions' },
+    { type: 'list', entries: [{ text: "The retreat is at St Mary's", sub: [] }] },
+  ]),
+]
 
 export default function DesignPage() {
   return (
@@ -407,7 +443,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'share', 'printer', 'download'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>
@@ -424,8 +460,8 @@ export default function DesignPage() {
             title="Staff meeting"
             actions={
               <>
-                <CopyButton label="Copy brief" variant="primary" text="# Staff meeting" html="<h1>Staff meeting</h1>" />
-                <CopyButton label="Copy agenda" text="# Staff meeting" />
+                <Export kind="agenda" outline={SAMPLE_AGENDA} title="Staff meeting" mailto="mailto:?subject=Staff%20meeting" />
+                <CopyButton label="Copy" text="# Staff meeting" />
                 <Button variant="secondary">
                   <Icon name="check" className="h-4 w-4" />
                   Review
@@ -483,6 +519,28 @@ export default function DesignPage() {
             <Chip href="/design" icon="refresh">
               Staff meeting
             </Chip>
+          </div>
+        </Card>
+      </Section>
+
+      {/* Presets set the toggles; a lock marks what the Shareable preset leaves out. */}
+      <Section title="Export">
+        <Card>
+          <div className="flex flex-wrap gap-2">
+            <Export
+              kind="agenda"
+              outline={SAMPLE_AGENDA}
+              title="Staff meeting"
+              mailto="mailto:?subject=Staff%20meeting"
+              variant="secondary"
+            />
+            <Export
+              kind="recap"
+              outline={SAMPLE_RECAP}
+              title="Recap: Staff meeting"
+              mailto="mailto:?subject=Recap%3A%20Staff%20meeting"
+              variant="secondary"
+            />
           </div>
         </Card>
       </Section>

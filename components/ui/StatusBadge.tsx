@@ -27,6 +27,13 @@ const ICON: Record<Tone, string> = {
   gray: 'text-gray-400 dark:text-gray-500',
 }
 
+/** A tone's classes, for a pill or an icon that is not a badge. */
+export const pillClass = (tone: Tone) => PILL[tone]
+export const iconClass = (tone: Tone) => ICON[tone]
+
+/** What only John should see: a private part of an export. */
+export const PRIVATE_TONE: Tone = 'amber'
+
 export function Badge({ tone = 'gray', children }: { tone?: Tone; children: React.ReactNode }) {
   return (
     <span

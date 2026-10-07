@@ -28,7 +28,18 @@ import { meetings, notes, personEmails, processingRuns, type RecapEdits } from '
 import { onShelf } from '../db/shelf'
 import { getMeeting } from '../meetings/meetings'
 import { isOpen, listItems, type ItemKind, type ItemStatus, type ItemView } from '../items/items'
-import { lookaheadParts, markdownLeaf, rows, toHtml, toMarkdown, type Entry, type Part } from './brief'
+import { lookaheadParts, markdownLeaf, rows } from './brief'
+import {
+  only,
+  pick,
+  preset,
+  toHtml,
+  toMarkdown,
+  type Entry,
+  type OutlinePart,
+  type Part,
+  type Piece,
+} from './export'
 import { computeBlocks, itemsOf } from './generated'
 import { getAgenda } from './lines'
 import type { LookaheadBlock } from './types'
@@ -417,80 +428,96 @@ function day(recap: Recap): string | null {
   return recap.meeting.startsAt ? todayIn(recap.timeZone, recap.meeting.startsAt) : null
 }
 
-function recapParts(recap: Recap): Part[] {
+/** Everything a recap can export, each section marked with its part. */
+export function recapOutline(recap: Recap): OutlinePart[] {
   const { meeting, today, timeZone } = recap
-  const parts: Part[] = [{ type: 'h1', text: meeting.title }]
+  const parts: OutlinePart[] = [{ type: 'h1', text: meeting.title }]
 
-  const facts: string[] = []
+  const facts: Piece[] = []
   if (meeting.startsAt) facts.push(formatSpan(meeting.startsAt, meeting.endsAt, timeZone, today))
-  if (meeting.people.length > 0) facts.push(meeting.people.map((person) => person.name).join(', '))
-  if (facts.length > 0) parts.push({ type: 'p', text: facts.join(' · ') })
+  if (meeting.people.length > 0) {
+    facts.push({ only: 'attendees', text: meeting.people.map((person) => person.name).join(', ') })
+  }
+  if (facts.length > 0) parts.push({ type: 'p', text: facts, join: ' · ' })
 
-  if (recap.summary) parts.push({ type: 'h2', text: 'Summary' }, ...prose(recap.summary))
+  if (recap.summary) parts.push(...only('summary', [{ type: 'h2', text: 'Summary' }, ...prose(recap.summary)]))
 
   if (recap.lines.length > 0) {
     parts.push(
-      { type: 'h2', text: 'Discussed' },
-      {
+      ...only<OutlinePart>('discussed', [
+        { type: 'h2', text: 'Discussed' },
+        {
         type: 'list',
         entries: recap.lines.map((line) => ({
           text: line.text,
           bold: true,
           sub: [...rows(line.description).map(markdownLeaf), ...rows(line.summary).map(leaf)],
         })),
-      },
+        },
+      ]),
     )
   }
 
   if (recap.decisions.length > 0) {
     parts.push(
-      { type: 'h2', text: 'Decisions' },
-      { type: 'list', entries: recap.decisions.map((decision) => leaf(decision.text)) },
+      ...only<OutlinePart>('decisions', [
+        { type: 'h2', text: 'Decisions' },
+        { type: 'list', entries: recap.decisions.map((decision) => leaf(decision.text)) },
+      ]),
     )
   }
 
   if (recap.owed.length > 0) {
-    parts.push({ type: 'h2', text: 'Follow-ups' })
-    for (const { party, items } of recap.owed) {
-      parts.push(
-        { type: 'label', text: party?.name ?? 'Unassigned' },
-        { type: 'list', entries: items.map((item) => leaf(owedText(item, today))) },
-      )
-    }
+    parts.push(
+      ...only<OutlinePart>('followUps', [
+        { type: 'h2', text: 'Follow-ups' },
+        ...recap.owed.flatMap(({ party, items }): Part[] => [
+          { type: 'label', text: party?.name ?? 'Unassigned' },
+          { type: 'list', entries: items.map((item) => leaf(owedText(item, today))) },
+        ]),
+      ]),
+    )
   }
 
   if (recap.closed.length > 0) {
     parts.push(
-      { type: 'h2', text: 'Closed' },
-      {
+      ...only<OutlinePart>('closed', [
+        { type: 'h2', text: 'Closed' },
+        {
         type: 'list',
         entries: recap.closed.map((item) => {
           const how = item.resolution ?? (item.status === 'dropped' ? 'dropped' : null)
           return leaf(how ? `${item.text} — ${how}` : item.text)
         }),
-      },
+        },
+      ]),
     )
   }
 
   if (recap.lookahead) {
     parts.push(
-      ...lookaheadParts(
-        { blocks: { followUps: null, sinceLast: null, lookahead: recap.lookahead }, timeZone },
-        today,
+      ...only(
+        'lookahead',
+        lookaheadParts(
+          { blocks: { followUps: null, sinceLast: null, lookahead: recap.lookahead }, timeZone },
+          today,
+        ),
       ),
     )
   }
   return parts
 }
 
+const WHOLE = preset('recap', 'Shareable')
+
 /** The recap as Markdown. Sections with nothing in them are left out. */
 export function renderRecap(recap: Recap): string {
-  return toMarkdown(recapParts(recap))
+  return toMarkdown(pick(recapOutline(recap), WHOLE))
 }
 
 /** The same as rich text, for the clipboard's text/html. */
 export function renderRecapHtml(recap: Recap): string {
-  return toHtml(recapParts(recap))
+  return toHtml(pick(recapOutline(recap), WHOLE))
 }
 
 /**
