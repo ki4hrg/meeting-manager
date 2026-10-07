@@ -11,6 +11,7 @@ import { WhenInputs } from '@/components/meetings/WhenInputs'
 import { DeleteButton } from '@/components/archive/DeleteButton'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
+import { ItemPicker } from '@/components/items/ItemPicker'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
@@ -649,6 +650,14 @@ export default function DesignPage() {
                     { value: 'tom', name: 'Tom Baker', icon: 'person' },
                   ]}
                   allowNew
+                />
+                <ItemPicker
+                  label="Until done"
+                  name="untilItem"
+                  options={[
+                    { id: 'survey', text: 'Put together a post-event survey', kind: 'action' },
+                    { id: 'venue', text: 'Which venue?', kind: 'question' },
+                  ]}
                 />
                 <div>
                   <PendingBadge count={3} />

@@ -77,6 +77,8 @@ export type ItemView = {
   /** Parked for later, and the day it comes back (none: until brought back). */
   parkedAt: Date | null
   laterOn: string | null
+  /** Parked until this item closes, too: whichever comes first brings it back. */
+  laterUntilItemId: string | null
   createdAt: Date
   updatedAt: Date
   parties: ItemParty[]
@@ -200,6 +202,7 @@ async function loadViews(exec: Executor, where: SQL | undefined, limit?: number)
     targetProjectId: item.targetProjectId,
     parkedAt: item.parkedAt,
     laterOn: item.laterOn,
+    laterUntilItemId: item.laterUntilItemId,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     parties: byItem.get(item.id) ?? [],
@@ -230,6 +233,8 @@ export type ItemFilter = {
   party?: PartyRef & { role?: PartyRole }
   /** Open, with no party and no project: nothing says where it belongs yet. */
   inbox?: boolean
+  /** Parked until this item closes; or, with `true`, until any item does. */
+  waitingOn?: string | true
   search?: string
   limit?: number
 }
@@ -273,6 +278,8 @@ export async function listItems(exec: Executor, filter: ItemFilter): Promise<Ite
       sql`not exists (select 1 from ${itemParties} where ${itemParties.itemId} = ${items.id})`,
     )
   }
+  if (filter.waitingOn === true) conditions.push(sql`${items.laterUntilItemId} is not null`)
+  else if (filter.waitingOn) conditions.push(eq(items.laterUntilItemId, filter.waitingOn))
   if (filter.search?.trim()) {
     const pattern = `%${filter.search.trim().replace(/[\\%_]/g, '\\$&')}%`
     conditions.push(
@@ -674,32 +681,70 @@ export async function setItemTarget(
 }
 
 /* Closing an item ends its parking: reopened, it is back on the lists. */
-const NOT_PARKED = { parkedAt: null, laterOn: null }
+const NOT_PARKED = { parkedAt: null, laterOn: null, laterUntilItemId: null }
 
 /**
  * Park an open item for later: it leaves "I owe" and "Waiting on" until
- * `until` (the day it comes back on its own), or until brought back when
- * there is none. A deadline coming close brings it back regardless
- * (`lib/items/horizon.ts`). Parking again moves the day.
+ * `until` (the day it comes back on its own), until `untilItem` closes, or,
+ * with neither, until brought back; with both, whichever comes first. A
+ * deadline coming close brings it back regardless (`lib/items/horizon.ts`).
+ * Parking again moves the day, and keeps the item it waits on unless
+ * `untilItem` is given (null or empty: none).
  */
 export async function parkItem(
   exec: Executor,
   actor: ActorContext,
   id: string,
-  input: { until?: string | null } = {},
+  input: { until?: string | null; untilItem?: string | null } = {},
 ): Promise<ItemView> {
   const until = parseDay(input.until)
   return inTransaction(exec, async (tx) => {
     const item = await getItem(tx, id)
     if (!isOpen(item)) throw new ValidationError('Only an open item can wait for later.')
-    if (item.parkedAt && item.laterOn === until) return item
+    const untilItem = input.untilItem === undefined ? item.laterUntilItemId : blankToNull(input.untilItem)
+    if (untilItem) {
+      if (untilItem === id) throw new ValidationError('An item cannot wait on itself.')
+      const blocker = await getItem(tx, untilItem)
+      if (blocker.contextId !== item.contextId) {
+        throw new ValidationError('That item belongs to another context.')
+      }
+      if (!isOpen(blocker)) throw new ValidationError('That item is already closed.')
+    }
+    if (item.parkedAt && item.laterOn === until && item.laterUntilItemId === untilItem) return item
     await tx
       .update(items)
-      .set({ parkedAt: item.parkedAt ?? new Date(), laterOn: until, updatedAt: new Date() })
+      .set({
+        parkedAt: item.parkedAt ?? new Date(),
+        laterOn: until,
+        laterUntilItemId: untilItem,
+        updatedAt: new Date(),
+      })
       .where(eq(items.id, id))
-    await logEvent(tx, actor, id, 'parked', until ? { until } : {})
+    await logEvent(tx, actor, id, 'parked', {
+      ...(until ? { until } : {}),
+      ...(untilItem ? { untilItem } : {}),
+    })
     return getItem(tx, id)
   })
+}
+
+/* An item has closed: whatever was parked until it is back on the lists, in
+   the same commit, each saying what brought it back. What the closing step
+   logs names them, so both histories tell it. */
+async function release(
+  tx: Executor,
+  actor: ActorContext,
+  blocker: ItemView,
+): Promise<{ released?: { id: string; text: string }[] }> {
+  const waiting = await tx
+    .update(items)
+    .set({ ...NOT_PARKED, updatedAt: new Date() })
+    .where(and(eq(items.laterUntilItemId, blocker.id), inArray(items.status, OPEN_STATUSES)))
+    .returning({ id: items.id, text: items.text })
+  for (const one of waiting) {
+    await logEvent(tx, actor, one.id, 'unparked', { itemId: blocker.id, text: blocker.text })
+  }
+  return waiting.length > 0 ? { released: waiting } : {}
 }
 
 /** Back from later, onto the lists now. */
@@ -869,7 +914,10 @@ export async function completeItem(
         ...(resolution ? { resolution } : {}),
       })
       .where(eq(items.id, id))
-    await logEvent(tx, actor, id, 'completed', resolution ? { resolution } : {})
+    await logEvent(tx, actor, id, 'completed', {
+      ...(resolution ? { resolution } : {}),
+      ...(await release(tx, actor, item)),
+    })
     return getItem(tx, id)
   })
 }
@@ -896,7 +944,7 @@ export async function answerItem(
       .update(items)
       .set({ status: 'done', resolution: answer, closedAt: new Date(), updatedAt: new Date(), ...NOT_PARKED })
       .where(eq(items.id, id))
-    await logEvent(tx, actor, id, 'answered', { answer })
+    await logEvent(tx, actor, id, 'answered', { answer, ...(await release(tx, actor, item)) })
 
     const report = input.reportTo ? await reportBack(tx, actor, item, input.reportTo, answer) : null
     return { item: await getItem(tx, id), report }
@@ -930,7 +978,12 @@ export async function dropItem(exec: Executor, actor: ActorContext, id: string):
 
     // What `undropItem` puts back.
     const [row] = await tx
-      .select({ status: items.status, parkedAt: items.parkedAt, laterOn: items.laterOn })
+      .select({
+        status: items.status,
+        parkedAt: items.parkedAt,
+        laterOn: items.laterOn,
+        laterUntilItemId: items.laterUntilItemId,
+      })
       .from(items)
       .where(eq(items.id, id))
     await tx
@@ -938,7 +991,13 @@ export async function dropItem(exec: Executor, actor: ActorContext, id: string):
       .set({ status: 'dropped', closedAt: new Date(), updatedAt: new Date(), ...NOT_PARKED })
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'dropped', {
-      before: { status: row!.status, parkedAt: row!.parkedAt?.toISOString() ?? null, laterOn: row!.laterOn },
+      before: {
+        status: row!.status,
+        parkedAt: row!.parkedAt?.toISOString() ?? null,
+        laterOn: row!.laterOn,
+        laterUntilItemId: row!.laterUntilItemId,
+      },
+      ...(await release(tx, actor, item)),
     })
     return getItem(tx, id)
   })
@@ -962,14 +1021,30 @@ export async function undropItem(exec: Executor, _actor: ActorContext, id: strin
       throw new ValidationError('This item has changed since it was dropped. Reopen it from its own page.')
     }
 
-    const before = (last.data as { before?: { status: ItemStatus; parkedAt: string | null; laterOn: string | null } })
-      .before
+    const before = (
+      last.data as {
+        before?: {
+          status: ItemStatus
+          parkedAt: string | null
+          laterOn: string | null
+          laterUntilItemId?: string | null
+        }
+      }
+    ).before
+    /* Waiting on an item that has closed since, it would have come back:
+       it stands as it would have. */
+    const blocker = before?.laterUntilItemId
+      ? await getItem(tx, before.laterUntilItemId).catch(() => null)
+      : null
+    const stillWaits = blocker !== null && isOpen(blocker)
+    const parked = before?.parkedAt && (stillWaits || !before.laterUntilItemId || before.laterOn)
     await tx
       .update(items)
       .set({
         status: before?.status ?? 'open',
-        parkedAt: before?.parkedAt ? new Date(before.parkedAt) : null,
-        laterOn: before?.laterOn ?? null,
+        parkedAt: parked ? new Date(before.parkedAt!) : null,
+        laterOn: parked ? (before?.laterOn ?? null) : null,
+        laterUntilItemId: parked && stillWaits ? before!.laterUntilItemId! : null,
         closedAt: null,
         updatedAt: new Date(),
       })

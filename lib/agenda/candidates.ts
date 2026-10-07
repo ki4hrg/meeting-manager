@@ -22,6 +22,8 @@
  *     gone) is spent, and the item is matched as if it had none.
  *   - John is at every meeting, so nothing is a candidate through him.
  *   - What came out of a meeting is not a candidate for that same meeting.
+ *   - What waits in Later until another item closes is not offered anywhere,
+ *     aimed or not, until that item closes or its own deadline comes close.
  *
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
  */
@@ -37,6 +39,8 @@ import {
   type Executor,
 } from '../core/types'
 import { agendaLines, meetingDismissals, meetingProjects, meetings } from '../db/schema'
+import { todayIn } from '../core/dates'
+import { isLater } from '../items/horizon'
 import { getItem, isOpen, listItems, type ItemView } from '../items/items'
 import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 
@@ -225,6 +229,7 @@ export async function getCandidates(
           .map((one) => one.id),
   )
 
+  const today = todayIn(null, now)
   const toPlace: ItemView[] = []
   const dismissed: ItemView[] = []
   const suggested = new Map<string, CandidateGroup>()
@@ -235,6 +240,8 @@ export async function getCandidates(
     if (item.kind === 'decision' || placedIds.has(item.id)) continue
     // What came out of this meeting is its outcome, not something to raise at it.
     if (item.originMeetingId === meeting.id) continue
+    // Waiting on another item: not ready to raise.
+    if (item.laterUntilItemId && isLater(item, today)) continue
 
     const attendee = item.parties.find(
       (party) => party.type === 'person' && !party.isSelf && attendeeIds.has(party.id),

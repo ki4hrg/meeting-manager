@@ -195,15 +195,20 @@ export const getItemTool = defineTool({
   title: 'Get an item',
   description:
     'One item with the whole thread it belongs to (what it came from and what came out of it) ' +
-    'and its history.',
+    'and its history, what it waits on in Later (waits_on) and what waits on it (holds_up).',
   scope: 'meetings:read',
   input: z.object({ id: z.uuid() }),
   annotations: { readOnlyHint: true },
   handler: async (input, { exec }) => {
     const item = await getItem(exec, input.id)
     const thread = await getThread(exec, input.id)
+    const waitsOn = item.laterUntilItemId ? await getItem(exec, item.laterUntilItemId) : null
+    const holdsUp = await listItems(exec, { contextId: item.contextId, open: true, waitingOn: item.id })
+    const brief = (one: typeof item) => ({ id: one.id, kind: one.kind, status: one.status, text: one.text })
     return {
       item: itemOut(item),
+      ...(waitsOn ? { waits_on: brief(waitsOn) } : {}),
+      ...(holdsUp.length > 0 ? { holds_up: holdsUp.map(brief) } : {}),
       thread: thread.entries.map((entry) => ({ depth: entry.depth, ...itemOut(entry.item) })),
       history: thread.events.map((event) => ({
         item_id: event.itemId,
@@ -226,6 +231,8 @@ export const updateItemTool = defineTool({
     'when given. target_meeting, target_series or target_project aims it at a meeting or at the next occurrence ' +
     'of a series. later true parks it off "I owe" and "Waiting on" until later_on (or until ' +
     'brought back with later false); a deadline within two weeks brings it back regardless. ' +
+    'later_until_item parks it until that open item in the same context closes (done, answered ' +
+    'or dropped), or with later_on until whichever comes first; null stops it waiting on one. ' +
     'Pass null to clear project, due_on, detail or the target.',
   scope: 'meetings:write',
   input: z.object({
@@ -256,6 +263,11 @@ export const updateItemTool = defineTool({
       .describe('Project name or id: raised at the next meeting that carries it.'),
     later: z.boolean().optional().describe('true parks it for later; false brings it back.'),
     later_on: z.string().optional().describe('YYYY-MM-DD it comes back on its own; implies later.'),
+    later_until_item: z
+      .uuid()
+      .nullable()
+      .optional()
+      .describe('Item id it waits on: back when that item closes; implies later.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -304,10 +316,15 @@ export const updateItemTool = defineTool({
       if (input.note) await addNote(tx, actor, input.id, input.note)
 
       if (input.later === false) {
-        if (input.later_on) throw new ValidationError('later_on goes with later true.')
+        if (input.later_on || input.later_until_item) {
+          throw new ValidationError('later_on and later_until_item go with later true.')
+        }
         await unparkItem(tx, actor, input.id)
-      } else if (input.later || input.later_on) {
-        await parkItem(tx, actor, input.id, { until: input.later_on })
+      } else if (input.later || input.later_on || input.later_until_item) {
+        await parkItem(tx, actor, input.id, { until: input.later_on, untilItem: input.later_until_item })
+      } else if (input.later_until_item === null && before.parkedAt) {
+        // Stops waiting on an item, and keeps its day.
+        await parkItem(tx, actor, input.id, { until: before.laterOn, untilItem: null })
       }
 
       let report = null

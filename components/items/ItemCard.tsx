@@ -149,6 +149,7 @@ export function ItemCard({
               {open && isLater(item, today) ? (
                 <Badge>
                   <Icon name="later" className="h-3 w-3" label="Later" />
+                  {item.laterUntilItemId ? <Icon name="link" className="h-3 w-3" label="Waits on an item" /> : null}
                   {item.laterOn ? formatDay(item.laterOn, today) : null}
                 </Badge>
               ) : null}

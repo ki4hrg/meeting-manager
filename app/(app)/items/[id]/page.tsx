@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { ActionSelect } from '@/components/ActionSelect'
 import { ActionButton, ActionForm, FormModal } from '@/components/forms'
 import { ItemCard } from '@/components/items/ItemCard'
+import { ItemPicker, type ItemOption } from '@/components/items/ItemPicker'
 import { PartyOptions } from '@/components/items/PartyOptions'
 import { PartyPicker, type PartyOption } from '@/components/processing/PartyPicker'
 import { QuickAdd } from '@/components/QuickAdd'
@@ -28,7 +29,15 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
-import { canDeleteItem, getThread, isOpen, type ItemEvent, type ItemParty } from '@/lib/items/items'
+import {
+  canDeleteItem,
+  getItem,
+  getThread,
+  isOpen,
+  listItems,
+  type ItemEvent,
+  type ItemParty,
+} from '@/lib/items/items'
 import { COLLABORATOR, hasCollaborators, roleLabel, roleOrder } from '@/lib/items/roles'
 import { getProject, listProjectChoices } from '@/lib/projects/projects'
 import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
@@ -75,14 +84,29 @@ function eventDetail(event: ItemEvent): React.ReactNode {
   switch (event.type) {
     case 'note':
       return data.text
-    case 'answered':
-      return data.answer
-    case 'completed':
-      return data.resolution
     case 'spawned':
       return data.text
     case 'parked':
       return typeof data.until === 'string' ? formatDay(data.until, data.until) : null
+    case 'unparked':
+      // Brought back by the item it waited on closing.
+      return data.text
+    case 'completed':
+    case 'answered':
+    case 'dropped': {
+      const said = event.type === 'completed' ? data.resolution : event.type === 'answered' ? data.answer : null
+      const released = (event.data.released as { text: string }[] | undefined)?.map((one) => one.text) ?? []
+      if (released.length === 0) return said
+      return (
+        <>
+          {said}
+          <span className="mt-1 flex items-start gap-1">
+            <Icon name="link" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" label="Released" />
+            {released.join(', ')}
+          </span>
+        </>
+      )
+    }
     case 'converted':
       return (
         <span className="inline-flex items-center gap-1 align-middle">
@@ -216,6 +240,21 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
     ...projects.filter((project) => project.id !== item.project?.id && project.status !== 'done'),
   ]
   const origin = await lookUp(item.originMeetingId)
+  /* Later, until another item closes: what this one waits on, what waits on
+     it, and the open items it could wait on. */
+  const blocker = item.laterUntilItemId
+    ? await getItem(db, item.laterUntilItemId).catch((err) => {
+        if (err instanceof NotFoundError) return null
+        throw err
+      })
+    : null
+  const holdsUp = open ? await listItems(db, { contextId: item.contextId, open: true, waitingOn: item.id }) : []
+  const waitable: ItemOption[] =
+    open && !decision
+      ? (await listItems(db, { contextId: item.contextId, open: true }))
+          .filter((one) => one.id !== item.id)
+          .map((one) => ({ id: one.id, text: one.text, kind: one.kind }))
+      : []
   const events = thread.events.filter((event) => event.itemId === id)
   /* Back to where the item lives: its project, the meeting it came from, the
      person or group it is for, or the Inbox. */
@@ -329,9 +368,22 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               </FormModal>
             </div>
 
-            {raisable || target || origin || (open && item.parkedAt) ? (
+            {raisable || target || origin || (open && item.parkedAt) || holdsUp.length > 0 ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                {open && item.parkedAt ? (
+                {open && item.parkedAt && blocker ? (
+                  <RemovableChip
+                    icon="link"
+                    iconLabel="Waits on"
+                    href={`/items/${blocker.id}`}
+                    remove={{
+                      action: unparkItemAction,
+                      fields: { id: item.id },
+                      label: 'Bring back now',
+                    }}
+                  >
+                    {item.laterOn ? `${blocker.text} · ${formatDay(item.laterOn, today)}` : blocker.text}
+                  </RemovableChip>
+                ) : open && item.parkedAt ? (
                   <RemovableChip
                     icon="later"
                     iconLabel="Later"
@@ -343,6 +395,19 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                   >
                     {item.laterOn ? formatDay(item.laterOn, today) : 'Later'}
                   </RemovableChip>
+                ) : null}
+                {holdsUp.length > 0 ? (
+                  <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+                      <Icon name="link" className="h-3.5 w-3.5" label="Holds up" />
+                      {holdsUp.length}
+                    </span>
+                    {holdsUp.map((one) => (
+                      <Chip key={one.id} icon={KIND[one.kind].icon} href={`/items/${one.id}`}>
+                        {one.text}
+                      </Chip>
+                    ))}
+                  </span>
                 ) : null}
                 {origin ? (
                   <Chip icon="undo" href={`/meetings/${origin.id}`}>
@@ -500,6 +565,14 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                   <Field label="Back on">
                     <Input name="until" type="date" defaultValue={item.laterOn ?? ''} />
                   </Field>
+                  {waitable.length > 0 ? (
+                    <ItemPicker
+                      label="Until done"
+                      name="untilItem"
+                      options={waitable}
+                      selected={blocker && isOpen(blocker) ? { id: blocker.id, text: blocker.text, kind: blocker.kind } : null}
+                    />
+                  ) : null}
                 </FormModal>
               ) : null}
 
