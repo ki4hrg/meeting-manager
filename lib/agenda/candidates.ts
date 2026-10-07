@@ -38,7 +38,7 @@ import {
   type ActorContext,
   type Executor,
 } from '../core/types'
-import { agendaLines, meetingDismissals, meetingProjects, meetings } from '../db/schema'
+import { agendaLines, meetingDismissals, meetingProjects, meetings, users } from '../db/schema'
 import { todayIn } from '../core/dates'
 import { isLater } from '../items/horizon'
 import { getItem, isOpen, listItems, type ItemView } from '../items/items'
@@ -229,7 +229,9 @@ export async function getCandidates(
           .map((one) => one.id),
   )
 
-  const today = todayIn(null, now)
+  // One user; a deadline coming close is judged on their clock.
+  const [owner] = await exec.select({ timeZone: users.timeZone }).from(users).limit(1)
+  const today = todayIn(owner?.timeZone, now)
   const toPlace: ItemView[] = []
   const dismissed: ItemView[] = []
   const suggested = new Map<string, CandidateGroup>()
