@@ -61,7 +61,7 @@ export function PartyLine({
     )
     if (role === 'owner' && ownerGuessed) {
       return (
-        <span title="Owner is a guess" className="flex min-w-0">
+        <span title={`${roleLabel(kind, 'owner')}: a guess`} className="flex min-w-0">
           <Badge tone="amber">
             {body}
             <span aria-hidden>?</span>

@@ -86,6 +86,7 @@ export type ItemEventType =
   | 'created'
   | 'edited'
   | 'parties'
+  | 'role'
   | 'note'
   | 'converted'
   | 'answered'
@@ -755,6 +756,8 @@ export async function setItemParties(
   })
 }
 
+const partyKey = (party: PartyInput) => `${party.personId ?? party.groupId}:${party.role}`
+
 function toInputs(parties: ItemParty[]): PartyInput[] {
   return parties.map((party) =>
     party.type === 'person'
@@ -763,17 +766,44 @@ function toInputs(parties: ItemParty[]): PartyInput[] {
   )
 }
 
-/** Add one party, or change the role of one already there. */
+/**
+ * Add one party, or change the role of one already there. A party added or
+ * moved goes after the owners already there, so on an action or a topic it
+ * becomes a collaborator; `lead` puts it first instead, and `lead: false`
+ * moves one already there to the end. A change of role is recorded as that,
+ * not as a new list of people.
+ */
 export async function addItemParty(
   exec: Executor,
   actor: ActorContext,
   id: string,
   party: PartyInput,
+  opts: { lead?: boolean } = {},
 ): Promise<ItemView> {
-  const item = await getItem(exec, id)
-  const partyId = party.personId ?? party.groupId
-  const others = toInputs(item.parties.filter((existing) => existing.id !== partyId))
-  return setItemParties(exec, actor, id, [...others, party])
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    const partyId = party.personId ?? party.groupId
+    const existing = item.parties.find((one) => one.id === partyId)
+    const others = toInputs(item.parties.filter((one) => one !== existing))
+    const parties = opts.lead ? [party, ...others] : [...others, party]
+    if (!existing) return setItemParties(tx, actor, id, parties)
+
+    const same = (a: PartyInput[], b: PartyInput[]) =>
+      a.map(partyKey).join() === b.map(partyKey).join()
+    if (existing.role === party.role && opts.lead === undefined) return item
+    if (same(parties, toInputs(item.parties))) return item
+    await writeParties(tx, id, item.contextId, parties)
+    await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id))
+    const updated = await getItem(tx, id)
+    const lead = updated.parties.find((one) => one.role === 'owner')
+    await logEvent(tx, actor, id, 'role', {
+      name: existing.name,
+      role: party.role,
+      // An owner after the first: a collaborator, on a kind that has them.
+      collaborator: party.role === 'owner' && lead?.id !== partyId,
+    })
+    return updated
+  })
 }
 
 export async function removeItemParty(

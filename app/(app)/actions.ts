@@ -268,6 +268,22 @@ export async function removePartyAction(formData: FormData): Promise<ActionResul
   })
 }
 
+/* A party already on the item to another role; `lead` 1 puts an owner first, 0 after the rest. */
+export async function setPartyRoleAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const party = partyRef(field(formData, 'party'))
+    if (!party) throw new ValidationError('Pick a person or a group.')
+    const id = field(formData, 'id')
+    const role = field(formData, 'role') === 'owner' ? 'owner' : 'with'
+    const lead = field(formData, 'lead')
+    const item = await getItem(db, id)
+    if (!item.parties.some((one) => one.id === (party.personId ?? party.groupId))) {
+      throw new ValidationError('They are not on this item.')
+    }
+    await addItemParty(db, actor, id, { ...party, role }, lead === '' ? {} : { lead: lead === '1' })
+  })
+}
+
 export async function addNoteAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     await addNote(db, actor, field(formData, 'id'), field(formData, 'text'))

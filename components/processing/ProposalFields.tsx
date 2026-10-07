@@ -1,8 +1,8 @@
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
-import { KIND, type ItemKind } from '@/components/ui/StatusBadge'
 import type { MissingDetail } from '@/lib/processing/missing'
-import { roleLabel, roleOrder } from '@/lib/items/roles'
+import { roleLabel } from '@/lib/items/roles'
 import type { ProposalParty, ProposalView } from '@/lib/processing/proposals'
+import { ItemFields } from './ItemFields'
 import { PartyPicker, type PartyOption } from './PartyPicker'
 
 type Option = { id: string; name: string }
@@ -81,9 +81,9 @@ export function AcceptFields({
       {missing.map((one) => (
         <input key={one} type="hidden" name="asked" value={one} />
       ))}
-      {missing.includes('owner') ? (
+      {missing.includes('owner') && proposal.payload.type === 'item' ? (
         <PartyPicker
-          label={proposal.payload.type === 'item' ? roleLabel(proposal.payload.kind, 'owner') : 'Owner'}
+          label={roleLabel(proposal.payload.kind, 'owner')}
           name="owners"
           options={parties}
           allowNew
@@ -125,46 +125,32 @@ export function ProposalFields({
   ]
 
   if (payload.type === 'item') {
+    const of = (role: 'owner' | 'with') => proposal.parties.filter((party) => party.role === role).map(picked)
     return (
-      <>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_9rem]">
+      <ItemFields
+        kind={payload.kind}
+        text={
           <Field label="Text" required>
             <Input name="text" defaultValue={payload.text} required />
           </Field>
-          <Field label="Kind">
-            <Select name="kind" defaultValue={payload.kind}>
-              {(Object.keys(KIND) as ItemKind[]).map((kind) => (
-                <option key={kind} value={kind}>
-                  {KIND[kind].label}
-                </option>
-              ))}
-            </Select>
+        }
+        options={parties}
+        selected={{ owner: of('owner'), with: of('with') }}
+        project={<ProjectField projects={choices.projects} value={payload.projectId} />}
+        due={{ value: payload.dueOn ?? null }}
+        raiseAt={(choices.series ?? []).length > 0 ? <SeriesField series={choices.series ?? []} value={payload.seriesId} /> : undefined}
+        detail={
+          <Field label="Detail">
+            {/* A decision has no resolution of its own: what was said about it is its detail. */}
+            <Textarea
+              name="detail"
+              rows={3}
+              defaultValue={payload.detail ?? (payload.kind === 'decision' ? (payload.resolution ?? '') : '')}
+            />
           </Field>
-        </div>
-        {roleOrder(payload.kind).map((role) => (
-          <PartyPicker
-            key={role}
-            label={roleLabel(payload.kind, role)}
-            name={role === 'owner' ? 'owners' : 'withs'}
-            options={parties}
-            selected={proposal.parties.filter((party) => party.role === role).map(picked)}
-            allowNew
-          />
-        ))}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ProjectField projects={choices.projects} value={payload.projectId} />
-          <Field label="Due">
-            <Input name="dueOn" type="date" defaultValue={payload.dueOn ?? ''} />
-          </Field>
-          <SeriesField series={choices.series ?? []} value={payload.seriesId} />
-        </div>
-        <Field label="Detail">
-          <Textarea name="detail" rows={3} defaultValue={payload.detail ?? ''} />
-        </Field>
-        <Field label="Resolution">
-          <Textarea name="resolution" rows={2} defaultValue={payload.resolution ?? ''} />
-        </Field>
-      </>
+        }
+        resolution={{ value: payload.resolution ?? null }}
+      />
     )
   }
 
