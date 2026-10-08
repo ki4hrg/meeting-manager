@@ -33,3 +33,23 @@ test('an empty section is only its header, and its action still adds', async ({ 
   await expect(links.getByRole('link', { name: 'Plan' })).toBeVisible()
   await expect(links).not.toHaveAttribute('data-empty')
 })
+
+test('a duplicate person is merged into the one kept', async ({ page }) => {
+  await page.goto('/people')
+  await page.getByRole('button', { name: 'New person' }).click()
+  await dialog(page).getByRole('textbox', { name: /^Name/ }).fill('S. Jones')
+  await dialog(page).getByRole('button', { name: 'Save' }).click()
+  await expect(dialog(page)).toHaveCount(0)
+
+  await page.goto('/people')
+  await page.getByRole('link').filter({ hasText: WORLD.people.sarah }).first().click()
+  await expect(page.getByRole('heading', { name: WORLD.people.sarah, exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Merge', exact: true }).click()
+  await dialog(page).getByLabel(/^Duplicate/).selectOption({ label: 'S. Jones' })
+  await dialog(page).getByRole('button', { name: 'Merge', exact: true }).click()
+  await expect(dialog(page)).toHaveCount(0)
+
+  await page.goto('/people')
+  await expect(page.getByText(WORLD.people.sarah)).toBeVisible()
+  await expect(page.getByText('S. Jones')).toHaveCount(0)
+})

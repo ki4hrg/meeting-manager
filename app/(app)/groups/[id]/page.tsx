@@ -7,7 +7,7 @@ import { ItemGrid } from '@/components/items/ItemCard'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, Section, TwoColumn } from '@/components/ui/Card'
-import { Field, Input } from '@/components/ui/Field'
+import { Field, Input, Select } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -15,13 +15,14 @@ import { RemovableChip } from '@/components/ui/RemovableChip'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
-import { getGroup, listGroupEmails, listMembers } from '@/lib/directory/groups'
+import { getGroup, listGroupEmails, listGroups, listMembers } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { answered, listItems, type ItemView } from '@/lib/items/items'
 import { viewer } from '@/lib/web/context'
 import {
   addGroupEmailAction,
   addMemberAction,
+  mergeGroupAction,
   removeGroupEmailAction,
   removeMemberAction,
   renameGroupAction,
@@ -50,6 +51,8 @@ export default async function GroupPage({
   const members = await listMembers(db, id)
   const memberIds = new Set(members.map((member) => member.id))
   const others = (await listPeople(db)).filter((person) => !memberIds.has(person.id))
+  // Another group of this context, archived ones too, can be folded in here.
+  const siblings = (await listGroups(db, group.contextId, 'all')).filter((one) => one.id !== id)
 
   const all = await listItems(db, { contextId: group.contextId, party: { groupId: id } })
   const open = all.filter((item) => item.status === 'open' || item.status === 'needs_answer')
@@ -82,6 +85,21 @@ export default async function GroupPage({
                 <Input name="name" defaultValue={group.name} required />
               </Field>
             </FormModal>
+            {siblings.length > 0 ? (
+              <FormModal action={mergeGroupAction} title="Merge" icon="merge" compact iconSize="md" submit="Merge" danger>
+                <input type="hidden" name="id" value={group.id} />
+                <Field label="Duplicate" required>
+                  <Select name="from" required defaultValue="">
+                    <option value="" disabled />
+                    {siblings.map((one) => (
+                      <option key={one.id} value={one.id}>
+                        {one.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </FormModal>
+            ) : null}
             {archived ? null : <ArchiveButton kind="group" id={group.id} />}
           </>
         }

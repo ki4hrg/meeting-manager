@@ -17,6 +17,7 @@ import {
   setGroupEmails,
 } from '../../directory/groups'
 import { createPerson, listPeople, setPersonEmails, updatePerson } from '../../directory/people'
+import { mergeGroups, mergePeople } from '../../directory/merge'
 import { inferContext, resolveGroup, resolvePerson, resolveProject } from '../../directory/resolve'
 import { openCounts } from '../../items/items'
 import {
@@ -105,17 +106,20 @@ export const updatePersonTool = defineTool({
   title: 'Update a person',
   description:
     'Rename someone, or set their email addresses (the whole list, primary first). An address ' +
-    'already on someone else is refused with their name.',
+    'already on someone else is refused with their name. `merge` folds a duplicate into them: ' +
+    'its addresses, items, groups, rosters and meetings move here and the duplicate is gone.',
   scope: 'meetings:write',
   input: z.object({
     person: z.string().min(1).describe('Person name or id.'),
     name: z.string().min(1).optional(),
     emails: z.array(z.string()).optional(),
+    merge: z.string().min(1).optional().describe('A duplicate of them, by name or id.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
     write(context, 'update_person', input, async (tx) => {
       const { id } = await resolvePerson(tx, input.person)
+      if (input.merge) await mergePeople(tx, (await resolvePerson(tx, input.merge)).id, id)
       if (input.emails) await setPersonEmails(tx, id, input.emails)
       const person = await updatePerson(tx, id, { name: input.name })
       return { person: { id: person.id, name: person.name, email: person.email, emails: person.emails } }
@@ -198,19 +202,21 @@ export const updateGroupTool = defineTool({
   title: 'Update a group',
   description:
     'Rename a group, or set its list addresses (emails replaces them all). Members are ' +
-    'changed on screen.',
+    'changed on screen. `merge` folds a duplicate group of the same context into it.',
   scope: 'meetings:write',
   input: z.object({
     group: z.string().min(1).describe('Group name or id.'),
     context: contextArg,
     name: z.string().min(1).optional(),
     emails: z.array(z.string().min(3)).optional(),
+    merge: z.string().min(1).optional().describe('A duplicate of it, by name or id.'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
     write(context, 'update_group', input, async (tx) => {
       const target = await inferContext(tx, { context: input.context, parties: [input.group] })
       const { id } = await resolveGroup(tx, target.id, input.group)
+      if (input.merge) await mergeGroups(tx, (await resolveGroup(tx, target.id, input.merge)).id, id)
       if (input.name) await renameGroup(tx, id, input.name)
       if (input.emails) await setGroupEmails(tx, id, input.emails)
       return { group: await groupOut(tx, id) }

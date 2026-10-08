@@ -56,6 +56,7 @@ A single `items` table. Only `context` and `text` are required.
 - **Contexts** are a hard boundary; projects, groups, meetings and items carry `context_id`.
 - **People** are global, with `person_emails`; one person row is marked as John.
 - **Groups** (`groups`, `group_members`) are context-scoped and act as parties alongside people. A meeting or series can belong to a group, which supplies its roster.
+- **Merging:** a duplicate person, or a duplicate group in the same context, folds into the one kept (`lib/directory/merge.ts`): addresses, item parties, memberships, rosters, meetings and agenda leaders move over, the kept row's place standing where both were, and the duplicate is deleted. John can be kept but never folded away.
 - **Capture context:** UI quick-add uses the selected context. MCP `capture_item` takes a context, or infers it from a named project or group.
 
 ### Agendas pull candidates; there are no anchors

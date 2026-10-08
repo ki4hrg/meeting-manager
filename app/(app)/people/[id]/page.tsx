@@ -6,7 +6,7 @@ import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, Section, TwoColumn } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
-import { Field, Input } from '@/components/ui/Field'
+import { Field, Input, Select } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { RemovableChip } from '@/components/ui/RemovableChip'
@@ -14,13 +14,14 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { groupsOf } from '@/lib/directory/groups'
-import { getPerson } from '@/lib/directory/people'
+import { getPerson, listPeople } from '@/lib/directory/people'
 import { listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { pendingOnCards } from '@/lib/processing/proposals'
 import { requireContext, viewer } from '@/lib/web/context'
 import {
   addPersonEmailAction,
+  mergePersonAction,
   primaryEmailAction,
   removePersonEmailAction,
   updatePersonAction,
@@ -51,6 +52,9 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     limit: 6,
   })
 
+  // Anyone but John can be folded in here, archived ones too.
+  const others = (await listPeople(db, 'all')).filter((one) => one.id !== id && !one.isSelf)
+
   const header = (
     <PageHeader
       title={person.name}
@@ -72,6 +76,21 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
               <Input name="name" defaultValue={person.name} required />
             </Field>
           </FormModal>
+          {others.length > 0 ? (
+            <FormModal action={mergePersonAction} title="Merge" icon="merge" compact iconSize="md" submit="Merge" danger>
+              <input type="hidden" name="id" value={person.id} />
+              <Field label="Duplicate" required>
+                <Select name="from" required defaultValue="">
+                  <option value="" disabled />
+                  {others.map((one) => (
+                    <option key={one.id} value={one.id}>
+                      {one.email ? `${one.name} (${one.email})` : one.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </FormModal>
+          ) : null}
           {person.isSelf || person.archivedAt ? null : <ArchiveButton kind="person" id={person.id} />}
         </>
       }

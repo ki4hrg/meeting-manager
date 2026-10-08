@@ -8,6 +8,7 @@ import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { createContext, getContext, renameContext } from '@/lib/directory/contexts'
 import { isNewKind } from '@/lib/directory/create'
+import { mergeGroups, mergePeople } from '@/lib/directory/merge'
 import { addGroupEmail, addMember, createGroup, getGroup, removeGroupEmail, removeMember, renameGroup } from '@/lib/directory/groups'
 import {
   addPersonEmail,
@@ -321,6 +322,13 @@ export async function updatePersonAction(formData: FormData): Promise<ActionResu
   })
 }
 
+/* The picked duplicate folds into this one, which keeps its name. */
+export async function mergePersonAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await mergePeople(db, field(formData, 'from'), field(formData, 'id'))
+  })
+}
+
 export async function addPersonEmailAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
     await addPersonEmail(db, field(formData, 'personId'), field(formData, 'email'))
@@ -362,6 +370,13 @@ export async function createGroupAction(formData: FormData): Promise<ActionResul
 export async function renameGroupAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
     await renameGroup(db, field(formData, 'id'), field(formData, 'name'))
+  })
+}
+
+/* The picked duplicate folds into this group, which keeps its name. */
+export async function mergeGroupAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await mergeGroups(db, field(formData, 'from'), field(formData, 'id'))
   })
 }
 

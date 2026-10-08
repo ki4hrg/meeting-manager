@@ -237,6 +237,14 @@ describe('directory tools', () => {
     const taken = await call('update_person', { person: 'Adlene', emails: ['sarah@example.test'] })
     expect(taken.isError).toBe(true)
     expect(textOf(taken)).toContain('Sarah Jones')
+
+    // A duplicate folds in, bringing its addresses.
+    await call('create_person', { name: 'A. Kufarimai', emails: ['ak@old.test'] })
+    const merged = dataOf<{ person: { emails: string[] } }>(
+      await call('update_person', { person: 'Adlene', merge: 'A. Kufarimai' }),
+    )
+    expect(merged.person.emails).toEqual(['adlene@home.test', 'adlene@new.test', 'ak@old.test'])
+    expect(textOf(await call('list_people', {}))).not.toContain('A. Kufarimai')
   })
 
   it('offers only the read tools to a read connection', async () => {
