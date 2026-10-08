@@ -29,6 +29,17 @@ services:
       # Granola is connected on Settings and registers its own webhook at
       # PUBLIC_BASE_URL. Only for an endpoint made by hand: its signing secret.
       GRANOLA_WEBHOOK_SECRET: ${GRANOLA_WEBHOOK_SECRET:-}
+      # Single sign-on. Off unless issuer, id and secret are all set; two of three
+      # fails the boot. The provider's redirect URI is
+      # ${PUBLIC_BASE_URL}/api/auth/oidc/callback.
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_DISPLAY_NAME: ${OIDC_DISPLAY_NAME:-}
+      # `true` hides and refuses passwords, but only while the provider answers.
+      OIDC_ONLY: ${OIDC_ONLY:-}
+      # `true` links the account by email even when the address is unverified.
+      OIDC_TRUST_EMAIL: ${OIDC_TRUST_EMAIL:-}
       # `off` keeps this container from running background jobs.
       WORKER: ${WORKER:-}
       # Times are formatted on the server; unset, a container is UTC.

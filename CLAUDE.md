@@ -34,6 +34,7 @@ These apply to every screen.
 - `app/api/` — Route Handlers. **Not** guarded by placement; each authenticates itself.
 - `app/oauth/`, `app/.well-known/`, `lib/oauth/` — the OAuth 2.1 server MCP clients sign in through.
 - `lib/mcp/` — the MCP server. Tools are data in `lib/mcp/tools/`, registered in `allTools` in `server.ts`.
+- `lib/auth/` — sessions, passwords, the one account (`users.ts`), and single sign-on: `oidc-config.ts` (the `OIDC_*` variables), `oidc.ts` (discovery and the code flow, behind `app/api/auth/oidc/start` and `/callback`), `oidc-account.ts` (which account a sign-in is: by subject, then by verified or trusted email; it never creates one).
 - `lib/db/schema.ts` — Drizzle tables. `lib/core/types.ts` — `Executor`, `ActorContext`, `AppError`.
 - `lib/directory/` — contexts, people, groups, `resolve.ts`, which turns a typed name into a row, and `create.ts` (`createNamed`), which makes a person, group, project or series from its name alone when one matches nothing, refusing a name already taken.
 - `lib/projects/` — projects, milestones, links.

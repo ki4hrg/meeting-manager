@@ -1,6 +1,19 @@
 # Handoff
 
-Updated 2026-10-04. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+Updated 2026-10-08. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+
+## Single sign-on (2026-10-08)
+
+OpenID Connect sign-in beside passwords, for Pocket ID. Branch `feat/oidc`; migration `0020_oidc_identity` adds nullable `users.oidc_issuer` and `users.oidc_subject` with a partial unique index.
+
+- **Settings:** `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` turn it on (two of three fails the boot from `instrumentation.ts`). `OIDC_DISPLAY_NAME` labels the button (default Pocket ID). `OIDC_ONLY=true` hides the password form and `loginAction` refuses passwords, but only while discovery succeeds: an unreachable provider is logged and passwords stay open, so it can never lock John out. `/setup` is unaffected.
+- **Matching:** by stored issuer and subject; otherwise by email, case-insensitively, when `email_verified` is true or `OIDC_TRUST_EMAIL=true`, which then attaches the subject. An account linked to a different subject is refused, never re-linked. SSO never creates the account: with none, the callback sends the browser to `/setup`.
+- **Return target:** `?next=` (the OAuth consent screen for connectors) rides through the round trip in the `mm_oidc` flow cookie with the state, PKCE verifier and nonce, and is passed through `safeNext` on both ends.
+- **Refusals** come back to `/login?error=<code>`; the page shows only sentences in `lib/auth/oidc-errors.ts`.
+
+**Pocket ID setup.** Create an OIDC client: confidential (with a secret), callback URL `<PUBLIC_BASE_URL>/api/auth/oidc/callback` exactly, PKCE on; the app asks for `openid profile email`. Pocket ID usually reports `email_verified` false, so set `OIDC_TRUST_EMAIL=true` for a self-hosted instance whose addresses you control. To limit who can sign in at all, restrict the client to a Pocket ID group; the app's own check is only that the identity matches the one account.
+
+**Verified:** unit tests in `test/oidc.test.ts` (config, gating, every matching path, and the code flow against a loopback provider), and the whole round trip in a dev build against a fake provider: sign-in landing on the `next` page, the unverified-email refusal, and `OIDC_ONLY` hiding the form, in light and dark at phone width. Not tried against a real Pocket ID.
 
 ## Before phase 4: built (2026-10-04)
 

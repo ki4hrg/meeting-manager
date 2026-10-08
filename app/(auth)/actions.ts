@@ -3,6 +3,7 @@
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { ValidationError } from '@/lib/core/types'
+import { signInOptions } from '@/lib/auth/oidc'
 import { verifyPassword } from '@/lib/auth/password'
 import { safeNext } from '@/lib/auth/redirects'
 import {
@@ -56,6 +57,10 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
   const next = safeNext(formData.get('next')?.toString())
 
   if (await needsSetup()) redirect('/setup')
+
+  /* OIDC_ONLY is enforced here, not by hiding the form: a post needs no form. */
+  const options = await signInOptions()
+  if (!options.password) return { error: `Sign in with ${options.providerName}.`, email }
 
   const user = await findUserByEmail(email)
 
