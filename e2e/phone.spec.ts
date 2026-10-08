@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test'
 import { watchErrors } from './helpers'
 import { WORLD } from './world'
 
+/* Signed out, so the page is not redirected past. */
+const SIGNED_OUT = ['/login']
+
 const PAGES = ['/', '/inbox', '/items', '/meetings', '/meetings/past', '/projects', '/people', '/groups', '/series', '/settings', '/design']
 
 /* Hubs, reached from their list: a heading from the main column and one from the side. */
@@ -14,6 +17,21 @@ const HUBS = [
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`at phone width, ${scheme}`, () => {
     test.use({ colorScheme: scheme })
+    test.describe('signed out', () => {
+      test.use({ storageState: { cookies: [], origins: [] } })
+      for (const path of SIGNED_OUT) {
+        test(`${path} fits the screen and runs clean`, async ({ page }) => {
+          const errors = watchErrors(page)
+          await page.goto(path)
+          await page.waitForLoadState('networkidle')
+          await expect(page.locator('main h1').first()).toBeVisible()
+          const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+          expect(overflow, 'page scrolls sideways').toBeLessThanOrEqual(0)
+          expect(errors).toEqual([])
+        })
+      }
+    })
+
     for (const path of PAGES) {
       test(`${path} fits the screen and runs clean`, async ({ page }) => {
         const errors = watchErrors(page)

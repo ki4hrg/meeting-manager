@@ -81,6 +81,11 @@ export const users = pgTable(
     /* IANA name; null means the instance's TZ. Dates sent to Todoist and shown
        in agendas are computed in this zone, not UTC. */
     timeZone: text('time_zone'),
+    /* The single sign-on identity this account answers to, attached on the
+       first SSO sign-in that matched by email. Keyed on the issuer and its
+       subject, never the address: the subject survives an email change. */
+    oidcIssuer: text('oidc_issuer'),
+    oidcSubject: text('oidc_subject'),
     ...timestamps,
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
@@ -88,6 +93,9 @@ export const users = pgTable(
     uniqueIndex('users_email_key')
       .on(sql`lower(${t.email})`)
       .where(sql`${t.deletedAt} is null`),
+    uniqueIndex('users_oidc_key')
+      .on(t.oidcIssuer, t.oidcSubject)
+      .where(sql`${t.oidcSubject} is not null and ${t.deletedAt} is null`),
   ],
 )
 

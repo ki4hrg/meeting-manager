@@ -21,6 +21,11 @@ export async function register() {
      DATABASE_URL. */
   const { startJobs, jobNames } = await import('./lib/jobs')
 
+  /* Half-set single sign-on throws here, so the container fails to start
+     with the reason rather than quietly offering passwords only. */
+  const { checkOidcAtBoot } = await import('./lib/auth/oidc')
+  await checkOidcAtBoot()
+
   if (startJobs()) {
     console.log(`[jobs] scheduler started: ${jobNames().join(', ')}`)
   } else if (process.env.WORKER === 'off') {

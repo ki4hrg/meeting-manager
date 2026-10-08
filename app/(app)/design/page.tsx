@@ -501,7 +501,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'share', 'printer', 'download', 'broadcast', 'log', 'search'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'share', 'printer', 'download', 'broadcast', 'log', 'search', 'key'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>
