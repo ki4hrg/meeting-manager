@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { Answered } from '@/components/items/Answered'
-import { ItemGrid } from '@/components/items/ItemCard'
+import { KindSection } from '@/components/items/KindSection'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, Section, TwoColumn } from '@/components/ui/Card'
@@ -29,9 +29,6 @@ import {
 } from '../../actions'
 import { prepWithGroupAction } from '../../meetings/actions'
 
-const has = (item: ItemView, groupId: string, role: 'owner' | 'with') =>
-  item.parties.some((party) => party.id === groupId && party.role === role)
-
 export default async function GroupPage({
   params,
   searchParams,
@@ -56,8 +53,7 @@ export default async function GroupPage({
 
   const all = await listItems(db, { contextId: group.contextId, party: { groupId: id } })
   const open = all.filter((item) => item.status === 'open' || item.status === 'needs_answer')
-  const owes = open.filter((item) => has(item, id, 'owner'))
-  const waiting = open.filter((item) => has(item, id, 'with'))
+  const byKind = (kind: ItemView['kind']) => open.filter((item) => item.kind === kind)
   const decisions = all.filter((item) => item.kind === 'decision')
   const answers = answered(all)
 
@@ -128,33 +124,30 @@ export default async function GroupPage({
         <TwoColumn
           main={
             <>
-              <Section
-                title="Waiting" icon="clock" tone="amber"
-                count={waiting.length}
-                action={<QuickAdd presets={{ parties: [{ groupId: id, role: 'with' }] }} />}
-              >
-                <ItemGrid items={waiting} today={today} empty="topic" />
-              </Section>
-
-              <Section
-                title="Owes" icon="action" tone="blue"
-                count={owes.length}
-                action={
-                  <QuickAdd presets={{ kind: 'action', parties: [{ groupId: id, role: 'owner' }] }} />
-                }
-              >
-                <ItemGrid items={owes} today={today} empty="action" />
-              </Section>
-
-              <Section
-                title="Decisions" icon="decision" tone="green"
-                count={decisions.length}
-                action={
-                  <QuickAdd presets={{ kind: 'decision', parties: [{ groupId: id, role: 'with' }] }} />
-                }
-              >
-                <ItemGrid items={decisions} today={today} empty="decision" />
-              </Section>
+              <KindSection
+                kind="action"
+                items={byKind('action')}
+                today={today}
+                action={<QuickAdd presets={{ kind: 'action', parties: [{ groupId: id, role: 'owner' }] }} />}
+              />
+              <KindSection
+                kind="question"
+                items={byKind('question')}
+                today={today}
+                action={<QuickAdd presets={{ kind: 'question', parties: [{ groupId: id, role: 'owner' }] }} />}
+              />
+              <KindSection
+                kind="topic"
+                items={byKind('topic')}
+                today={today}
+                action={<QuickAdd presets={{ kind: 'topic', parties: [{ groupId: id, role: 'with' }] }} />}
+              />
+              <KindSection
+                kind="decision"
+                items={decisions}
+                today={today}
+                action={<QuickAdd presets={{ kind: 'decision', parties: [{ groupId: id, role: 'with' }] }} />}
+              />
 
               <Answered items={answers} today={today} on={{ groupId: id }} />
             </>

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { ItemGrid } from '@/components/items/ItemCard'
+import { KindSection } from '@/components/items/KindSection'
 import { MeetingGrid } from '@/components/meetings/MeetingCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, Section, TwoColumn } from '@/components/ui/Card'
@@ -28,9 +29,6 @@ import {
 } from '../../actions'
 import { prepWithPersonAction } from '../../meetings/actions'
 
-const has = (item: ItemView, personId: string, role: 'owner' | 'with') =>
-  item.parties.some((party) => party.id === personId && party.role === role)
-
 /* The person hub. People are global, but what is listed here is only what
    involves them in the selected context. */
 export default async function PersonPage({ params }: { params: Promise<{ id: string }> }) {
@@ -38,7 +36,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   if (!isUuid(id)) notFound()
 
   const context = await requireContext()
-  const { user, self, today } = await viewer()
+  const { user, today } = await viewer()
   const person = await getPerson(db, id).catch((err) => {
     if (err instanceof NotFoundError) notFound()
     throw err
@@ -133,25 +131,37 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     </div>
   )
 
+  const byKind = (kind: ItemView['kind']) => open.filter((item) => item.kind === kind)
+  // Added here, an action or a question is theirs to answer for, a topic to raise with them.
+  const kinds = (
+    <>
+      <KindSection
+        kind="action"
+        items={byKind('action')}
+        today={today}
+        action={<QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />}
+      />
+      <KindSection
+        kind="question"
+        items={byKind('question')}
+        today={today}
+        action={<QuickAdd presets={{ kind: 'question', parties: [{ personId: id, role: 'owner' }] }} />}
+      />
+      <KindSection
+        kind="topic"
+        items={byKind('topic')}
+        today={today}
+        action={<QuickAdd presets={{ kind: 'topic', parties: [{ personId: id, role: person.isSelf ? 'owner' : 'with' }] }} />}
+      />
+    </>
+  )
+
   if (person.isSelf) {
-    const owe = open.filter((item) => has(item, id, 'owner'))
-    const owed = open.filter((item) => has(item, id, 'with'))
     return (
       <>
         {header}
         {emails}
-        <Section
-          title="I owe" icon="action" tone="blue"
-          count={owe.length}
-          action={
-            <QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />
-          }
-        >
-          <ItemGrid items={owe} today={today} empty="action" />
-        </Section>
-        <Section title="Owed to me" icon="clock" tone="amber" count={owed.length}>
-          <ItemGrid items={owed} today={today} empty="clock" />
-        </Section>
+        {kinds}
       </>
     )
   }
@@ -160,9 +170,6 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const pending = await pendingOnCards(db, context.id)
   const groups = await groupsOf(db, context.id, id)
   const archived = !!person.archivedAt
-  const theyOwe = open.filter((item) => has(item, id, 'owner'))
-  const iOwe = open.filter((item) => has(item, id, 'with') && has(item, self.id, 'owner'))
-  const raise = open.filter((item) => has(item, id, 'with') && !has(item, self.id, 'owner'))
 
   return (
     <>
@@ -174,41 +181,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
         <TwoColumn
           main={
             <>
-              <Section
-                title="Raise" icon="topic" tone="purple"
-                count={raise.length}
-                action={<QuickAdd presets={{ parties: [{ personId: id, role: 'with' }] }} />}
-              >
-                <ItemGrid items={raise} today={today} empty="topic" />
-              </Section>
-
-              <Section
-                title="They owe" icon="action" tone="blue"
-                count={theyOwe.length}
-                action={
-                  <QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />
-                }
-              >
-                <ItemGrid items={theyOwe} today={today} empty="action" />
-              </Section>
-
-              <Section
-                title="I owe" icon="action" tone="blue"
-                count={iOwe.length}
-                action={
-                  <QuickAdd
-                    presets={{
-                      kind: 'action',
-                      parties: [
-                        { personId: self.id, role: 'owner' },
-                        { personId: id, role: 'with' },
-                      ],
-                    }}
-                  />
-                }
-              >
-                <ItemGrid items={iOwe} today={today} empty="action" />
-              </Section>
+              {kinds}
 
               {closed.length > 0 ? (
                 <Section title="Closed" icon="check" tone="gray">

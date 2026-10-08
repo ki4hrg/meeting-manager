@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { Answered } from '@/components/items/Answered'
-import { ItemGrid } from '@/components/items/ItemCard'
+import { KindSection } from '@/components/items/KindSection'
 import { QuickAdd } from '@/components/QuickAdd'
 import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { SkeletonEditor } from '@/components/series/SkeletonEditor'
@@ -127,7 +127,8 @@ export default async function SeriesPage({
   const all = await listItems(db, { contextId: context.id, seriesId: id })
   const open = all.filter(isOpen)
   const topics = open.filter((item) => item.kind === 'topic')
-  const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
+  const actions = open.filter((item) => item.kind === 'action')
+  const questions = open.filter((item) => item.kind === 'question')
   const decisions = all.filter((item) => item.kind === 'decision')
   const answers = answered(all)
 
@@ -257,27 +258,28 @@ export default async function SeriesPage({
                 ) : null}
               </Section>
 
-              <Section
-                title="Topics" icon="topic" tone="purple"
-                count={topics.length}
-                action={<QuickAdd presets={{ kind: 'topic', targetSeriesId: series.id }} />}
-              >
-                <ItemGrid items={topics} today={today} empty="topic" />
-              </Section>
-
-              <Section
-                title="Owed" icon="action" tone="blue"
-                count={owed.length}
+              <KindSection
+                kind="action"
+                items={actions}
+                today={today}
                 action={<QuickAdd presets={{ kind: 'action', targetSeriesId: series.id }} />}
-              >
-                <ItemGrid items={owed} today={today} empty="action" />
-              </Section>
+              />
+              <KindSection
+                kind="question"
+                items={questions}
+                today={today}
+                action={<QuickAdd presets={{ kind: 'question', targetSeriesId: series.id }} />}
+              />
+              <KindSection
+                kind="topic"
+                items={topics}
+                today={today}
+                action={<QuickAdd presets={{ kind: 'topic', targetSeriesId: series.id }} />}
+              />
 
               {/* Made at its meetings: nothing to add from here. */}
               {decisions.length > 0 ? (
-                <Section title="Decisions" icon="decision" tone="green" count={decisions.length}>
-                  <ItemGrid items={decisions} today={today} empty="decision" />
-                </Section>
+                <KindSection kind="decision" items={decisions} today={today} />
               ) : null}
 
               <Answered items={answers} today={today} on={{ seriesId: series.id }} />

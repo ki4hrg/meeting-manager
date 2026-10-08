@@ -6,6 +6,7 @@ import { FormModal, IconAction } from '@/components/forms'
 import { iconButtonClasses } from '@/components/ui/IconButton'
 import { Answered } from '@/components/items/Answered'
 import { ItemGrid } from '@/components/items/ItemCard'
+import { KindSection } from '@/components/items/KindSection'
 import { HubMeetings } from '@/components/meetings/HubMeetings'
 import { StatusField } from '@/components/projects/StatusField'
 import { QuickAdd } from '@/components/QuickAdd'
@@ -20,7 +21,7 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listDocuments } from '@/lib/documents/documents'
-import { answered, isAnswered, isOpen, listItems, type ItemView } from '@/lib/items/items'
+import { answered, isAnswered, isOpen, listItems } from '@/lib/items/items'
 import {
   ancestorIds,
   descendantIds,
@@ -42,34 +43,6 @@ import {
   updateProjectAction,
 } from '../../actions'
 import { restoreDeletedAction } from '../../archive-actions'
-
-type OwnerGroup = { key: string; name: string; group: boolean; items: ItemView[] }
-
-/* Owed items under each party that owes them. An item with several owners
-   appears under each; one with none is gathered at the end. */
-function byOwner(items: ItemView[]): OwnerGroup[] {
-  const groups = new Map<string, OwnerGroup>()
-  const unowned: ItemView[] = []
-
-  for (const item of items) {
-    const owners = item.parties.filter((party) => party.role === 'owner')
-    if (owners.length === 0) unowned.push(item)
-    for (const owner of owners) {
-      const entry = groups.get(owner.id) ?? {
-        key: owner.id,
-        name: owner.isSelf ? 'Me' : owner.name,
-        group: owner.type === 'group',
-        items: [],
-      }
-      entry.items.push(item)
-      groups.set(owner.id, entry)
-    }
-  }
-
-  const sorted = [...groups.values()].sort((a, b) => a.name.localeCompare(b.name))
-  if (unowned.length > 0) sorted.push({ key: 'none', name: '—', group: false, items: unowned })
-  return sorted
-}
 
 type Search = Promise<Record<string, string | string[] | undefined>>
 
@@ -122,7 +95,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const parents = treeOrder(family).filter((one) => one.id !== id && !below.has(one.id) && !one.archivedAt)
 
   const open = all.filter(isOpen)
-  const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
+  const actions = open.filter((item) => item.kind === 'action')
+  const questions = open.filter((item) => item.kind === 'question')
   const topics = open.filter((item) => item.kind === 'topic')
   const decisions = all.filter((item) => item.kind === 'decision')
   const answers = answered(all)
@@ -229,41 +203,34 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                 </Section>
               ) : null}
 
-              <Section
-                title="Owed" icon="action" tone="blue"
-                count={owed.length}
+              <KindSection
+                kind="action"
+                items={actions}
+                today={today}
+                showProject={rolled}
                 action={<QuickAdd presets={{ kind: 'action', projectId: id }} />}
-              >
-                {owed.length === 0 ? null : (
-                  <div className="flex flex-col gap-5">
-                    {byOwner(owed).map((owner) => (
-                      <div key={owner.key}>
-                        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-300">
-                          <Icon name={owner.group ? 'group' : 'person'} className="h-4 w-4" />
-                          {owner.name}
-                        </h3>
-                        <ItemGrid items={owner.items} today={today} empty="action" showProject={rolled} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Section>
-
-              <Section
-                title="Topics" icon="topic" tone="purple"
-                count={topics.length}
+              />
+              <KindSection
+                kind="question"
+                items={questions}
+                today={today}
+                showProject={rolled}
+                action={<QuickAdd presets={{ kind: 'question', projectId: id }} />}
+              />
+              <KindSection
+                kind="topic"
+                items={topics}
+                today={today}
+                showProject={rolled}
                 action={<QuickAdd presets={{ kind: 'topic', projectId: id }} />}
-              >
-                <ItemGrid items={topics} today={today} empty="topic" showProject={rolled} />
-              </Section>
-
-              <Section
-                title="Decisions" icon="decision" tone="green"
-                count={decisions.length}
+              />
+              <KindSection
+                kind="decision"
+                items={decisions}
+                today={today}
+                showProject={rolled}
                 action={<QuickAdd presets={{ kind: 'decision', projectId: id }} />}
-              >
-                <ItemGrid items={decisions} today={today} empty="decision" showProject={rolled} />
-              </Section>
+              />
 
               <Answered items={answers} today={today} on={{ projectId: id }} showProject={rolled} />
 

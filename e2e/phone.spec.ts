@@ -6,8 +6,8 @@ const PAGES = ['/', '/inbox', '/items', '/meetings', '/meetings/past', '/project
 
 /* Hubs, reached from their list: a heading from the main column and one from the side. */
 const HUBS = [
-  { list: '/projects', name: WORLD.projects.year, main: 'Owed', side: 'Milestones' },
-  { list: '/people', name: WORLD.people.adlene, main: 'Raise', side: 'Meetings' },
+  { list: '/projects', name: WORLD.projects.year, main: 'Action Items', side: 'Milestones' },
+  { list: '/people', name: WORLD.people.adlene, main: 'Action Items', side: 'Meetings' },
   { list: '/meetings', name: WORLD.meetings.checkIn, main: 'Agenda', side: 'Blocks' },
 ]
 

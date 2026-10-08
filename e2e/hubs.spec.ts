@@ -11,7 +11,7 @@ test('a hub puts its reference beside the work on a wide screen', async ({ page 
   await page.getByRole('link').filter({ hasText: WORLD.projects.year }).first().click()
   await expect(page.getByRole('heading', { name: WORLD.projects.year, exact: true })).toBeVisible()
 
-  const owed = (await section(page, /^Owed/).first().boundingBox())!
+  const owed = (await section(page, /^Action Items/).first().boundingBox())!
   const milestones = (await section(page, /^Milestones/).boundingBox())!
   expect(milestones.x).toBeGreaterThan(owed.x + owed.width)
   expect(owed.width).toBeGreaterThan(milestones.width * 1.5)

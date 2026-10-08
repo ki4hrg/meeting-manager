@@ -65,11 +65,12 @@ export function ContextBadge({ name }: { name: string }) {
 
 export type ItemKind = 'topic' | 'question' | 'action' | 'decision'
 
-export const KIND: Record<ItemKind, { label: string; tone: Tone; icon: IconName }> = {
-  topic: { label: 'Topic', tone: 'purple', icon: 'topic' },
-  question: { label: 'Question', tone: 'amber', icon: 'question' },
-  action: { label: 'Action', tone: 'blue', icon: 'action' },
-  decision: { label: 'Decision', tone: 'green', icon: 'decision' },
+/** Each kind's name, its name over a list of them, colour and mark. */
+export const KIND: Record<ItemKind, { label: string; plural: string; tone: Tone; icon: IconName }> = {
+  topic: { label: 'Topic', plural: 'Topics', tone: 'purple', icon: 'topic' },
+  question: { label: 'Question', plural: 'Questions', tone: 'amber', icon: 'question' },
+  action: { label: 'Action', plural: 'Action Items', tone: 'blue', icon: 'action' },
+  decision: { label: 'Decision', plural: 'Decisions', tone: 'green', icon: 'decision' },
 }
 
 /** The kind as a coloured mark. The name is there for a screen reader, not the eye. */

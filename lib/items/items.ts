@@ -690,7 +690,8 @@ const NOT_PARKED = { parkedAt: null, laterOn: null, laterUntilItemId: null }
  * with neither, until brought back; with both, whichever comes first. A
  * deadline coming close brings it back regardless (`lib/items/horizon.ts`).
  * Parking again moves the day, and keeps the item it waits on unless
- * `untilItem` is given (null or empty: none).
+ * `untilItem` is given (null or empty: none). A due date before the day it
+ * comes back moves to that day, so it is not overdue while it waits.
  */
 export async function parkItem(
   exec: Executor,
@@ -711,13 +712,17 @@ export async function parkItem(
       }
       if (!isOpen(blocker)) throw new ValidationError('That item is already closed.')
     }
-    if (item.parkedAt && item.laterOn === until && item.laterUntilItemId === untilItem) return item
+    const dueOn = until && item.dueOn && item.dueOn < until ? until : item.dueOn
+    if (item.parkedAt && item.laterOn === until && item.laterUntilItemId === untilItem && dueOn === item.dueOn) {
+      return item
+    }
     await tx
       .update(items)
       .set({
         parkedAt: item.parkedAt ?? new Date(),
         laterOn: until,
         laterUntilItemId: untilItem,
+        dueOn,
         updatedAt: new Date(),
       })
       .where(eq(items.id, id))
@@ -725,6 +730,7 @@ export async function parkItem(
       ...(until ? { until } : {}),
       ...(untilItem ? { untilItem } : {}),
     })
+    if (dueOn !== item.dueOn) await logEvent(tx, actor, id, 'edited', { fields: ['dueOn'] })
     return getItem(tx, id)
   })
 }

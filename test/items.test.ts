@@ -234,6 +234,27 @@ describe('later', () => {
     expect(types).toEqual(['created', 'parked', 'parked', 'unparked'])
   })
 
+  it('moves a due date earlier than its day to that day, and leaves a later one', async () => {
+    const { parish } = await makeWorld()
+    const overdue = await createItem(db, actor, {
+      contextId: parish.id,
+      text: 'Send the form',
+      kind: 'action',
+      dueOn: '2026-10-01',
+    })
+    expect((await parkItem(db, actor, overdue.id, { until: '2026-11-02' })).dueOn).toBe('2026-11-02')
+    expect((await getThread(db, overdue.id)).events.map((event) => event.type)).toEqual([
+      'created',
+      'parked',
+      'edited',
+    ])
+
+    const far = await createItem(db, actor, { contextId: parish.id, text: 'Year end', dueOn: '2026-12-31' })
+    expect((await parkItem(db, actor, far.id, { until: '2026-11-02' })).dueOn).toBe('2026-12-31')
+    const none = await createItem(db, actor, { contextId: parish.id, text: 'Someday' })
+    expect((await parkItem(db, actor, none.id, { until: '2026-11-02' })).dueOn).toBeNull()
+  })
+
   it('is cleared when the item closes, and refused on a closed item', async () => {
     const { parish } = await makeWorld()
     const item = await createItem(db, actor, { contextId: parish.id, text: 'Christmas lunch', kind: 'action' })
