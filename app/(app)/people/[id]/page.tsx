@@ -122,7 +122,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
         {header}
         {emails}
         <Section
-          title="I owe"
+          title="I owe" icon="action" tone="blue"
           count={owe.length}
           action={
             <QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />
@@ -130,7 +130,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
         >
           <ItemGrid items={owe} today={today} empty="action" />
         </Section>
-        <Section title="Owed to me" count={owed.length}>
+        <Section title="Owed to me" icon="clock" tone="amber" count={owed.length}>
           <ItemGrid items={owed} today={today} empty="clock" />
         </Section>
       </>
@@ -156,7 +156,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
           main={
             <>
               <Section
-                title="Raise"
+                title="Raise" icon="topic" tone="purple"
                 count={raise.length}
                 action={<QuickAdd presets={{ parties: [{ personId: id, role: 'with' }] }} />}
               >
@@ -164,7 +164,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
               </Section>
 
               <Section
-                title="They owe"
+                title="They owe" icon="action" tone="blue"
                 count={theyOwe.length}
                 action={
                   <QuickAdd presets={{ kind: 'action', parties: [{ personId: id, role: 'owner' }] }} />
@@ -174,7 +174,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
               </Section>
 
               <Section
-                title="I owe"
+                title="I owe" icon="action" tone="blue"
                 count={iOwe.length}
                 action={
                   <QuickAdd
@@ -192,7 +192,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
               </Section>
 
               {closed.length > 0 ? (
-                <Section title="Closed">
+                <Section title="Closed" icon="check" tone="gray">
                   <ItemGrid items={closed} today={today} empty="check" />
                 </Section>
               ) : null}
@@ -200,12 +200,12 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
           }
           side={
             <>
-              <Section title="Meetings" empty={meetings.length === 0}>
+              <Section title="Meetings" icon="meeting" tone="teal" empty={meetings.length === 0}>
                 <MeetingGrid meetings={meetings} timeZone={user.timeZone} pending={pending} />
               </Section>
 
               {groups.length > 0 ? (
-                <Section title="Groups" count={groups.length}>
+                <Section title="Groups" icon="group" tone="teal" count={groups.length}>
                   <Card>
                     <div className="flex flex-wrap gap-2">
                       {groups.map((group) => (

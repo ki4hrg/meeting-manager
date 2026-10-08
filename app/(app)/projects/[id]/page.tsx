@@ -175,7 +175,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         ) : null}
 
         <Section
-          title="Sub-projects"
+          title="Sub-projects" icon="project" tone="teal"
           count={children.length}
           action={
             <div className="flex items-center gap-2">
@@ -224,13 +224,13 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           main={
             <>
               {forNext.length > 0 ? (
-                <Section title="For the next meeting" count={forNext.length}>
+                <Section title="For the next meeting" icon="meeting" tone="teal" count={forNext.length}>
                   <ItemGrid items={forNext} today={today} empty="meeting" />
                 </Section>
               ) : null}
 
               <Section
-                title="Owed"
+                title="Owed" icon="action" tone="blue"
                 count={owed.length}
                 action={<QuickAdd presets={{ kind: 'action', projectId: id }} />}
               >
@@ -250,7 +250,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
               </Section>
 
               <Section
-                title="Topics"
+                title="Topics" icon="topic" tone="purple"
                 count={topics.length}
                 action={<QuickAdd presets={{ kind: 'topic', projectId: id }} />}
               >
@@ -258,7 +258,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
               </Section>
 
               <Section
-                title="Decisions"
+                title="Decisions" icon="decision" tone="green"
                 count={decisions.length}
                 action={<QuickAdd presets={{ kind: 'decision', projectId: id }} />}
               >
@@ -268,7 +268,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
               <Answered items={answers} today={today} on={{ projectId: id }} showProject={rolled} />
 
               {closed.length > 0 ? (
-                <Section title="Closed">
+                <Section title="Closed" icon="check" tone="gray">
                   <ItemGrid items={closed} today={today} empty="check" showProject={rolled} />
                 </Section>
               ) : null}
@@ -277,7 +277,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           side={
             <>
               <Section
-                title="Milestones"
+                title="Milestones" icon="flag" tone="teal"
                 count={milestones.length}
                 action={
                   <FormModal action={addMilestoneAction} title="New milestone" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
@@ -336,7 +336,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
               </Section>
 
               <Section
-                title="Links"
+                title="Links" icon="link" tone="teal"
                 count={links.length}
                 action={
                   <FormModal action={addLinkAction} title="New link" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">
@@ -381,7 +381,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
 
               {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
               {documents.length > 0 ? (
-                <Section title="Documents" count={documents.length}>
+                <Section title="Documents" icon="document" tone="teal" count={documents.length}>
                   <CardGrid>
                     {documents.map((document) => (
                       <DocumentCard

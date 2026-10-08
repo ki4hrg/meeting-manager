@@ -8,11 +8,15 @@ type Action = (formData: FormData) => Promise<ActionResult>
 
 type Row = { label: string; role: PartyRole; offset: number; marks: IconName[]; parties: ItemParty[] }
 
+/** Where an add lands: the role, and the label of the row it ends. */
+export type PartySlot = { role: PartyRole; label: string }
+
 /**
  * An item's parties under their roles in words, in the order the kind reads
  * them (`lib/items/roles.ts`): who leads, collaborators, then who the arrow
- * points at. Each chip can be moved to another role or removed. `children`
- * (the add button) ends the last row.
+ * points at. Both roles always have a row, so each has its own add (`add`) at
+ * its end; an owner added when one already leads joins as a collaborator.
+ * Each chip can be moved to another role or removed.
  */
 export function PartyRoles({
   itemId,
@@ -20,14 +24,14 @@ export function PartyRoles({
   parties,
   move,
   remove,
-  children,
+  add,
 }: {
   itemId: string
   kind: ItemKind
   parties: ItemParty[]
   move: Action
   remove: Action
-  children?: React.ReactNode
+  add?: (slot: PartySlot) => React.ReactNode
 }) {
   const target = roleOrder(kind)[1]
   const owners = parties.filter((party) => party.role === 'owner').length
@@ -42,17 +46,22 @@ export function PartyRoles({
     }
     return [{ label: roleLabel(kind, role), role, offset: 0, marks, parties: list }]
   })
-  const shown = rows.filter((row) => row.parties.length > 0)
+  // The collaborators' row only once there are some; the two roles always.
+  const shown = rows.filter((row) => row.offset === 0 || row.parties.length > 0)
+  // Each role's add ends its last row; with a lead already, the next owner is a collaborator.
+  const addsAt = (row: Row, index: number) => !shown.slice(index + 1).some((next) => next.role === row.role)
+  const slot = (row: Row): PartySlot => ({
+    role: row.role,
+    label: row.role === 'owner' && hasCollaborators(kind) && owners > 0 ? COLLABORATOR : row.label,
+  })
 
   const moveIcon = (role: PartyRole, lead: boolean | undefined, party: ItemParty): IconName =>
     role === target ? 'arrowRight' : lead === false ? 'mutual' : party.type
 
-  if (shown.length === 0) return <div className="flex flex-wrap items-center gap-2">{children}</div>
-
   return (
     <div className="flex flex-col gap-2">
       {shown.map((row, rowIndex) => (
-        <div key={row.label} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <div key={row.label} className="flex flex-col gap-1 sm:min-h-8 sm:flex-row sm:items-center sm:gap-3">
           <span className="shrink-0 text-xs font-medium text-gray-500 sm:w-36 dark:text-gray-400">{row.label}</span>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             {row.parties.map((party, index) => {
@@ -80,7 +89,7 @@ export function PartyRoles({
                 />
               )
             })}
-            {rowIndex === shown.length - 1 ? children : null}
+            {add && addsAt(row, rowIndex) ? add(slot(row)) : null}
           </div>
         </div>
       ))}

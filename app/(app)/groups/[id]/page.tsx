@@ -111,7 +111,7 @@ export default async function GroupPage({
           main={
             <>
               <Section
-                title="Waiting"
+                title="Waiting" icon="clock" tone="amber"
                 count={waiting.length}
                 action={<QuickAdd presets={{ parties: [{ groupId: id, role: 'with' }] }} />}
               >
@@ -119,7 +119,7 @@ export default async function GroupPage({
               </Section>
 
               <Section
-                title="Owes"
+                title="Owes" icon="action" tone="blue"
                 count={owes.length}
                 action={
                   <QuickAdd presets={{ kind: 'action', parties: [{ groupId: id, role: 'owner' }] }} />
@@ -129,7 +129,7 @@ export default async function GroupPage({
               </Section>
 
               <Section
-                title="Decisions"
+                title="Decisions" icon="decision" tone="green"
                 count={decisions.length}
                 action={
                   <QuickAdd presets={{ kind: 'decision', parties: [{ groupId: id, role: 'with' }] }} />
@@ -144,7 +144,7 @@ export default async function GroupPage({
           side={
             <>
               <Section
-                title="Members"
+                title="Members" icon="group" tone="teal"
                 count={members.length}
                 action={
                   <FormModal action={addMemberAction} title="Add members" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">

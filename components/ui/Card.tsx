@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Icon, type IconName } from './icons'
-import type { Tone } from './StatusBadge'
+import { pillClass, type Tone } from './StatusBadge'
 
 const SURFACE = 'bg-white dark:bg-gray-800 shadow rounded-lg'
 
@@ -120,29 +120,45 @@ export function CardGrid({ children }: { children: React.ReactNode }) {
 
 /**
  * A hub's two columns on a wide screen: the work (2/3) and the reference beside
- * it (1/3). One column below `lg`, the main one first.
+ * it (1/3), set off by a rule. One column below `lg`, the main one first.
  */
 export function TwoColumn({ main, side }: { main: React.ReactNode; side: React.ReactNode }) {
   return (
     <div className="grid grid-cols-1 gap-x-8 lg:grid-cols-3">
       <div className="min-w-0 lg:col-span-2 lg:[&_.card-grid]:grid-cols-2">{main}</div>
-      <div className="min-w-0 lg:[&_.card-grid]:grid-cols-1">{side}</div>
+      <div className="min-w-0 lg:border-l lg:border-gray-200 lg:pl-8 lg:dark:border-gray-700 lg:[&_.card-grid]:grid-cols-1">
+        {side}
+      </div>
     </div>
   )
 }
 
+/** A section's mark: its icon in a tinted square, gray while the section is empty. */
+function SectionMark({ icon, tone }: { icon: IconName; tone: Tone }) {
+  return (
+    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${pillClass(tone)}`}>
+      <Icon name={icon} className="h-4 w-4" />
+    </span>
+  )
+}
+
 /**
- * A titled group of cards, with its action on the right. An empty one (count 0,
- * or `empty`) is only its header, muted, with the action still on it.
+ * A titled group of cards, with its action on the right and a rule under the
+ * header; `icon` marks it in `tone`. An empty one (count 0, or `empty`) is only
+ * its header, muted in a dashed outline, with the action still on it.
  */
 export function Section({
   title,
+  icon,
+  tone = 'gray',
   count,
   action,
   empty = count === 0,
   children,
 }: {
   title: string
+  icon?: IconName
+  tone?: Tone
   count?: number
   action?: React.ReactNode
   empty?: boolean
@@ -150,9 +166,10 @@ export function Section({
 }) {
   if (empty) {
     return (
-      <section className="mb-8 [[data-empty]+&]:-mt-5" data-empty>
-        <div className="flex min-h-8 items-center justify-between gap-3">
-          <h2 className="flex items-baseline gap-2 text-base font-medium text-gray-500 dark:text-gray-400">
+      <section className="mb-8 [[data-empty]+&]:-mt-6" data-empty>
+        <div className="flex min-h-12 items-center justify-between gap-3 rounded-lg border border-dashed border-gray-300 px-3 py-2 dark:border-gray-600">
+          <h2 className="flex items-center gap-2 text-base font-medium text-gray-500 dark:text-gray-400">
+            {icon ? <SectionMark icon={icon} tone="gray" /> : null}
             {title}
             {count !== undefined ? <span className="text-sm font-normal tabular-nums">{count}</span> : null}
           </h2>
@@ -162,9 +179,10 @@ export function Section({
     )
   }
   return (
-    <section className="mb-8">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="flex items-baseline gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+    <section className="mb-10">
+      <div className="mb-4 flex items-center justify-between gap-3 border-b border-gray-200 pb-2 dark:border-gray-700">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+          {icon ? <SectionMark icon={icon} tone={tone} /> : null}
           {title}
           {count !== undefined ? (
             <span className="text-sm font-normal tabular-nums text-gray-500 dark:text-gray-400">

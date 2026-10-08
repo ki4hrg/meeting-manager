@@ -11,8 +11,8 @@ These apply to every screen.
   - Don't narrate the UI or explain design choices on screen.
   - Let icons, colour, position and grouping direct the user instead of prose.
   - Labels are short and action-oriented ("Add", "New project", "Copy").
-  - No helper paragraphs, no subtitles that restate the title, no explanatory empty states. An empty section inside a page collapses to its muted header, its action still on the right (`Section` does this at count 0, or with `empty`). A page whose only list is empty shows the `EmptyState`: its icon and the one action that fills it.
-- **Hubs are two columns** (`TwoColumn`): on a wide screen the work (2/3: the items, an agenda) beside the reference that rarely changes (1/3: roster, members, milestones, links, documents). Inside a column, `CardGrid` takes fewer columns. One column on a phone, the main one first.
+  - No helper paragraphs, no subtitles that restate the title, no explanatory empty states. An empty section inside a page collapses to its muted header in a dashed outline, its action still on the right (`Section` does this at count 0, or with `empty`). A page whose only list is empty shows the `EmptyState`: its icon and the one action that fills it.
+- **Hubs are two columns** (`TwoColumn`): on a wide screen the work (2/3: the items, an agenda) beside the reference that rarely changes (1/3: roster, members, milestones, links, documents). Inside a column, `CardGrid` takes fewer columns. A rule sets off the side column. A hub's sections each carry an `icon` (in the kind's `tone` for a list of one kind, teal for reference, gray for what is past). One column on a phone, the main one first.
 - **Kind, owner type and status are shown visually**, not with text labels: `KindIcon`, the person/group icon, `StatusBadge`.
 - **Buttons** (issue #2):
   - **Blue (`primary`): at most one per screen**, the thing the page is for (Export, Approve all, New project, Prep). A card in a list never has one.

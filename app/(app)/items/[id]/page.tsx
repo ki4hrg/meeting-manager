@@ -294,36 +294,31 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 parties={item.parties}
                 move={setPartyRoleAction}
                 remove={removePartyAction}
-              >
-                <FormModal
-                  action={addPartyAction}
-                  title="People"
-                  icon="plus"
-                  compact
-                  submit={roleLabel(item.kind, 'with')}
-                  also={{ label: roleLabel(item.kind, 'owner'), name: 'role', value: 'owner' }}
-                >
-                  <input type="hidden" name="id" value={item.id} />
-                  <PartyPicker
-                    label="Person or group"
-                    name="party"
-                    options={[
-                      ...people.map((person): PartyOption => ({
-                        value: `person:${person.id}`,
-                        name: person.name,
-                        icon: 'person',
-                      })),
-                      ...groups.map((group): PartyOption => ({
-                        value: `group:${group.id}`,
-                        name: group.name,
-                        icon: 'group',
-                      })),
-                    ]}
-                    required
-                    allowNew
-                  />
-                </FormModal>
-              </PartyRoles>
+                add={(slot) => (
+                  <FormModal action={addPartyAction} title={slot.label} icon="plus" compact submit="Add">
+                    <input type="hidden" name="id" value={item.id} />
+                    <input type="hidden" name="role" value={slot.role} />
+                    <PartyPicker
+                      label="Person or group"
+                      name="party"
+                      options={[
+                        ...people.map((person): PartyOption => ({
+                          value: `person:${person.id}`,
+                          name: person.name,
+                          icon: 'person',
+                        })),
+                        ...groups.map((group): PartyOption => ({
+                          value: `group:${group.id}`,
+                          name: group.name,
+                          icon: 'group',
+                        })),
+                      ]}
+                      required
+                      allowNew
+                    />
+                  </FormModal>
+                )}
+              />
             </div>
 
             {raisable || target || origin || (open && item.parkedAt) || holdsUp.length > 0 ? (

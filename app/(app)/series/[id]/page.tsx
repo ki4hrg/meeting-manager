@@ -211,7 +211,7 @@ export default async function SeriesPage({
           main={
             <>
               <Section
-                title="Next"
+                title="Next" icon="meeting" tone="teal"
                 empty={!next}
                 action={
                   next ? null : (
@@ -258,7 +258,7 @@ export default async function SeriesPage({
               </Section>
 
               <Section
-                title="Topics"
+                title="Topics" icon="topic" tone="purple"
                 count={topics.length}
                 action={<QuickAdd presets={{ kind: 'topic', targetSeriesId: series.id }} />}
               >
@@ -266,7 +266,7 @@ export default async function SeriesPage({
               </Section>
 
               <Section
-                title="Owed"
+                title="Owed" icon="action" tone="blue"
                 count={owed.length}
                 action={<QuickAdd presets={{ kind: 'action', targetSeriesId: series.id }} />}
               >
@@ -275,7 +275,7 @@ export default async function SeriesPage({
 
               {/* Made at its meetings: nothing to add from here. */}
               {decisions.length > 0 ? (
-                <Section title="Decisions" count={decisions.length}>
+                <Section title="Decisions" icon="decision" tone="green" count={decisions.length}>
                   <ItemGrid items={decisions} today={today} empty="decision" />
                 </Section>
               ) : null}
@@ -296,7 +296,7 @@ export default async function SeriesPage({
           side={
             <>
               <Section
-                title="Roster"
+                title="Roster" icon="person" tone="teal"
                 count={series.people.length + series.groups.length}
                 empty={unlisted && !invitedKnown && behind.length === 0}
                 action={
@@ -427,7 +427,7 @@ export default async function SeriesPage({
               </Section>
 
               <Section
-                title="Projects"
+                title="Projects" icon="project" tone="teal"
                 count={series.projects.length}
                 action={
                   otherProjects.length > 0 ? (
@@ -461,7 +461,7 @@ export default async function SeriesPage({
               </Section>
 
               <Section
-                title="Blocks"
+                title="Blocks" icon="section" tone="gray"
                 action={
                   <div className="flex items-center gap-1">
                     {BLOCKS.map(({ block, icon, label }) => (

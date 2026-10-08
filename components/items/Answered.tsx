@@ -23,7 +23,7 @@ export function Answered({
   const [[name, value]] = Object.entries(on) as [[string, string]]
   return (
     <Section
-      title="Answered"
+      title="Answered" icon="question" tone="amber"
       count={items.length}
       action={
         <FormModal action={addAnsweredAction} title="Answered question" label="Add" icon="plus" variant="secondary" size="sm" submit="Add">

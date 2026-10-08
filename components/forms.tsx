@@ -66,7 +66,6 @@ export function FormModal({
   label,
   icon,
   submit = 'Save',
-  also,
   variant = 'primary',
   size = 'md',
   compact = false,
@@ -83,8 +82,6 @@ export function FormModal({
   label?: string
   icon?: IconName
   submit?: string
-  /** A second way to submit the same form, sent as a named value. */
-  also?: { label: string; name: string; value: string }
   variant?: ButtonProps['variant']
   size?: ButtonProps['size']
   /** The trigger is a small icon button, as on a row. Needs `icon`. */
@@ -133,11 +130,6 @@ export function FormModal({
             <Button variant="secondary" onClick={close}>
               Cancel
             </Button>
-            {also ? (
-              <Button type="submit" name={also.name} value={also.value} variant="accent">
-                {also.label}
-              </Button>
-            ) : null}
             <Button type="submit" variant={danger ? 'destructive' : 'primary'}>
               {submit}
             </Button>

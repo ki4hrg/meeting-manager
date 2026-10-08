@@ -271,7 +271,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         </div>
 
         {underWay ? (
-          <Section title="Attendance">
+          <Section title="Attendance" icon="person" tone="teal">
             <Card>
               <RollCall
                 action={settleAttendanceAction}
@@ -293,11 +293,11 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                 <>
                   {/* What was on the meeting itself before it had sessions. */}
                   {agenda.nodes.length > 0 ? (
-                    <Section title="Agenda">
+                    <Section title="Agenda" icon="section" tone="teal">
                       <AgendaCard agenda={agenda} today={today} people={leaders} />
                     </Section>
                   ) : null}
-                  <Section title="Sessions" count={sessions.length} action={addSession}>
+                  <Section title="Sessions" icon="meeting" tone="teal" count={sessions.length} action={addSession}>
                     <div className="flex flex-col gap-6">
                       {sessions.map((session) => (
                         <SessionAgenda
@@ -315,14 +315,14 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                   </Section>
                 </>
               ) : (
-                <Section title="Agenda" action={agendaTools(meeting.id)}>
+                <Section title="Agenda" icon="section" tone="teal" action={agendaTools(meeting.id)}>
                   <AgendaCard agenda={agenda} today={today} people={leaders} sessions={parent?.sessions} />
                 </Section>
               )}
 
               {started || outcome.length > 0 ? (
                 <Section
-                  title="Outcomes"
+                  title="Outcomes" icon="sparkles" tone="green"
                   count={outcome.length}
                   action={<QuickAdd presets={{ kind: 'action', originMeetingId: meeting.id }} />}
                 >
@@ -331,7 +331,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
               ) : null}
 
               {/* One level only: a session has no sessions of its own. */}
-              {rollup || parent ? null : <Section title="Sessions" count={0} action={addSession} />}
+              {rollup || parent ? null : <Section title="Sessions" icon="meeting" tone="teal" count={0} action={addSession} />}
             </>
           }
           side={
@@ -340,7 +340,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
 
               {/* Made by accepting a proposal, so with none there is nothing here to fill. */}
               {documents.length > 0 ? (
-                <Section title="Documents" count={documents.length}>
+                <Section title="Documents" icon="document" tone="teal" count={documents.length}>
                   <div id="documents" className="scroll-mt-4">
                     <CardGrid>
                       {documents.map((document) => (

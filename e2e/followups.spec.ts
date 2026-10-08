@@ -7,10 +7,10 @@ test('someone not yet in the directory is added to an item as who it is for', as
   await page.getByRole('link').filter({ hasText: WORLD.items.overdue }).first().click()
   await expect(page.getByRole('heading', { name: WORLD.items.overdue })).toBeVisible()
 
-  await page.getByRole('button', { name: 'People', exact: true }).click()
+  await page.getByRole('button', { name: 'For', exact: true }).click()
   await dialog(page).getByLabel('Person or group').fill('Neil Carter')
   await dialog(page).getByRole('option', { name: 'Neil Carter' }).click()
-  await dialog(page).getByRole('button', { name: 'For', exact: true }).click()
+  await dialog(page).getByRole('button', { name: 'Add', exact: true }).click()
   await expect(dialog(page)).toHaveCount(0)
 
   // An action points at who it is for.

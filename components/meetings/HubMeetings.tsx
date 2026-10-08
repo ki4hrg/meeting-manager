@@ -82,7 +82,7 @@ export async function HubMeetings({
 
   return (
     <>
-      <Section title="Upcoming" count={count} empty={count === 0 && !further}>
+      <Section title="Upcoming" icon="meeting" tone="teal" count={count} empty={count === 0 && !further}>
         {count === 0 ? null : (
           <div className="flex flex-col gap-5">
             {ahead.length > 0 ? (
@@ -119,7 +119,7 @@ export async function HubMeetings({
         ) : null}
       </Section>
 
-      <Section title="Past" count={held.meetings.length}>
+      <Section title="Past" icon="clock" tone="gray" count={held.meetings.length}>
         <CardGrid>
           {held.meetings.map((meeting) => (
             <div key={meeting.id} className="opacity-70">
