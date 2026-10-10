@@ -1,7 +1,8 @@
 /*
- * POST /api/mcp — the MCP endpoint.
+ * POST /mcp — the MCP endpoint.
  *
- * Under app/api/, so it authenticates itself. Nothing here is guarded by
+ * Outside app/(app)/, so the layout guard does not reach it and it authenticates
+ * itself. Nothing here is guarded by
  * placement, and this is the one route in the app where the
  * refusal has to be a specific shape: a bare 401 stalls OAuth discovery, because
  * the client has no way to find the metadata document and gives up with an error

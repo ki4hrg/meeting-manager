@@ -40,8 +40,8 @@ describe('tools', () => {
   })
 })
 
-describe('POST /api/mcp', () => {
-  const url = 'https://meetings.example.test/api/mcp'
+describe('POST /mcp', () => {
+  const url = 'https://meetings.example.test/mcp'
   const listTools = (headers: Record<string, string> = {}) =>
     new Request(url, {
       method: 'POST',
@@ -54,12 +54,12 @@ describe('POST /api/mcp', () => {
     })
 
   it('answers 401 with the metadata location when there is no token', async () => {
-    const { POST } = await import('../app/api/mcp/route')
+    const { POST } = await import('../app/mcp/route')
     const response = await POST(listTools())
 
     expect(response.status).toBe(401)
     expect(response.headers.get('www-authenticate')).toContain(
-      'resource_metadata="https://meetings.example.test/.well-known/oauth-protected-resource/api/mcp"',
+      'resource_metadata="https://meetings.example.test/.well-known/oauth-protected-resource/mcp"',
     )
   })
 
@@ -76,7 +76,7 @@ describe('POST /api/mcp', () => {
       resource: url,
     })
 
-    const { POST } = await import('../app/api/mcp/route')
+    const { POST } = await import('../app/mcp/route')
     const response = await POST(listTools({ authorization: `Bearer ${pair.accessToken}` }))
 
     expect(response.status).toBe(200)
