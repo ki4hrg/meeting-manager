@@ -64,7 +64,7 @@ export function absoluteUrl(path: string): string {
 }
 
 /** The MCP endpoint, which is also the OAuth resource (RFC 8707) callers bind to. */
-export const MCP_PATH = '/api/mcp'
+export const MCP_PATH = '/mcp'
 
 export const AUTHORIZATION_CODE_TTL_SECONDS = 5 * 60
 

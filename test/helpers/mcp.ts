@@ -30,7 +30,7 @@ export function identityFor(
     clientId: 'mm_test_client',
     clientName: 'Claude',
     scopes,
-    resource: 'https://meetings.example.test/api/mcp',
+    resource: 'https://meetings.example.test/mcp',
   }
 }
 

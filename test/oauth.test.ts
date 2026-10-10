@@ -9,7 +9,7 @@ import { makeUser } from './helpers/mcp'
 resetBetweenTests()
 
 const REDIRECT = 'http://127.0.0.1:53211/callback'
-const RESOURCE = 'https://meetings.example.test/api/mcp'
+const RESOURCE = 'https://meetings.example.test/mcp'
 
 async function authorized() {
   const userId = await makeUser()
