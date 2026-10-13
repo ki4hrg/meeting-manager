@@ -599,6 +599,11 @@ export const meetings = pgTable(
     /* The calendar event this meeting is, once attached. */
     calendarId: text('calendar_id'),
     calendarEventId: text('calendar_event_id'),
+    /* Where the calendar last had the event. When the event is somewhere
+       else, it was moved there and the meeting follows; a time changed here
+       by hand stays until the calendar moves the event again. */
+    calendarStartsAt: timestamp('calendar_starts_at', { withTimezone: true }),
+    calendarEndsAt: timestamp('calendar_ends_at', { withTimezone: true }),
     /* Null inherits the series' blocks. */
     blocks: jsonb('blocks').$type<BlockSettings>(),
     /* When who was there was settled: by the roll call, or the first look
