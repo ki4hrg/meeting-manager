@@ -4,7 +4,8 @@
  * one context it belongs to.
  *
  * Read-only and never stored. A meeting row exists only once John preps one
- * (docs/SPEC.md, "Meetings are light and created lazily").
+ * (docs/SPEC.md, "Meetings are light and created lazily"); once it does, it
+ * follows its event when the calendar moves it.
  */
 
 import {
@@ -17,7 +18,7 @@ import {
 } from '../connect/connections'
 import { fetchGoogleCalendarEvents, type GoogleCalendarEvent } from '../connect/google/calendar'
 import { fromLocalInput } from '../core/dates'
-import { and, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { Executor } from '../core/types'
 import { meetings, series, users } from '../db/schema'
 import { notDeleted } from '../db/shelf'
@@ -214,8 +215,47 @@ async function fetchBound(
   const events = [...seen.values()].sort(
     (a, b) => a.event.startsAt.getTime() - b.event.startsAt.getTime(),
   )
+  await followMoves(exec, events)
   if (failed.size === 0) feedCache.set(cacheKey, { events, expiresAt: Date.now() + CACHE_TTL_MS })
   return events
+}
+
+function sameMoment(a: Date | null, b: Date | null): boolean {
+  return (a?.getTime() ?? null) === (b?.getTime() ?? null)
+}
+
+/*
+ * A meeting whose event the calendar has moved takes the event's new time.
+ * Compared with where the calendar last had the event, not with the meeting's
+ * own time, so a meeting moved by hand stays where it was put until the
+ * calendar moves the event again.
+ */
+async function followMoves(exec: Executor, bound: BoundEvent[]): Promise<void> {
+  if (bound.length === 0) return
+  const byId = new Map(bound.map(({ event }) => [event.eventId, event]))
+  const rows = await exec
+    .select({
+      id: meetings.id,
+      eventId: meetings.calendarEventId,
+      startsAt: meetings.calendarStartsAt,
+      endsAt: meetings.calendarEndsAt,
+    })
+    .from(meetings)
+    .where(and(inArray(meetings.calendarEventId, [...byId.keys()]), notDeleted(meetings)))
+  for (const row of rows) {
+    const event = byId.get(row.eventId!)
+    if (!event || (sameMoment(row.startsAt, event.startsAt) && sameMoment(row.endsAt, event.endsAt))) continue
+    await exec
+      .update(meetings)
+      .set({
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        calendarStartsAt: event.startsAt,
+        calendarEndsAt: event.endsAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(meetings.id, row.id))
+  }
 }
 
 /**

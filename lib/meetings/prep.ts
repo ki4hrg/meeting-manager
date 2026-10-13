@@ -464,14 +464,15 @@ export async function listUpcoming(
   const now = opts.now ?? new Date()
   const range = feedRange(opts.from && opts.from > now ? opts.from : now, opts.days ?? 14)
 
-  const [events, dated, stubs, allSeries] = await Promise.all([
-    opts.events
-      ? eventsHere(
-          exec,
-          contextId,
-          opts.events.map((event) => ({ event, contextId })),
-        )
-      : listEventsIn(exec, { contextId, ...range }),
+  /* The calendar first: reading it moves the meetings whose events it moved. */
+  const events = opts.events
+    ? await eventsHere(
+        exec,
+        contextId,
+        opts.events.map((event) => ({ event, contextId })),
+      )
+    : await listEventsIn(exec, { contextId, ...range })
+  const [dated, stubs, allSeries] = await Promise.all([
     listMeetings(exec, { contextId, when: 'upcoming', now: range.from, topLevelOnly: true }),
     listMeetings(exec, { contextId, when: 'stubs', topLevelOnly: true }),
     listSeries(exec, contextId),
@@ -550,16 +551,15 @@ export async function listPast(
   const to = opts.before && opts.before < now ? opts.before : now
   const from = new Date(to.getTime() - (opts.days ?? 14) * 86_400_000)
 
-  const [events, held] = await Promise.all([
-    opts.events
-      ? eventsHere(
-          exec,
-          contextId,
-          opts.events.map((event) => ({ event, contextId })),
-        )
-      : listEventsIn(exec, { contextId, from, to }),
-    listMeetings(exec, { contextId, when: 'past', now, topLevelOnly: true, between: { from, to } }),
-  ])
+  /* The calendar first: reading it moves the meetings whose events it moved. */
+  const events = opts.events
+    ? await eventsHere(
+        exec,
+        contextId,
+        opts.events.map((event) => ({ event, contextId })),
+      )
+    : await listEventsIn(exec, { contextId, from, to })
+  const held = await listMeetings(exec, { contextId, when: 'past', now, topLevelOnly: true, between: { from, to } })
 
   /* An event whose meeting is still under way, or was moved off its time, is not "never prepped". */
   const prepped = new Set(

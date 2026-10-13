@@ -4,6 +4,7 @@ import { bindCalendar, getConnection, listBindings, saveGoogleConnection } from 
 import { users } from '../lib/db/schema'
 import { createContext } from '../lib/directory/contexts'
 import { createPerson } from '../lib/directory/people'
+import { getMeeting, updateMeeting } from '../lib/meetings/meetings'
 import { moveMeeting } from '../lib/meetings/move'
 import { prepFromEvent } from '../lib/meetings/prep'
 import { createSeries } from '../lib/meetings/series'
@@ -727,6 +728,58 @@ describe('where an event belongs', () => {
     expect(await inContext(work.id)).toEqual(['standup', 'vestry', 'weekly-14', 'shared'])
     await unarchive(db, 'context', church.id)
     expect(await inContext(church.id)).toEqual(['choir', 'shared'])
+  })
+})
+
+describe('a moved event', () => {
+  const range = { from: new Date('2026-10-01'), to: new Date('2026-10-31') }
+  const at = (start: string, end: string) => ({
+    id: 'checkin',
+    summary: 'Check-in',
+    start: { dateTime: start },
+    end: { dateTime: end },
+  })
+
+  it('moves its meeting, but not over a time changed by hand until it moves again', async () => {
+    const ctx = await createContext(db, { name: 'Work' })
+    const conn = await saveGoogleConnection(db, {
+      account: 'john@example.com',
+      tokens: { accessToken: 'access', refreshToken: null, expiresAt: null },
+      scopes: ['calendar.readonly'],
+    })
+    await bindCalendar(db, { connectionId: conn.id, calendarId: 'cal', name: 'Work', contextId: ctx.id })
+    let event = at('2026-10-14T10:00:00Z', '2026-10-14T10:30:00Z')
+    const read = async () => {
+      clearFeedCache()
+      return listEventsIn(db, { contextId: ctx.id, ...range }, { fetchEvents: async () => [event] })
+    }
+
+    const [first] = await read()
+    const meeting = await prepFromEvent(db, actor, { contextId: ctx.id, event: first! })
+    expect(meeting.startsAt).toEqual(new Date('2026-10-14T10:00:00Z'))
+
+    // Rescheduled on the calendar: the meeting goes with it.
+    event = at('2026-10-15T14:00:00Z', '2026-10-15T15:00:00Z')
+    await read()
+    let moved = await getMeeting(db, meeting.id)
+    expect(moved.startsAt).toEqual(new Date('2026-10-15T14:00:00Z'))
+    expect(moved.endsAt).toEqual(new Date('2026-10-15T15:00:00Z'))
+
+    // Changed here by hand: the calendar, unchanged, does not put it back.
+    await updateMeeting(db, actor, meeting.id, {
+      startsAt: new Date('2026-10-15T16:00:00Z'),
+      endsAt: new Date('2026-10-15T16:30:00Z'),
+    })
+    await read()
+    moved = await getMeeting(db, meeting.id)
+    expect(moved.startsAt).toEqual(new Date('2026-10-15T16:00:00Z'))
+
+    // Moved on the calendar again: the calendar wins.
+    event = at('2026-10-16T09:00:00Z', '2026-10-16T09:45:00Z')
+    await read()
+    moved = await getMeeting(db, meeting.id)
+    expect(moved.startsAt).toEqual(new Date('2026-10-16T09:00:00Z'))
+    expect(moved.endsAt).toEqual(new Date('2026-10-16T09:45:00Z'))
   })
 })
 

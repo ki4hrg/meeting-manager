@@ -571,6 +571,9 @@ export async function createMeeting(
         endsAt: input.endsAt ?? null,
         calendarId: input.calendarId ?? null,
         calendarEventId: input.calendarEventId ?? null,
+        ...(input.calendarEventId
+          ? { calendarStartsAt: input.startsAt ?? null, calendarEndsAt: input.endsAt ?? null }
+          : {}),
         blocks: input.blocks ?? null,
       })
       .returning()
@@ -757,6 +760,8 @@ export async function attachToEvent(
     calendarId: input.calendarId,
     calendarEventId: input.calendarEventId,
     startsAt: input.startsAt,
+    calendarStartsAt: input.startsAt,
+    calendarEndsAt: input.endsAt ?? null,
   }
 
   if (input.endsAt !== undefined) patch.endsAt = input.endsAt
@@ -780,7 +785,7 @@ export async function detachFromEvent(
 
   await exec
     .update(meetings)
-    .set({ calendarId: null, calendarEventId: null, updatedAt: new Date() })
+    .set({ calendarId: null, calendarEventId: null, calendarStartsAt: null, calendarEndsAt: null, updatedAt: new Date() })
     .where(eq(meetings.id, id))
 
   return getMeeting(exec, id)
