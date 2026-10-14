@@ -10,7 +10,7 @@ import { Icon } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 import { Spinner } from '@/components/ui/Spinner'
 import { ContextBadge, KIND, KindIcon, type ItemKind } from '@/components/ui/StatusBadge'
-import { matchName, normalise, tokenFor } from '@/lib/core/match'
+import { matchName, nameFromToken, normalise, tokenFor } from '@/lib/core/match'
 import type { NewKind } from '@/lib/directory/create'
 import type { CapturePresets, NewMention } from '@/lib/items/capture'
 
@@ -37,11 +37,6 @@ const ICON_OF: Record<NewKind, SuggestionIcon> = {
 
 /** Something to complete the token with; with `create`, a new one by that name. */
 export type Suggestion = { name: string; icon: SuggestionIcon; create?: NewKind }
-
-/* `Neil-Campbell` as the name it stands for. */
-function nameFromToken(token: string): string {
-  return token.replace(/[-_]+/g, ' ').trim()
-}
 
 function newRows(sigil: string, token: string): Suggestion[] {
   return (NEW_FOR[sigil] ?? []).map((kind) => ({ name: nameFromToken(token), icon: ICON_OF[kind], create: kind }))

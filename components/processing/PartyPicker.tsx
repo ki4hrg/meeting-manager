@@ -2,7 +2,8 @@
 
 import { useId, useRef, useState } from 'react'
 import { Icon, type IconName } from '@/components/ui/icons'
-import { matchName } from '@/lib/core/match'
+import { iconClass } from '@/components/ui/StatusBadge'
+import { matchName, nameFromToken } from '@/lib/core/match'
 
 export type PartyOption = {
   /** What is submitted: an id, `person:<id>` / `group:<id>` / `name:<text>`, or `new:<name>`. */
@@ -20,7 +21,9 @@ export type PartyOption = {
  * anywhere else, so typing "sarah, tom" and submitting works too.
  *
  * With `allowNew`, a name that matches nobody is offered as someone to add
- * (`new:<name>`). Backspace in an empty box takes the last pick off; ⌘Enter,
+ * (`new:<name>`). A chip still carrying only a name (`alert`) has its own
+ * suggestions under the box, the same way: who it could be, and with
+ * `allowNew`, a new person by that name. Picking one replaces the chip. Backspace in an empty box takes the last pick off; ⌘Enter,
  * or Esc once something is picked, submits the form it is in.
  *
  * With `me`, a fixed "Me" chip leads the box: John is at every meeting, so he
@@ -77,6 +80,29 @@ export function PartyPicker({
     allowNew && partial !== '' && !known && !taken.has(`new:${partial}`)
       ? [...matches, { value: `new:${partial}`, name: partial, icon: 'plus' }]
       : matches
+
+  /* A name still to settle: who it could be, by the whole name and failing
+     that by its first word, then a new person by it. */
+  const settle = chosen
+    .filter((option) => option.icon === 'alert')
+    .map((option) => {
+      const free = options.filter((one) => !taken.has(one.value))
+      const name = nameFromToken(option.name)
+      const first = name.split(/\s+/)[0] ?? ''
+      let found = matchName(free, name)
+      if (found.length === 0 && first !== name) found = matchName(free, first)
+      const exact = options.some((one) => one.name.toLowerCase() === name.toLowerCase())
+      const fresh: PartyOption[] =
+        allowNew && !exact && !taken.has(`new:${name}`)
+          ? [{ value: `new:${name}`, name, icon: 'plus' }]
+          : []
+      return { option, candidates: [...found.slice(0, 5), ...fresh] }
+    })
+    .filter((one) => one.candidates.length > 0)
+
+  function replace(option: PartyOption, by: PartyOption) {
+    setChosen((current) => current.map((one) => (one.value === option.value ? by : one)))
+  }
 
   function pick(option: PartyOption) {
     setChosen((current) => [...current, option])
@@ -182,6 +208,31 @@ export function PartyPicker({
           className="min-w-[6rem] flex-1 border-0 bg-transparent p-0.5 text-gray-900 focus:outline-none focus:ring-0 sm:text-sm dark:text-gray-100"
         />
       </div>
+
+      {settle.map(({ option, candidates }) => (
+        <ul
+          key={option.value}
+          role="listbox"
+          aria-label={`Who is ${option.name}?`}
+          className="mt-2 flex flex-wrap items-center gap-2"
+        >
+          <Icon name="alert" className={`h-3.5 w-3.5 shrink-0 ${iconClass('amber')}`} />
+          {candidates.map((candidate) => (
+            <li key={candidate.value}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                onClick={() => replace(option, candidate)}
+                className="flex items-center gap-1.5 rounded-full border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                <Icon name={candidate.icon} className="h-3.5 w-3.5" />
+                {candidate.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ))}
 
       {suggestions.length > 0 ? (
         <ul role="listbox" aria-label={label} className="mt-2 flex flex-wrap gap-2">

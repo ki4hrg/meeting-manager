@@ -70,6 +70,11 @@ export function tokenFor(name: string): string {
     .join('-')
 }
 
+/** The name a token stands for: `Neil-Campbell` is "Neil Campbell". */
+export function nameFromToken(token: string): string {
+  return token.replace(/[-_]+/g, ' ').trim()
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function isUuid(value: string): boolean {
