@@ -20,6 +20,11 @@ services:
       # Google OAuth for calendar integration
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Todoist, through the registered app. Both or neither; one alone fails the
+      # boot. Its OAuth redirect is ${PUBLIC_BASE_URL}/api/connect/todoist/callback
+      # and its webhook ${PUBLIC_BASE_URL}/api/webhooks/todoist.
+      TODOIST_CLIENT_ID: ${TODOIST_CLIENT_ID:-}
+      TODOIST_CLIENT_SECRET: ${TODOIST_CLIENT_SECRET:-}
       # Encryption key for stored credentials
       CONNECT_KEY: ${CONNECT_KEY:-}
       # Extraction after a meeting. With no key, processing keeps only the
