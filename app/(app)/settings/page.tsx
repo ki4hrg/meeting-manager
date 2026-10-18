@@ -22,6 +22,7 @@ import { Granola } from './Granola'
 import { Notice } from './Notice'
 import { PlaceOptions, placeOf, placesFor, type PlaceGroup } from './places'
 import { TimeZonePicker } from './TimeZone'
+import { Todoist } from './Todoist'
 
 /* One account: who it is, whether Google still honours it, and which
    context, project, series or group each of its calendars feeds. */
@@ -179,7 +180,13 @@ export default async function SettingsPage({
       <PageHeader title="Settings" crumbs={[{ href: '/', label: 'Home' }]} />
       <Notice
         error={one(error)}
-        success={one(connected) === 'google' ? 'Google Calendar connected' : undefined}
+        success={
+          one(connected) === 'google'
+            ? 'Google Calendar connected'
+            : one(connected) === 'todoist'
+              ? 'Todoist connected'
+              : undefined
+        }
       />
       <Section title="Time zone">
         <TimeZonePicker
@@ -190,6 +197,7 @@ export default async function SettingsPage({
       </Section>
       <GoogleCalendar />
       <Granola />
+      <Todoist />
       <Deleted timeZone={user.timeZone} />
     </>
   )

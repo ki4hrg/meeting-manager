@@ -45,7 +45,6 @@ import { notDeleted, onShelf } from '../../db/shelf'
 import {
   contexts,
   groups,
-  integrationEvents,
   meetingGroups,
   meetingPeople,
   meetingProjects,
@@ -70,9 +69,10 @@ import {
   type GranolaNote,
   type GranolaTranscriptLine,
 } from './client'
+import { claimDelivery as claimDeliveryFor, settleDelivery } from '../deliveries'
 import { GRANOLA, listFolderBindings, withGranola } from './connection'
 
-export type IntegrationEvent = typeof integrationEvents.$inferSelect
+export type { IntegrationEvent } from '../deliveries'
 
 /** What happened to one note. Both are ordinary; neither is an error. */
 export type IngestOutcome =
@@ -645,54 +645,12 @@ export async function ingestNoteById(
 
 // ─── the delivery ledger ─────────────────────────────────────────────────────
 
-/**
- * Claim a delivery by its id, or learn that it was claimed before.
- *
- * The insert is the claim: a select followed by an insert leaves a gap exactly
- * wide enough for the duplicate this table exists to stop. `fresh` is false
- * for a repeat, with one exception: a delivery whose first attempt failed is
- * handed out again, once, to whoever asks first.
- */
-export async function claimDelivery(
+/** Claim a Granola delivery by its id (lib/connect/deliveries.ts). */
+export function claimDelivery(
   exec: Executor,
   input: { externalId: string; type: string; payload: unknown },
-): Promise<{ event: IntegrationEvent; fresh: boolean }> {
-  const [inserted] = await exec
-    .insert(integrationEvents)
-    .values({
-      provider: GRANOLA,
-      externalId: input.externalId,
-      type: input.type,
-      payload: (input.payload ?? {}) as object,
-    })
-    .onConflictDoNothing({ target: [integrationEvents.provider, integrationEvents.externalId] })
-    .returning()
-  if (inserted) return { event: inserted, fresh: true }
-
-  const [retried] = await exec
-    .update(integrationEvents)
-    .set({ status: 'received', detail: null, processedAt: null })
-    .where(
-      and(
-        eq(integrationEvents.provider, GRANOLA),
-        eq(integrationEvents.externalId, input.externalId),
-        eq(integrationEvents.status, 'failed'),
-      ),
-    )
-    .returning()
-  if (retried) return { event: retried, fresh: true }
-
-  const [existing] = await exec
-    .select()
-    .from(integrationEvents)
-    .where(
-      and(
-        eq(integrationEvents.provider, GRANOLA),
-        eq(integrationEvents.externalId, input.externalId),
-      ),
-    )
-    .limit(1)
-  return { event: existing!, fresh: false }
+) {
+  return claimDeliveryFor(exec, GRANOLA, input)
 }
 
 export async function completeDelivery(
@@ -702,13 +660,10 @@ export async function completeDelivery(
 ): Promise<void> {
   const [status, detail] =
     'failed' in result
-      ? ['failed', result.failed]
+      ? (['failed', result.failed] as const)
       : 'ignored' in result
-        ? ['ignored', result.ignored]
-        : [result.kind === 'ignored' ? 'ignored' : 'processed', describeOutcome(result)]
+        ? (['ignored', result.ignored] as const)
+        : ([result.kind === 'ignored' ? 'ignored' : 'processed', describeOutcome(result)] as const)
 
-  await exec
-    .update(integrationEvents)
-    .set({ status, detail: detail.slice(0, 500), processedAt: new Date() })
-    .where(eq(integrationEvents.id, eventId))
+  await settleDelivery(exec, eventId, status, detail)
 }

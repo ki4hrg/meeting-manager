@@ -1,6 +1,23 @@
 # Handoff
 
-Updated 2026-10-08. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+Updated 2026-10-18. Read `docs/SPEC.md` (the approved design) and `CLAUDE.md` (UI rules, layout, commands, conventions) first; this file only covers where things stand and what to do next.
+
+## Todoist sync (2026-10-18)
+
+Phase 4's sync, on branch `claude/todoist-sync`. Migration `0022_todoist_sync` adds `item_todoist_links`, `todoist_tasks` and `connections.cursor`. The rules are in the spec ("Todoist sync", with today's settlements); the code is `lib/connect/todoist/`. Fold into, Combine and `get_hub` are next, as their own PR.
+
+**Registering the app (once, before the first connect).** In Todoist's App Management Console (https://developer.todoist.com/appconsole.html) create an app:
+- OAuth redirect URL: `<PUBLIC_BASE_URL>/api/connect/todoist/callback`.
+- Webhook callback URL: `<PUBLIC_BASE_URL>/api/webhooks/todoist` (HTTPS, no port), events `item:added`, `item:updated`, `item:completed`, `item:uncompleted`, `item:deleted`, then activate the webhook.
+- Set `TODOIST_CLIENT_ID` and `TODOIST_CLIENT_SECRET` on the container (one without the other fails the boot), then Settings → Todoist → Connect. Completing that sign-in with John's own account is what turns the webhook on for him: Todoist does not fire an app's webhook for its creator otherwise.
+
+**On connect,** every task is read into `todoist_tasks` and the items already open and syncing wait in Settings → Match: Link (to a task he has, the likeliest first), New task, or Skip. Bind Todoist projects to contexts or projects on the same card; unbound goes to the Inbox.
+
+**Verified:** `pnpm test` (merge rules in `test/todoist-merge.test.ts`; the sync against a faked Todoist in `test/todoist-sync.test.ts`, every case SPEC lists plus today's), `pnpm typecheck`, `pnpm lint`, and `pnpm e2e` with a Todoist of its own (`e2e/todoist.ts`): the Match journey, and Settings at phone width in light and dark.
+
+**Not verified against the real Todoist.** Two things the docs leave unclear, to check on the first live connect, with a throwaway project:
+- that the incremental change feed reports a completed task with `checked: true` (the sync relies on it to see a tick in Todoist);
+- that clearing a deadline with `deadline: null` on `item_update` works, and that a re-sent `item_add` uuid returns its `temp_id_mapping`.
 
 ## Single sign-on (2026-10-08)
 

@@ -14,7 +14,7 @@ import { addProposals } from '../lib/processing/proposals'
 import { createProject } from '../lib/projects/projects'
 import { ACCOUNT, WORLD } from './world'
 
-export async function seed() {
+export async function seed({ todoistToken }: { todoistToken?: string } = {}) {
   const actor = { userId: null, source: 'system' as const, requestId: randomUUID() }
   await createFirstUser({ email: ACCOUNT.email, displayName: ACCOUNT.name, password: ACCOUNT.password }, db)
 
@@ -49,4 +49,11 @@ export async function seed() {
   await addProposals(db, { meetingId: finance.id }, [
     { payload: { type: 'item', kind: 'action', text: WORLD.proposal, parties: [] } },
   ])
+
+  /* Connected last, so the items above are the ones already open: they wait
+     in Match. */
+  if (todoistToken) {
+    const { connectTodoist } = await import('../lib/connect/todoist/sync')
+    await connectTodoist(db, { accessToken: todoistToken, refreshToken: null, expiresAt: null })
+  }
 }
