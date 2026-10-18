@@ -27,7 +27,11 @@ export function parsePlace(value: string): { contextId: string; scope: BindingSc
 
 /* Each context, then its projects, series and groups. What is finished or
    archived is offered only while something still feeds it. */
-export async function placesFor(contexts: Context[], bindings: Binding[]): Promise<PlaceGroup[]> {
+export async function placesFor(
+  contexts: Context[],
+  bindings: Binding[],
+  { projectsOnly = false }: { projectsOnly?: boolean } = {},
+): Promise<PlaceGroup[]> {
   const bound = new Set(bindings.flatMap((binding) => scopeOf(binding)?.id ?? []))
   const keep = (one: { id: string; archivedAt: Date | null }) => !one.archivedAt || bound.has(one.id)
 
@@ -51,8 +55,8 @@ export async function placesFor(contexts: Context[], bindings: Binding[]): Promi
             'project',
             projects.filter((one) => keep(one) && (one.status !== 'done' || bound.has(one.id))),
           ),
-          ...under('series', series.filter(keep)),
-          ...under('group', groups.filter(keep)),
+          ...(projectsOnly ? [] : under('series', series.filter(keep))),
+          ...(projectsOnly ? [] : under('group', groups.filter(keep))),
         ],
       }
     }),

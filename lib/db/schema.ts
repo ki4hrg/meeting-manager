@@ -3,8 +3,8 @@
  *
  * Sign-in, the OAuth authorization server, and the domain model through phase 2
  * (docs/SPEC.md): contexts, the directory, projects, items, series, meetings
- * and agendas, the calendar connection, and notes and processing. The Todoist
- * links arrive with their phase.
+ * and agendas, the calendar connection, notes and processing, and the Todoist
+ * sync.
  *
  * Conventions: snake_case in Postgres, camelCase in TypeScript.
  */
@@ -764,6 +764,8 @@ export const connections = pgTable(
     scopes: text('scopes').notNull().default(''),
     /* Set when the service refused the credentials; cleared on the next success. */
     lastError: text('last_error'),
+    /* Where the service's change feed was last read up to (Todoist's sync_token). */
+    cursor: text('cursor'),
     ...timestamps,
   },
   (t) => [uniqueIndex('connections_account_key').on(t.provider, sql`lower(${t.account})`)],
@@ -1034,5 +1036,82 @@ export const integrationEvents = pgTable(
   (t) => [
     uniqueIndex('integration_events_delivery_key').on(t.provider, t.externalId),
     index('integration_events_received_idx').on(t.receivedAt),
+  ],
+)
+
+// ─── Todoist ─────────────────────────────────────────────────────────────────
+
+/*
+ * The tasks Todoist last reported, one row per task the change feed has named.
+ * The merge reads Todoist's side from here, and linking an item to a task it
+ * already has searches it. Kept current by every pull, including while a
+ * context's sync is paused, so nothing Todoist did in the meantime is lost.
+ */
+export const todoistTasks = pgTable(
+  'todoist_tasks',
+  {
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    taskId: text('task_id').notNull(),
+    projectId: text('project_id'),
+    content: text('content').notNull(),
+    deadline: date('deadline'),
+    checked: boolean('checked').notNull().default(false),
+    isDeleted: boolean('is_deleted').notNull().default(false),
+    isRecurring: boolean('is_recurring').notNull().default(false),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.connectionId, t.taskId] })],
+)
+
+/*
+ * An item and its Todoist task (docs/SPEC.md, "Todoist sync").
+ *
+ * `base_*` is what both sides last agreed on: the merge compares each side
+ * with it, and Todoist wins a field both changed. `state`:
+ *
+ *   - pending: the task is being made; `command_uuid` makes the retry safe.
+ *   - linked: synced both ways.
+ *   - unlinked: no longer synced (`unlinked_reason`); the row stays so a task
+ *     deleted in Todoist is not made again.
+ *   - unmatched: open when Todoist was connected, waiting for John to link it
+ *     to a task he already has, send it, or skip it.
+ *   - skipped: never synced.
+ *
+ * `item_id` is set null when the item itself is removed, which is how the sync
+ * learns to delete the task it made for an undone accept.
+ */
+export const itemTodoistLinks = pgTable(
+  'item_todoist_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    itemId: uuid('item_id').references(() => items.id, { onDelete: 'set null' }),
+    taskId: text('task_id'),
+    state: text('state').notNull(),
+    unlinkedReason: text('unlinked_reason'),
+    commandUuid: uuid('command_uuid'),
+    tempId: text('temp_id'),
+    baseText: text('base_text'),
+    baseDueOn: date('base_due_on'),
+    baseClosed: boolean('base_closed').notNull().default(false),
+    /* When both sides last became closed: a reopen in Todoist is honoured for 30 days. */
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('item_todoist_links_task_key')
+      .on(t.connectionId, t.taskId)
+      .where(sql`${t.taskId} is not null`),
+    /* One live link per item; any number of unlinked ones behind it. */
+    uniqueIndex('item_todoist_links_item_key')
+      .on(t.itemId)
+      .where(sql`${t.itemId} is not null and ${t.state} <> 'unlinked'`),
+    index('item_todoist_links_state_idx').on(t.state),
   ],
 )

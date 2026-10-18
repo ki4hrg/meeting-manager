@@ -25,6 +25,9 @@ export async function register() {
      with the reason rather than quietly offering passwords only. */
   const { checkOidcAtBoot } = await import('./lib/auth/oidc')
   await checkOidcAtBoot()
+  /* The same for a Todoist app with one of its two settings. */
+  const { checkTodoistAtBoot } = await import('./lib/connect/todoist/connection')
+  checkTodoistAtBoot()
 
   if (startJobs()) {
     console.log(`[jobs] scheduler started: ${jobNames().join(', ')}`)

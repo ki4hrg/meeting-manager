@@ -101,6 +101,26 @@ const purgeDeleted: Job = {
 
 registerJob(purgeDeleted)
 
+export const TODOIST_SYNC = 'todoist-sync'
+
+/*
+ * The Todoist sync (lib/connect/todoist/sync.ts). Kicked by Todoist's webhook
+ * and after every change made here, so the interval is the net under both: a
+ * lost delivery, or a change made while the container restarted.
+ */
+const todoistSync: Job = {
+  name: TODOIST_SYNC,
+  everyMs: 10 * 60 * 1000,
+  lockKey: 200_004,
+  run: async () => {
+    const { db } = await import('../db')
+    const { syncTodoist, summariseSync } = await import('../connect/todoist/sync')
+    return summariseSync(await syncTodoist(db))
+  },
+}
+
+registerJob(todoistSync)
+
 /**
  * Start the timers. Called once, from `instrumentation.ts`.
  *
@@ -131,4 +151,14 @@ export function kick(name: string): Promise<JobRun> {
   const job = registeredJobs().find((candidate) => candidate.name === name)
   if (!job) throw new Error(`No job is registered as "${name}".`)
   return runJob(job, { again: true })
+}
+
+/**
+ * Something changed here that Todoist may need to hear about: run the sync
+ * now rather than at its next tick. Not under Vitest, where nothing may run
+ * against a test's database once the test has moved on.
+ */
+export function syncTodoistSoon(): void {
+  if (process.env.VITEST) return
+  void kick(TODOIST_SYNC)
 }

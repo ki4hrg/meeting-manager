@@ -1,10 +1,11 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listItems } from '../lib/items/items'
 import { createMeeting } from '../lib/meetings/meetings'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 import { connect, dataOf, identityFor, makeUser, textOf, type ConnectedClient } from './helpers/mcp'
+import { connect as connectTodoist, fakeTodoist } from './helpers/todoist'
 
 resetBetweenTests()
 
@@ -281,5 +282,29 @@ describe('group addresses', () => {
     const taken = await call('update_group', { group: 'finance committee', emails: ['sarah@example.test'] })
     expect(taken.isError).toBe(true)
     expect(textOf(taken)).toContain('belongs to Sarah Jones')
+  })
+})
+
+describe('Todoist on items', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('links a task through update_item and reports it on get_item', async () => {
+    const fake = fakeTodoist()
+    const taskId = fake.add('Book the hall')
+    const created = await call('capture_item', { text: 'Book the hall', kind: 'action', owners: ['me'], project: 'retreat' })
+    const { item } = dataOf<{ item: Item }>(created)
+    await connectTodoist()
+
+    expect(dataOf<{ todoist: unknown }>(await call('get_item', { id: item.id })).todoist).toEqual({ state: 'unmatched' })
+
+    const linked = await call('update_item', { id: item.id, todoist: taskId })
+    expect(linked.isError).toBeFalsy()
+    expect(dataOf<{ todoist: unknown }>(await call('get_item', { id: item.id })).todoist).toEqual({
+      state: 'linked',
+      task_url: `https://app.todoist.com/app/task/${taskId}`,
+    })
   })
 })

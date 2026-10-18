@@ -101,6 +101,7 @@ export type ItemEventType =
   | 'discussed'
   | 'parked'
   | 'unparked'
+  | 'needs_answer'
 
 export type ItemEvent = {
   id: string
@@ -1136,6 +1137,11 @@ export async function reopenItem(
   return inTransaction(exec, async (tx) => {
     const item = await getItem(tx, id)
     if (item.kind === 'decision') throw new ValidationError('A decision is never open.')
+    if (item.status === 'needs_answer') {
+      await tx.update(items).set({ status: 'open', updatedAt: new Date() }).where(eq(items.id, id))
+      await logEvent(tx, actor, id, 'reopened')
+      return getItem(tx, id)
+    }
     if (isOpen(item)) return item
 
     await tx
@@ -1144,6 +1150,29 @@ export async function reopenItem(
       .set({ status: 'open', closedAt: null, resolution: null, updatedAt: new Date() })
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'reopened')
+    return getItem(tx, id)
+  })
+}
+
+/**
+ * A question John has ticked off somewhere (in Todoist) without saying what
+ * the answer was: still open, waiting for the answer to be recorded.
+ */
+export async function markNeedsAnswer(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (item.kind !== 'question') throw new ValidationError('Only a question waits on its answer.')
+    if (item.status !== 'open') return item
+
+    await tx
+      .update(items)
+      .set({ status: 'needs_answer', updatedAt: new Date() })
+      .where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'needs_answer')
     return getItem(tx, id)
   })
 }

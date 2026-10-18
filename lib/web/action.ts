@@ -8,11 +8,13 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { requireUser, type AuthUser } from '../auth/guards'
 import { AppError, ValidationError, type ActorContext, type Executor } from '../core/types'
 import { createPerson } from '../directory/people'
 import { resolvePerson } from '../directory/resolve'
 import type { PartyRef } from '../items/items'
+import { syncTodoistSoon } from '../jobs'
 import { webActor } from './context'
 
 /** `undoId` names what an Undo on the toast would put back (see `IconAction`). */
@@ -36,6 +38,9 @@ export async function act(
   // One user and small pages: refreshing everything is simpler than tracking
   // which lists an item appears in.
   revalidatePath('/', 'layout')
+  /* Whatever changed may be an item with a task; the sync finds out cheaply
+     when nothing is. */
+  after(syncTodoistSoon)
   return done ? { undoId: done.undoId } : {}
 }
 

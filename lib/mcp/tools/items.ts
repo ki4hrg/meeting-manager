@@ -28,6 +28,7 @@ import {
   type ItemTarget,
   type PartyRef,
 } from '../../items/items'
+import { itemTodoist, linkItem, sendItem, skipItem } from '../../connect/todoist/match'
 import { getMeeting } from '../../meetings/meetings'
 import { idempotencyKey, itemOut, partiesFrom, write } from './shared'
 import { defineTool } from './types'
@@ -197,7 +198,8 @@ export const getItemTool = defineTool({
   title: 'Get an item',
   description:
     'One item with the whole thread it belongs to (what it came from and what came out of it) ' +
-    'and its history, what it waits on in Later (waits_on) and what waits on it (holds_up).',
+    'and its history, what it waits on in Later (waits_on) and what waits on it (holds_up). ' +
+    'todoist says where it stands with Todoist: its task (task_url), or that it has none yet.',
   scope: 'meetings:read',
   input: z.object({ id: z.uuid() }),
   annotations: { readOnlyHint: true },
@@ -207,8 +209,17 @@ export const getItemTool = defineTool({
     const waitsOn = item.laterUntilItemId ? await getItem(exec, item.laterUntilItemId) : null
     const holdsUp = await listItems(exec, { contextId: item.contextId, open: true, waitingOn: item.id })
     const brief = (one: typeof item) => ({ id: one.id, kind: one.kind, status: one.status, text: one.text })
+    const todoist = await itemTodoist(exec, item.id)
     return {
       item: itemOut(item),
+      ...(todoist
+        ? {
+            todoist:
+              todoist.state === 'linked'
+                ? { state: 'linked', task_url: todoist.url, ...(todoist.error ? { error: todoist.error } : {}) }
+                : { state: todoist.state },
+          }
+        : {}),
       ...(waitsOn ? { waits_on: brief(waitsOn) } : {}),
       ...(holdsUp.length > 0 ? { holds_up: holdsUp.map(brief) } : {}),
       thread: thread.entries.map((entry) => ({ depth: entry.depth, ...itemOut(entry.item) })),
@@ -235,7 +246,9 @@ export const updateItemTool = defineTool({
     'brought back with later false); a deadline within two weeks brings it back regardless. ' +
     'later_until_item parks it until that open item in the same context closes (done, answered ' +
     'or dropped), or with later_on until whichever comes first; null stops it waiting on one. ' +
-    'Pass null to clear project, due_on, detail or the target.',
+    'Pass null to clear project, due_on, detail or the target. todoist links an open action or ' +
+    'question John owns to a Todoist task he already has (its id or link), "new" sends it as a ' +
+    'new task, and "skip" keeps it out of Todoist.',
   scope: 'meetings:write',
   input: z.object({
     id: z.uuid(),
@@ -270,6 +283,11 @@ export const updateItemTool = defineTool({
       .nullable()
       .optional()
       .describe('Item id it waits on: back when that item closes; implies later.'),
+    todoist: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('A Todoist task id or link to link it to, "new" or "skip".'),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -342,6 +360,10 @@ export const updateItemTool = defineTool({
       } else if (input.status === 'open') {
         await reopenItem(tx, actor, input.id)
       }
+
+      if (input.todoist === 'new') await sendItem(tx, input.id)
+      else if (input.todoist === 'skip') await skipItem(tx, input.id)
+      else if (input.todoist) await linkItem(tx, { itemId: input.id, task: input.todoist })
 
       return {
         item: itemOut(await getItem(tx, input.id)),

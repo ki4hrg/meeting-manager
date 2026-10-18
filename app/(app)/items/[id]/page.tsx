@@ -24,6 +24,8 @@ import {
   StatusBadge,
   type ItemKind,
 } from '@/components/ui/StatusBadge'
+import { iconButtonClasses } from '@/components/ui/IconButton'
+import { itemTodoist, openTasks, rankTasks } from '@/lib/connect/todoist/match'
 import { formatDay, formatMoment } from '@/lib/core/dates'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
@@ -59,6 +61,7 @@ import {
   updateItemAction,
   setItemTargetAction,
 } from '../../actions'
+import { MatchActions } from '../../settings/Todoist'
 
 const CONVERTIBLE: ItemKind[] = ['topic', 'question', 'action']
 
@@ -79,6 +82,7 @@ const EVENT: Record<ItemEvent['type'], { icon: IconName; label: string }> = {
   discussed: { icon: 'meeting', label: 'Discussed' },
   parked: { icon: 'later', label: 'Later' },
   unparked: { icon: 'undo', label: 'Back' },
+  needs_answer: { icon: 'question', label: 'Needs answer' },
 }
 
 function eventDetail(event: ItemEvent, kind: ItemKind): React.ReactNode {
@@ -219,6 +223,10 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
           .map((one) => ({ id: one.id, text: one.text, kind: one.kind }))
       : []
   const events = thread.events.filter((event) => event.itemId === id)
+  /* Its Todoist task, or a way to give it one. */
+  const todoist = await itemTodoist(db, item.id)
+  const unsent = todoist && (todoist.state === 'none' || todoist.state === 'unmatched' || todoist.state === 'skipped')
+  const taskChoices = unsent ? rankTasks(item.text, await openTasks(db)).slice(0, 60) : []
   /* Back to where the item lives: its project, the meeting it came from, the
      person or group it is for, or the Inbox. */
   const party = item.parties.find((one) => !one.isSelf)
@@ -546,8 +554,22 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 </ActionButton>
               ) : null}
 
-              {/* Housekeeping, icon only, last: its kind, Edit, Delete. */}
+              {/* Housekeeping, icon only, last: Todoist, its kind, Edit, Delete. */}
               <span className="ml-auto flex items-center gap-1">
+                {todoist?.state === 'linked' ? (
+                  <a
+                    href={todoist.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Open in Todoist"
+                    title={todoist.error ?? 'Open in Todoist'}
+                    className={iconButtonClasses(todoist.error ? 'gray' : 'on')}
+                  >
+                    <Icon name={todoist.error ? 'alert' : 'share'} className="h-4 w-4" />
+                  </a>
+                ) : unsent ? (
+                  <MatchActions itemId={item.id} choices={taskChoices} skip={todoist.state !== 'skipped'} />
+                ) : null}
                 {open && !decision ? (
                   <span className="flex items-center gap-1">
                     {CONVERTIBLE.map((kind) => (
@@ -641,6 +663,9 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                     <span className="font-medium text-gray-900 dark:text-gray-100">
                       {EVENT[event.type]?.label ?? event.type}
                     </span>
+                    {event.source === 'todoist' ? (
+                      <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Todoist</span>
+                    ) : null}
                     {detail ? (
                       <span className="ml-2 whitespace-pre-wrap text-gray-600 dark:text-gray-300">
                         {detail}

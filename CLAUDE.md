@@ -44,8 +44,8 @@ These apply to every screen.
 - `lib/meetings/` also holds `log.ts` (Log a meeting: people and pasted notes) and `move.ts` (a meeting or series to another context).
 - `lib/notes/`, `lib/processing/` — a meeting's notes, and what turns them into proposals: `verbatim.ts` (`D:` `Q:` `A:` `T:` lines, by code), `extract.ts` and `prompt.ts` (the model, behind the `Extractor` in `types.ts`), `run.ts` (queue and process), `proposals.ts` (accept, edit, reject, undo). `lib/documents/` — documents a meeting produced.
 - `lib/agenda/recap.ts` — the recap, computed on demand under the leak rules, and its outline for `Export`.
-- `lib/jobs/` — the scheduler and its jobs (`process-notes`, `granola-reconcile`), started from `instrumentation.ts`.
-- `lib/connect/` — connections to outside services and their bindings; `lib/connect/granola/` — Granola's client, webhook, ingest and reconcile, and `unfiled.ts` (notes held in the Inbox until filed into a context); `lib/calendar/feed.ts` — the read-only Google Calendar feed.
+- `lib/jobs/` — the scheduler and its jobs (`process-notes`, `granola-reconcile`, `todoist-sync`), started from `instrumentation.ts`. `act()` and every MCP write call `syncTodoistSoon()`.
+- `lib/connect/` — connections to outside services and their bindings; `lib/connect/granola/` — Granola's client, webhook, ingest and reconcile, and `unfiled.ts` (notes held in the Inbox until filed into a context); `lib/connect/todoist/` — the Todoist sync: `client.ts`, `connection.ts` (OAuth tokens, project bindings, where an item's task goes), `merge.ts` (the three-way merge, pure), `sync.ts` (pull, merge, create, push; what syncs), `match.ts` (linking items open at connect to tasks John has), `webhook.ts`; `lib/connect/deliveries.ts` — the delivery ledger both webhooks claim from; `lib/calendar/feed.ts` — the read-only Google Calendar feed.
 - `lib/web/` — `context.ts` (the viewer and the selected context), `action.ts` (`act()`, the wrapper every server action uses), `open.ts` (`openHref`: a link that selects another context on the way, through `app/api/open`).
 - `lib/today.ts` — home, which is Today: what needs attention in every live context. The one place rows from several contexts are listed together; each keeps its context (`ContextBadge`) and opens there.
 - `app/(app)/actions.ts` — server actions for items, the directory and projects. `app/(app)/meetings/actions.ts`, `app/(app)/meetings/processing-actions.ts` (log, review, notes), `app/(app)/series/actions.ts` and `app/(app)/settings/actions.ts` hold their own areas'.
@@ -81,7 +81,8 @@ Local database: `docker run -d --name mm-dev-db -e POSTGRES_USER=mm -e POSTGRES_
 - A meeting row is created only by `lib/meetings/prep.ts`, `lib/meetings/log.ts` or by hand. Nothing creates meetings from the calendar on its own; a Granola note with no meeting to match makes one through `meetingFromNote` in `prep.ts`.
 - A note with `meeting_id` null is unfiled: it has no context, nothing is run on it, and it is listed only in the Inbox. `meetingOf()` in `lib/notes/notes.ts` is how code that needs a note's meeting gets it.
 - A meeting with sessions keeps its own start and end; its agenda is its sessions', and nothing is placed on it.
-- Nothing processing proposes reaches `items`, `documents` or `meetings` until the proposal is accepted. No test calls a model or the network: tests pass a fake `Extractor` and a faked Granola.
+- Nothing processing proposes reaches `items`, `documents` or `meetings` until the proposal is accepted. No test calls a model or the network: tests pass a fake `Extractor`, a faked Granola and a faked Todoist (`test/helpers/todoist.ts`; `e2e/todoist.ts` for the browser tests).
+- Todoist sync state lives in `item_todoist_links` and `todoist_tasks`, never in `item_events`: an accept is undone only while the item's history is exactly what accepting made.
 - Much of `lib/oauth`, `lib/mcp` and `lib/auth` was lifted from `../Meeter`; that repo is the reference for the integrations still to come (Granola, Todoist, Google Calendar).
 
 ## Deploy

@@ -13,7 +13,7 @@ import { connect, dataOf, identityFor, makeUser, textOf, type ConnectedClient } 
 /* The job is never run from a tool call here: the tests stand in for it with
    processQueued, and only check that it was asked for. */
 const kick = vi.hoisted(() => vi.fn<(name: string) => Promise<unknown>>(async () => ({})))
-vi.mock('../lib/jobs', () => ({ PROCESS_NOTES: 'process-notes', kick }))
+vi.mock('../lib/jobs', () => ({ PROCESS_NOTES: 'process-notes', kick, syncTodoistSoon: () => {} }))
 
 resetBetweenTests()
 

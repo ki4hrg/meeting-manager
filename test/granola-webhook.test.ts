@@ -23,7 +23,7 @@ import {
 process.env.DATABASE_URL = databaseUrl
 
 const kick = vi.fn<(name: string) => Promise<object>>(async () => ({}))
-vi.mock('@/lib/jobs', () => ({ kick: (name: string) => kick(name), PROCESS_NOTES: 'process-notes' }))
+vi.mock('@/lib/jobs', () => ({ kick: (name: string) => kick(name), PROCESS_NOTES: 'process-notes', syncTodoistSoon: () => {} }))
 
 resetBetweenTests()
 afterEach(() => {

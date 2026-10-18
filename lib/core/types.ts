@@ -24,7 +24,7 @@ export function inTransaction<T>(exec: Executor, fn: (tx: Tx) => Promise<T>): Pr
 /** Who is asking. Jobs and webhooks act with no person behind them. */
 export type ActorContext = {
   userId: string | null
-  source: 'web' | 'mcp' | 'job' | 'webhook' | 'system'
+  source: 'web' | 'mcp' | 'job' | 'webhook' | 'system' | 'todoist'
   /** The OAuth client, when source is 'mcp'. */
   clientId?: string
   /** Groups a multi-row operation into one event. */

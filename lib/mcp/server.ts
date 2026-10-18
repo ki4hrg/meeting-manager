@@ -17,6 +17,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { AppError, type Executor } from '../core/types'
+import { syncTodoistSoon } from '../jobs'
 import type { BearerIdentity } from '../oauth/grants'
 import { actorFor } from './auth'
 import { granted, refusalFor } from './scopes'
@@ -96,6 +97,7 @@ export function createMcpServer(identity: BearerIdentity, exec: Executor): Serve
 
     try {
       const result = await tool.handler(parsed.data, context)
+      if (!tool.annotations?.readOnlyHint) syncTodoistSoon()
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
         structuredContent: result as Record<string, unknown>,

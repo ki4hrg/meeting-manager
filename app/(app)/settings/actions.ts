@@ -14,7 +14,14 @@ import {
   disconnectGranola,
   unbindFolder,
 } from '@/lib/connect/granola/connection'
+import {
+  bindTodoistProject,
+  disconnectTodoist,
+  unbindTodoistProject,
+} from '@/lib/connect/todoist/connection'
+import { linkItem, sendItem, skipItem } from '@/lib/connect/todoist/match'
 import { setTimeZone } from '@/lib/auth/users'
+import { ValidationError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { GRANOLA_RECONCILE, kick } from '@/lib/jobs'
 import { act, field, type ActionResult } from '@/lib/web/action'
@@ -99,5 +106,61 @@ export async function setFolderContextAction(formData: FormData): Promise<Action
     } else {
       await unbindFolder(db, { connectionId, folderId })
     }
+  })
+}
+
+// ─── Todoist ─────────────────────────────────────────────────────────────────
+
+export async function disconnectTodoistAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await disconnectTodoist(db, field(formData, 'connectionId'))
+  })
+}
+
+/**
+ * Send a context's tasks, or one project's (`<context>:project:<id>`), to a
+ * Todoist project; with nothing chosen, none.
+ */
+export async function setTodoistProjectAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    const connectionId = field(formData, 'connectionId')
+    const todoistProjectId = field(formData, 'todoistProjectId')
+    const place = parsePlace(field(formData, 'place'))
+
+    if (!place) {
+      await unbindTodoistProject(db, { connectionId, todoistProjectId })
+      return
+    }
+    if (place.scope && place.scope.kind !== 'project') {
+      throw new ValidationError('A Todoist project takes a context or one of its projects.')
+    }
+    await bindTodoistProject(db, {
+      connectionId,
+      todoistProjectId,
+      name: field(formData, 'name'),
+      contextId: place.contextId,
+      projectId: place.scope?.id ?? null,
+    })
+  })
+}
+
+/** Link an item to a task John already has in Todoist. */
+export async function linkTodoistAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await linkItem(db, { itemId: field(formData, 'itemId'), task: field(formData, 'task') })
+  })
+}
+
+/** Make a new task for the item on the next pass. */
+export async function sendTodoistAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await sendItem(db, field(formData, 'itemId'))
+  })
+}
+
+/** Keep the item out of Todoist. */
+export async function skipTodoistAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await skipItem(db, field(formData, 'itemId'))
   })
 }
