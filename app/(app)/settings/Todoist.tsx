@@ -198,7 +198,15 @@ export function MatchActions({
 
 export async function Todoist() {
   const connection = await todoistConnection(db)
-  if (!connection && !todoistConfigured()) return null
+  if (!connection && !todoistConfigured()) {
+    return (
+      <Section title="Todoist">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          TODOIST_CLIENT_ID and TODOIST_CLIENT_SECRET are not set.
+        </p>
+      </Section>
+    )
+  }
 
   return (
     <>
