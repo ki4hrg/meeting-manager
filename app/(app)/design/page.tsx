@@ -29,6 +29,8 @@ import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { RemovableChip } from '@/components/ui/RemovableChip'
 import { PartyRoles } from '@/components/items/PartyRoles'
+import { StanceLabel } from '@/components/items/Stance'
+import { STANCES } from '@/lib/items/roles'
 import { IconButton } from '@/components/ui/IconButton'
 import { Spinner } from '@/components/ui/Spinner'
 import {
@@ -468,6 +470,14 @@ export default function DesignPage() {
                     <KindIcon kind={kind} />
                     <PartyLine parties={parties} kind={kind} noOne={noOne} />
                   </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Stance</p>
+              <div className="flex flex-col gap-2">
+                {STANCES.map((stance) => (
+                  <StanceLabel key={stance} stance={stance} />
                 ))}
               </div>
             </div>

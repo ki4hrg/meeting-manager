@@ -685,7 +685,7 @@ export const renderRecapTool = defineTool({
   title: 'Render the recap of a meeting',
   description:
     'The recap of one meeting as markdown, as it goes to the attendees: the summary, what was ' +
-    'said under each agenda line, decisions, open questions and actions by owner, what was ' +
+    'said under each agenda line, decisions, what is owed by who owes it (a topic by its raiser), what was ' +
     'closed, and the lookahead. It is computed now, from accepted proposals only, and only ' +
     'from items placed on the agenda or captured in the meeting; my private notes never ' +
     'appear. A meeting with sessions gets one recap covering them. Also the subject line and ' +

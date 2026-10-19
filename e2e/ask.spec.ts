@@ -41,5 +41,7 @@ test('a question for the bishop is asked, answered with a decision, and reported
   await page.getByRole('link').filter({ hasText: WORLD.meetings.bishop }).first().click()
   await page.locator('summary').filter({ hasText: 'Suggestions' }).click()
   await expect(page.getByText(WORLD.items.longForm)).toBeVisible()
+  // His to answer: under him, with what is owed to John.
+  await expect(page.getByText('To me', { exact: true }).first()).toBeVisible()
   expect(errors).toEqual([])
 })

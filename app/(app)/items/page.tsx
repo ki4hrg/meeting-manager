@@ -11,7 +11,7 @@ import { isUuid } from '@/lib/core/match'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
-import { isLater, isWaitingOn } from '@/lib/items/horizon'
+import { iOwe, isLater, isWaitingOn } from '@/lib/items/horizon'
 import { isOpen, listItems, type ItemKind, type ItemView } from '@/lib/items/items'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { requireContext, viewer } from '@/lib/web/context'
@@ -113,7 +113,7 @@ export default async function ItemsPage({ searchParams }: { searchParams: Search
       : isOpen(item) && (filters.status === 'later') === isLater(item, today)
   const byRole = (item: ItemView) =>
     filters.role === 'owe'
-      ? !item.ongoing && item.parties.some((party) => party.role === 'owner' && party.isSelf)
+      ? iOwe(item)
       : filters.role === 'waiting'
         ? isWaitingOn(item)
         : filters.role === 'raised'

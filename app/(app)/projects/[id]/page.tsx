@@ -20,7 +20,7 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listDocuments } from '@/lib/documents/documents'
-import { isOwed } from '@/lib/items/horizon'
+import { isOwed, owersOf } from '@/lib/items/horizon'
 import { answered, isAnswered, isOpen, listItems, type ItemView } from '@/lib/items/items'
 import {
   ancestorIds,
@@ -46,14 +46,15 @@ import { restoreDeletedAction } from '../../archive-actions'
 
 type OwnerGroup = { key: string; name: string; group: boolean; items: ItemView[] }
 
-/* Owed items under each party that owes them. An item with several owners
-   appears under each; one with none is gathered at the end. */
+/* Owed items under each party that owes them, a topic under its raiser alone.
+   An item with several owners appears under each; one with none is gathered
+   at the end. */
 function byOwner(items: ItemView[]): OwnerGroup[] {
   const groups = new Map<string, OwnerGroup>()
   const unowned: ItemView[] = []
 
   for (const item of items) {
-    const owners = item.parties.filter((party) => party.role === 'owner')
+    const owners = owersOf(item)
     if (owners.length === 0) unowned.push(item)
     for (const owner of owners) {
       const entry = groups.get(owner.id) ?? {
@@ -125,7 +126,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const open = all.filter(isOpen)
   const owed = open.filter(isOwed)
   const ongoing = open.filter((item) => item.ongoing)
-  const topics = open.filter((item) => item.kind === 'topic')
+  // A topic someone else raises is owed, and listed under them there.
+  const topics = open.filter((item) => item.kind === 'topic' && !isOwed(item))
   const decisions = all.filter((item) => item.kind === 'decision')
   const answers = answered(all)
   const closed = all.filter((item) => item.kind !== 'decision' && !isOpen(item) && !isAnswered(item)).slice(0, 6)

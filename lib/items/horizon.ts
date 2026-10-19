@@ -56,9 +56,46 @@ export function splitLater<T extends Dated>(items: T[], today: string): { now: T
   return { now: byHorizon(items.filter(isNow), today), later }
 }
 
-/** Something somebody owes: an action, or a question that is not ongoing. */
-export function isOwed(item: Pick<ItemView, 'kind' | 'ongoing'>): boolean {
-  return item.kind === 'action' || (item.kind === 'question' && !item.ongoing)
+type Owing = Pick<ItemView, 'kind' | 'ongoing' | 'parties'>
+
+/* A topic's lead: its first owner, who raises it. Further owners are collaborators. */
+const leadOf = (item: Owing) => item.parties.find((party) => party.role === 'owner')
+
+/**
+ * Something somebody owes (docs/SPEC.md, "Who owes what"): an action, a
+ * question that is not ongoing, or a topic raised by someone other than John,
+ * who owes raising it and bringing back what came of it. A topic John raises
+ * is his own to bring and owed by nobody; a decision is a record.
+ */
+export function isOwed(item: Owing): boolean {
+  if (item.kind === 'action') return true
+  if (item.kind === 'question') return !item.ongoing
+  if (item.kind === 'topic') {
+    const lead = leadOf(item)
+    return lead !== undefined && !lead.isSelf
+  }
+  return false
+}
+
+/**
+ * Who owes it: every owner of an action or a question, and only the lead of a
+ * topic, never its collaborators. Empty when nobody owes it, or nobody is
+ * named yet.
+ */
+export function owersOf<T extends Owing>(item: T): T['parties'] {
+  if (!isOwed(item)) return []
+  if (item.kind === 'topic') return [leadOf(item)!]
+  return item.parties.filter((party) => party.role === 'owner')
+}
+
+/** Whether this person or group owes it. */
+export function owes(item: Owing, partyId: string): boolean {
+  return owersOf(item).some((party) => party.id === partyId)
+}
+
+/** Whether John owes it. */
+export function iOwe(item: Owing): boolean {
+  return owersOf(item).some((party) => party.isSelf)
 }
 
 /**
@@ -76,12 +113,13 @@ export function askedOfNoOne(item: Pick<ItemView, 'kind' | 'parties'>): boolean 
 }
 
 /**
- * What I am waiting on: an open question or action owed by someone and not by
- * me, or an open question asked of no one in particular.
+ * What I am waiting on: an open item owed by someone and not by me (a topic
+ * someone else raises comes back to me), or an open question asked of no one
+ * in particular.
  */
 export function isWaitingOn(item: ItemView): boolean {
   if (!isOpen(item) || !isOwed(item)) return false
-  const owners = item.parties.filter((party) => party.role === 'owner')
-  if (owners.length > 0) return !owners.some((party) => party.isSelf)
+  const owers = owersOf(item)
+  if (owers.length > 0) return !owers.some((party) => party.isSelf)
   return askedOfNoOne(item)
 }

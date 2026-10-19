@@ -155,7 +155,7 @@ describe('prep_meeting', () => {
     expect(first.candidates.suggested).toEqual([
       {
         by: { type: 'person', id: world.sarah.id, name: 'Sarah Jones' },
-        items: [{ id: owed.id, kind: 'action', text: 'Send the budget', due_on: null }],
+        items: [{ id: owed.id, kind: 'action', text: 'Send the budget', due_on: null, stance: 'theirs' }],
       },
     ])
     expect(first.candidates.more).toEqual([])
