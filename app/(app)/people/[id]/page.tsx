@@ -19,6 +19,7 @@ import { listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { pendingOnCards } from '@/lib/processing/proposals'
 import { requireContext, viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addPersonEmailAction,
   primaryEmailAction,
@@ -32,7 +33,13 @@ const has = (item: ItemView, personId: string, role: 'owner' | 'with') =>
 
 /* The person hub. People are global, but what is listed here is only what
    involves them in the selected context. */
-export default async function PersonPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PersonPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string | string[] }>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -51,10 +58,14 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     limit: 6,
   })
 
+  const crumbs = (await crumbsFrom(db, (await searchParams).from, context.id)) ?? [
+    { href: '/people', label: 'People' },
+  ]
+
   const header = (
     <PageHeader
       title={person.name}
-      crumbs={[{ href: '/people', label: 'People' }]}
+      crumbs={crumbs}
       actions={
         /* One click: a stub with everything saved up for them already on its agenda. */
         person.isSelf || person.archivedAt ? null : (

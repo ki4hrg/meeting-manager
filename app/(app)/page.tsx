@@ -11,10 +11,15 @@ import { formatMoment, formatTime } from '@/lib/core/dates'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import type { ItemView } from '@/lib/items/items'
-import { openCounts } from '@/lib/items/items'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { listProjects } from '@/lib/projects/projects'
-import { meetingsEverywhere, owedEverywhere, reviewEverywhere, type TodayEntry } from '@/lib/today'
+import {
+  inboxCountEverywhere,
+  meetingsEverywhere,
+  owedEverywhere,
+  reviewEverywhere,
+  type TodayEntry,
+} from '@/lib/today'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import { openHref } from '@/lib/web/open'
 
@@ -28,7 +33,8 @@ const STEP = {
 
 /* Home is Today: what needs attention in every context, each row marked with
    its context and opened there. The tiles and quick-add stay with the
-   selected context. */
+   selected context, except the Inbox's count, which is every context's like
+   the Inbox. */
 export default async function HomePage() {
   const context = await requireContext()
   const { user, self, today } = await viewer()
@@ -38,7 +44,6 @@ export default async function HomePage() {
   const label = (contextId: string) => (several ? nameOf.get(contextId) : undefined)
   const open = (path: string, contextId: string) => openHref(path, contextId, context.id)
 
-  const counts = await openCounts(db, context.id)
   const unfiled = await countUnfiledNotes(db)
   const projects = await listProjects(db, context.id)
   const groups = await listGroups(db, context.id)
@@ -64,7 +69,7 @@ export default async function HomePage() {
     }),
   )
   toReview.sort((a, b) => (b.meeting.startsAt?.getTime() ?? 0) - (a.meeting.startsAt?.getTime() ?? 0))
-  const inSelected = [...pending.values()].filter((one) => one.contextId === context.id).length
+  const inboxed = await inboxCountEverywhere(db, contexts)
 
   const owed = await owedEverywhere(db, contexts, self.id, today)
   const later = owed.later.mine.length + owed.later.waiting.length
@@ -123,7 +128,7 @@ export default async function HomePage() {
       <div className="mb-8">
         <CardGrid>
           <Tile href="/meetings" icon="meeting" title="Meetings" tone="teal" />
-          <Tile href="/inbox" icon="inbox" title="Inbox" tone="blue" count={counts.inbox + unfiled + inSelected} />
+          <Tile href="/inbox" icon="inbox" title="Inbox" tone="blue" count={inboxed + unfiled + pending.size} />
           <Tile
             href="/projects"
             icon="project"

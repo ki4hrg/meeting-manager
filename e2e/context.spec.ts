@@ -23,3 +23,18 @@ test('switching context keeps the page, and leaves a record of the old one for i
   await switchTo(page, WORLD.contexts.church)
   await expect(page).toHaveURL(/\/projects$/)
 })
+
+test('the switcher lists contexts only; Contexts and Settings are in the account menu', async ({ page }) => {
+  await page.goto('/')
+  const options = page.locator('select[aria-label=Context] option')
+  await expect(options.filter({ hasText: /Contexts|Settings/ })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await expect(page.getByRole('menuitem')).toHaveText(['Contexts', 'Settings', 'Sign out'])
+  await page.getByRole('menuitem', { name: 'Contexts' }).click()
+  await expect(page).toHaveURL(/\/contexts$/)
+
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await page.getByRole('menuitem', { name: 'Settings' }).click()
+  await expect(page).toHaveURL(/\/settings$/)
+})

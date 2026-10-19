@@ -5,7 +5,7 @@ import { WORLD } from './world'
 /* Signed out, so the page is not redirected past. */
 const SIGNED_OUT = ['/login']
 
-const PAGES = ['/', '/inbox', '/items', '/meetings', '/meetings/past', '/projects', '/people', '/groups', '/series', '/settings', '/design']
+const PAGES = ['/', '/inbox', '/items', '/meetings', '/meetings/past', '/projects', '/people', '/groups', '/series', '/contexts', '/settings', '/design']
 
 /* Hubs, reached from their list: a heading from the main column and one from the side. */
 const HUBS = [
@@ -43,6 +43,19 @@ for (const scheme of ['light', 'dark'] as const) {
         expect(errors).toEqual([])
       })
     }
+
+    test('the account menu opens on the screen with Contexts and Settings', async ({ page }) => {
+      const errors = watchErrors(page)
+      await page.goto('/')
+      await page.getByRole('button', { name: 'Account menu' }).click()
+      const menu = page.getByRole('menu')
+      await expect(menu.getByRole('menuitem')).toHaveText(['Contexts', 'Settings', 'Sign out'])
+      const box = (await menu.boundingBox())!
+      expect(box.x, 'menu runs off the left').toBeGreaterThanOrEqual(0)
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+      expect(overflow, 'page scrolls sideways').toBeLessThanOrEqual(0)
+      expect(errors).toEqual([])
+    })
 
     test('an item page fits the screen, its title the full width', async ({ page }) => {
       const errors = watchErrors(page)

@@ -34,7 +34,11 @@ export async function seed({ todoistToken }: { todoistToken?: string } = {}) {
   await createItem(db, actor, { contextId: conference.id, kind: 'action', text: WORLD.items.overdue, dueOn: addDays(today, -2), parties: mine, projectId: year.id })
   await createItem(db, actor, { contextId: church.id, kind: 'action', text: WORLD.items.lunch, dueOn: addDays(today, 6), parties: mine })
   await createItem(db, actor, { contextId: church.id, kind: 'action', text: WORLD.items.bulletin, dueOn: addDays(today, 3), parties: [{ personId: sarah.id, role: 'owner' }] })
+  // Nowhere to go yet: the Church's Inbox, listed there whichever context is selected.
+  await createItem(db, actor, { contextId: church.id, kind: 'topic', text: WORLD.items.loose })
   await createItem(db, actor, { contextId: conference.id, kind: 'topic', text: WORLD.items.accountability, parties: [{ personId: adlene.id, role: 'with' }] })
+  // Adlene's, in a project: its crumbs lead back to whichever page it was opened from.
+  await createItem(db, actor, { contextId: conference.id, kind: 'action', text: WORLD.items.venue, parties: [{ personId: adlene.id, role: 'owner' }], projectId: year.id })
   // Asked by John of no one in particular: it will come as a press release.
   await createItem(db, actor, { contextId: conference.id, kind: 'question', text: WORLD.items.delegateCost, dueOn: addDays(today, 5), parties: [{ personId: john.id, role: 'with' }], projectId: year.id })
 

@@ -47,6 +47,7 @@ import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
 import { acceptedSteps } from '@/lib/processing/proposals'
 import { viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addPartyAction,
   answerItemAction,
@@ -69,7 +70,13 @@ import { MatchActions } from '../../settings/Todoist'
 const CONVERTIBLE: ItemKind[] = ['topic', 'question', 'action']
 
 /* One item, the thread it belongs to, and everything that has happened to it. */
-export default async function ItemPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ItemPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string | string[] }>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -163,10 +170,13 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
   const todoist = await itemTodoist(db, item.id)
   const unsent = todoist && (todoist.state === 'none' || todoist.state === 'unmatched' || todoist.state === 'skipped')
   const taskChoices = unsent ? rankTasks(item.text, await openTasks(db)).slice(0, 60) : []
-  /* Back to where the item lives: its project, the meeting it came from, the
-     person or group it is for, or the Inbox. */
+  /* Back to the page it was opened from; otherwise to where the item lives:
+     its project, the meeting it came from, the person or group it is for, or
+     the Inbox. */
   const party = item.parties.find((one) => !one.isSelf)
-  const crumbs: Crumb[] = item.project
+  const crumbs: Crumb[] =
+    (await crumbsFrom(db, (await searchParams).from, item.contextId)) ??
+    (item.project
     ? [
         { href: '/projects', label: 'Projects' },
         { href: `/projects/${item.project.id}`, label: item.project.name },
@@ -180,7 +190,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
         ? party.type === 'person'
           ? [{ href: '/people', label: 'People' }, { href: `/people/${party.id}`, label: party.name }]
           : [{ href: '/groups', label: 'Groups' }, { href: `/groups/${party.id}`, label: party.name }]
-        : [{ href: '/inbox', label: 'Inbox' }]
+        : [{ href: '/inbox', label: 'Inbox' }])
 
   const reportTo = (
     <Field label="Report to">

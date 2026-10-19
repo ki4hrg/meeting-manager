@@ -33,6 +33,7 @@ import { outOfStep } from '@/lib/meetings/roster'
 import { getSeries } from '@/lib/meetings/series'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addSeriesPeopleAction,
   addSeriesProjectsAction,
@@ -149,7 +150,9 @@ export default async function SeriesPage({
     <>
       <PageHeader
         title={series.name}
-        crumbs={[{ href: '/series', label: 'Series' }]}
+        crumbs={
+          (await crumbsFrom(db, (await searchParams).from, series.contextId)) ?? [{ href: '/series', label: 'Series' }]
+        }
         actions={
           link ? (
               // The recurring event it follows: when it comes round, opening the next one.
