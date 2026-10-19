@@ -20,6 +20,7 @@ import {
   parkItem,
   removeItemParty,
   reopenItem,
+  setOngoing,
   takeBackItem,
   updateItem,
   type PartyInput,
@@ -512,5 +513,25 @@ describe('asking', () => {
     await syncTodoist(db)
     expect((await getItem(db, ask.id)).status).toBe('done')
     expect((await getItem(db, question.id)).parkedAt).toBeNull()
+  })
+})
+
+describe('an ongoing question', () => {
+  it('is never sent, and becoming ongoing closes the task a question had', async () => {
+    const fake = fakeTodoist()
+    const w = await world()
+    await connect()
+    const mine = (text: string, ongoing: boolean) =>
+      createItem(db, actor, { contextId: w.parish.id, kind: 'question', text, ongoing, parties: w.mine() })
+    await mine('2028 pilgrimage dates?', true)
+    const venue = await mine('Which venue?', false)
+    await syncTodoist(db)
+    expect(fake.byContent('2028 pilgrimage dates?')).toBeUndefined()
+    expect(fake.byContent('Which venue?')?.checked).toBe(false)
+
+    await setOngoing(db, actor, venue.id, true)
+    await syncTodoist(db)
+    expect(fake.byContent('Which venue?')?.checked).toBe(true)
+    expect((await getItem(db, venue.id)).status).toBe('open')
   })
 })

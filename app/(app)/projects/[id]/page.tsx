@@ -20,6 +20,7 @@ import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listDocuments } from '@/lib/documents/documents'
+import { isOwed } from '@/lib/items/horizon'
 import { answered, isAnswered, isOpen, listItems, type ItemView } from '@/lib/items/items'
 import {
   ancestorIds,
@@ -122,7 +123,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const parents = treeOrder(family).filter((one) => one.id !== id && !below.has(one.id) && !one.archivedAt)
 
   const open = all.filter(isOpen)
-  const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
+  const owed = open.filter(isOwed)
+  const ongoing = open.filter((item) => item.ongoing)
   const topics = open.filter((item) => item.kind === 'topic')
   const decisions = all.filter((item) => item.kind === 'decision')
   const answers = answered(all)
@@ -276,6 +278,14 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           }
           side={
             <>
+              <Section
+                title="Ongoing questions"
+                count={ongoing.length}
+                action={<QuickAdd presets={{ kind: 'question', projectId: id, ongoing: true }} />}
+              >
+                <ItemGrid items={ongoing} today={today} empty="question" showProject={rolled} />
+              </Section>
+
               <Section
                 title="Milestones"
                 count={milestones.length}

@@ -11,6 +11,7 @@ import {
   addNote,
   answerItem,
   askItem,
+  setOngoing,
   completeItem,
   convertItem,
   createItem,
@@ -84,7 +85,9 @@ export const captureItemTool = defineTool({
     'from_meeting records the meeting it came out of: it is listed there and in its recap. ' +
     'The context is inferred from the project, the meetings, the target or a group when there is more than one. ' +
     'A name that matches nothing is refused by name: make it with create_person, create_group, ' +
-    'create_project or create_series, then capture again.',
+    'create_project or create_series, then capture again. ongoing marks a question worked ' +
+    'through several conversations (2028 dates, say) rather than owed: it stays off I owe, ' +
+    'Waiting on and Todoist, and its steps are items captured with it as parent.',
   scope: 'meetings:write',
   input: z.object({
     text: z.string().min(1).describe('One line, in the wording to keep.'),
@@ -96,6 +99,7 @@ export const captureItemTool = defineTool({
     with: z.array(z.string()).optional().describe('People or groups, by name or id.'),
     due_on: z.string().optional().describe('A deadline, YYYY-MM-DD.'),
     parent_item_id: z.uuid().optional().describe('The item this one came out of.'),
+    ongoing: z.boolean().optional().describe('An ongoing question, not owed in the short term.'),
     from_meeting: z.uuid().optional().describe('Meeting id this came out of.'),
     target_meeting: z.uuid().optional().describe('Meeting id to raise this at.'),
     target_series: z
@@ -131,6 +135,7 @@ export const captureItemTool = defineTool({
           })
         ).id
 
+      if (input.ongoing && input.kind !== 'question') throw new ValidationError('Only a question is ongoing.')
       const project = input.project ? await resolveProject(tx, contextId, input.project) : null
       const target = await targetFrom(tx, contextId, input)
 
@@ -146,6 +151,7 @@ export const captureItemTool = defineTool({
         // The item layer refuses a meeting that is in another context.
         originMeetingId: input.from_meeting ?? null,
         target,
+        ongoing: input.ongoing,
       })
       return { item: itemOut(item) }
     }),
@@ -252,7 +258,9 @@ export const updateItemTool = defineTool({
     'new task, and "skip" keeps it out of Todoist. ask, on an open question someone else owes, makes ' +
     'John an action to put it to them (text, with and due_on of its own; with defaults to whoever ' +
     'it is asked of) and parks the question until that action is done; ask.join instead puts it ' +
-    'with an open action already made, for questions going in one message. With answer: ' +
+    'with an open action already made, for questions going in one message. ongoing true makes ' +
+    'an open question ongoing (off I owe, Waiting on and Todoist); false makes it owed again. ' +
+    'With answer: ' +
     'answered_in names the meeting it was answered in, told_them says John has passed the ' +
     'answer on already (neither is reported in since last time), close_ask closes the ask it ' +
     'waited on, and decision records a decision from it in its own words.',
@@ -283,6 +291,7 @@ export const updateItemTool = defineTool({
       })
       .optional()
       .describe('Ask an open question someone else owes.'),
+    ongoing: z.boolean().optional().describe('true makes an open question ongoing; false owed again.'),
     target_meeting: z.uuid().nullable().optional().describe('Meeting id to raise this at.'),
     target_series: z
       .string()
@@ -353,6 +362,7 @@ export const updateItemTool = defineTool({
         await setItemTarget(tx, actor, input.id, target ?? null)
       }
 
+      if (input.ongoing !== undefined) await setOngoing(tx, actor, input.id, input.ongoing)
       if (input.note) await addNote(tx, actor, input.id, input.note)
 
       if (input.later === false) {

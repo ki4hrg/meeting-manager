@@ -340,3 +340,23 @@ describe('asking over update_item', () => {
     expect(refused.isError).toBe(true)
   })
 })
+
+describe('ongoing over MCP', () => {
+  it('captures an ongoing question, refuses one on another kind, and switches it off', async () => {
+    const captured = await call('capture_item', {
+      text: '2028 pilgrimage dates?',
+      kind: 'question',
+      owners: ['me'],
+      project: 'retreat',
+      ongoing: true,
+    })
+    const { item } = dataOf<{ item: Item }>(captured)
+    expect(item.ongoing).toBe(true)
+
+    const refused = await call('capture_item', { text: 'Book it', kind: 'action', ongoing: true, project: 'retreat' })
+    expect(refused.isError).toBe(true)
+
+    const off = dataOf<{ item: Item }>(await call('update_item', { id: item.id, ongoing: false })).item
+    expect(off.ongoing).toBeUndefined()
+  })
+})

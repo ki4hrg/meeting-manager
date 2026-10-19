@@ -1,0 +1,2 @@
+ALTER TABLE "items" ADD COLUMN "ongoing" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "items" ADD CONSTRAINT "items_ongoing_question" CHECK (not "items"."ongoing" or "items"."kind" = 'question');

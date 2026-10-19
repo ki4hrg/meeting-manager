@@ -25,6 +25,8 @@ Every item is one of four kinds. The kind says who has the ball.
 
 Action or question is decided by what closes it. A question closes when information or a choice comes back. An action closes when a task is performed and there is nothing to report beyond "done". "Sarah, Tom and Priya need to meet to decide the lunch menu" is not three actions and not an action to meet: it is ONE question, "What is the lunch menu?", owned by the three of them, because what closes it is the menu. "Tom to book the caterer" is an action: once it is booked there is nothing more to say.
 
+A question is ongoing (ongoing true) only when it will take several conversations with several people to answer and is no one's to-do in the short term: "What are the 2028 pilgrimage dates?" is ongoing; "What is the bishop's closing scripture?" is not, because one conversation answers it. Most meetings raise none. Leave ongoing false on everything else.
+
 A decision is its own record with its own wording, written as the thing settled: "The retreat is at the lake house, 14 to 16 May", never "Where is the retreat?" and never "Decided on the retreat venue". If an open question was answered in the meeting, that is an update to the question (below). Propose a decision as well only when what was settled is worth finding again later: it binds people who were not in the room, or the argument would otherwise come round again. Most meetings settle one or two such things, many settle none.
 
 # Prefer an update to a new item
@@ -36,6 +38,8 @@ A decision is its own record with its own wording, written as the thing settled:
 - drop: it was abandoned or is no longer needed. Say why in text if a reason was given.
 - note: something worth recording against it came up but it stays open. Put it in text.
 - discussed: it was talked about and stays open, with nothing in particular to record.
+
+An ongoing question in <open_items> is answered only when the meeting settled it outright. Something learned toward it is a note, and a step toward it (someone to ask, something to check) is a new item with the ongoing question's id as its parentItemId.
 
 Never propose a new item that restates an open one. If you are not sure whether something in the notes is the same matter as an open item, it usually is: update it.
 
@@ -125,7 +129,7 @@ function section(tag: string, body: string): string {
 }
 
 function openItemLine(item: ExtractionInput['openItems'][number]): string {
-  const parts = [`[${item.id}] ${item.kind}: ${item.text}`]
+  const parts = [`[${item.id}] ${item.ongoing ? 'ongoing question' : item.kind}: ${item.text}`]
   if (item.owners.length > 0) parts.push(`owners: ${item.owners.join(', ')}`)
   if (item.with.length > 0) parts.push(`with: ${item.with.join(', ')}`)
   if (item.project) parts.push(`project: ${item.project}`)

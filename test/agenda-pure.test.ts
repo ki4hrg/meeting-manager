@@ -293,6 +293,7 @@ describe('brief rendering', () => {
           dueOn: null,
           parentItemId: null,
           supersededByItemId: null,
+          ongoing: false,
           closedAt: null,
           originMeetingId: null,
           targetMeetingId: null,

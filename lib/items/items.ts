@@ -80,6 +80,8 @@ export type ItemView = {
   laterOn: string | null
   /** Parked until this item closes, too: whichever comes first brings it back. */
   laterUntilItemId: string | null
+  /** Worked through several conversations; owed by no one in the short term. */
+  ongoing: boolean
   createdAt: Date
   updatedAt: Date
   parties: ItemParty[]
@@ -103,6 +105,7 @@ export type ItemEventType =
   | 'parked'
   | 'unparked'
   | 'needs_answer'
+  | 'ongoing'
 
 export type ItemEvent = {
   id: string
@@ -206,6 +209,7 @@ async function loadViews(exec: Executor, where: SQL | undefined, limit?: number)
     parkedAt: item.parkedAt,
     laterOn: item.laterOn,
     laterUntilItemId: item.laterUntilItemId,
+    ongoing: item.ongoing,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     parties: byItem.get(item.id) ?? [],
@@ -552,6 +556,8 @@ export type CreateItemInput = {
   /** The meeting it was captured in. */
   originMeetingId?: string | null
   target?: ItemTarget
+  /** An ongoing question; ignored on any other kind. */
+  ongoing?: boolean
 }
 
 export async function createItem(
@@ -592,6 +598,7 @@ export async function createItem(
         projectId: input.projectId ?? null,
         dueOn,
         parentItemId: input.parentItemId ?? null,
+        ongoing: kind === 'question' && input.ongoing === true,
       })
       .returning()
 
@@ -1000,9 +1007,33 @@ export async function convertItem(
     await tx
       .update(items)
       // needs_answer only means something on a question.
-      .set({ kind, status: 'open', updatedAt: new Date() })
+      // Only a question is ongoing.
+      .set({ kind, status: 'open', ongoing: false, updatedAt: new Date() })
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'converted', { from: item.kind, to: kind })
+    return getItem(tx, id)
+  })
+}
+
+/**
+ * An ongoing question (docs/SPEC.md, "Ongoing questions"): worked through
+ * several conversations rather than owed. Off I owe, Waiting on, follow-ups
+ * and Todoist, whoever owns it; raised like a topic; its steps are the items
+ * that come out of it.
+ */
+export async function setOngoing(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  ongoing: boolean,
+): Promise<ItemView> {
+  return inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (item.ongoing === ongoing) return item
+    if (item.kind !== 'question') throw new ValidationError('Only a question is ongoing.')
+    if (!isOpen(item)) throw new ValidationError('Reopen this question first.')
+    await tx.update(items).set({ ongoing, updatedAt: new Date() }).where(eq(items.id, id))
+    await logEvent(tx, actor, id, 'ongoing', { ongoing })
     return getItem(tx, id)
   })
 }

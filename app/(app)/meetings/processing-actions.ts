@@ -298,6 +298,7 @@ export async function editProposalAction(formData: FormData): Promise<ActionResu
         projectId: field(formData, 'projectId') || null,
         dueOn: parseDay(field(formData, 'dueOn')),
         seriesId: field(formData, 'seriesId') || null,
+        ongoing: kind === 'question' && formData.get('ongoing') === 'on',
       }
     } else if (was.type === 'update') {
       payload = {

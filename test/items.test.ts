@@ -22,6 +22,7 @@ import {
   recordDecision,
   reopenItem,
   setItemParties,
+  setOngoing,
   supersedeDecision,
   undropItem,
   unparkItem,
@@ -640,5 +641,28 @@ describe('asking', () => {
     expect(decision).toMatchObject({ kind: 'decision', parentItemId: sunday.id, text: 'Confirmation is on 17 May' })
     const [answered] = (await getThread(db, sunday.id)).events.filter((event) => event.type === 'answered')
     expect(answered?.data).toMatchObject({ answer: 'The 17th', told: true })
+  })
+})
+
+describe('ongoing questions', () => {
+  it('turns on and off on an open question only, and converting clears it', async () => {
+    const { parish } = await makeWorld()
+    const dates = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: '2028 dates?' })
+    expect((await setOngoing(db, actor, dates.id, true)).ongoing).toBe(true)
+    expect((await setOngoing(db, actor, dates.id, false)).ongoing).toBe(false)
+
+    const topic = await createItem(db, actor, { contextId: parish.id, text: 'Pilgrimage' })
+    await expect(setOngoing(db, actor, topic.id, true)).rejects.toThrow('Only a question is ongoing.')
+
+    await setOngoing(db, actor, dates.id, true)
+    expect((await convertItem(db, actor, dates.id, 'topic')).ongoing).toBe(false)
+
+    // Asked for on another kind, it is not ongoing.
+    const action = await createItem(db, actor, { contextId: parish.id, kind: 'action', text: 'Book', ongoing: true })
+    expect(action.ongoing).toBe(false)
+
+    const answered = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: 'Done?' })
+    await answerItem(db, actor, answered.id, { answer: 'Yes' })
+    await expect(setOngoing(db, actor, answered.id, true)).rejects.toThrow('Reopen this question first.')
   })
 })

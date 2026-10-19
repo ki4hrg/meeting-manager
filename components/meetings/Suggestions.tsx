@@ -16,7 +16,7 @@ const count = (groups: CandidateGroup[]) => groups.reduce((sum, group) => sum + 
 function ItemRow({ item, children }: { item: ItemView; children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-2 py-1.5">
-      <KindIcon kind={item.kind} className="mt-0.5 h-4 w-4" />
+      <KindIcon kind={item.kind} ongoing={item.ongoing} className="mt-0.5 h-4 w-4" />
       <Link
         href={`/items/${item.id}`}
         className="min-w-0 flex-1 text-sm text-gray-900 hover:underline dark:text-gray-100"

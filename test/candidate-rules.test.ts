@@ -1570,3 +1570,37 @@ describe('since last time, between meetings', () => {
     expect(groupBlock?.closed.map((entry) => entry.itemId)).toEqual([forStaff.id])
   })
 })
+
+describe('an ongoing question', () => {
+  it('is suggested like a topic where its project meets, placed when aimed, and never a follow-up', async () => {
+    const w = await makeWorld()
+    const dates = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: '2028 pilgrimage dates?',
+      projectId: w.retreat.id,
+      ongoing: true,
+      parties: [{ personId: w.sarah.id, role: 'owner' }],
+    })
+    const owed = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Coach numbers?',
+      projectId: w.retreat.id,
+      parties: [{ personId: w.sarah.id, role: 'owner' }],
+    })
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id, w.tom.id],
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+      blocks: ALL_ON,
+    })
+    expect(grouped((await getCandidates(db, meeting.id, NOW)).suggested)).toEqual(ids([dates, owed]))
+
+    await placeItem(db, actor, meeting.id, dates.id)
+    await placeItem(db, actor, meeting.id, owed.id)
+    const followUps = (await computeBlocks(db, meeting.id, { today: TODAY, now: NOW, force: ALL_ON })).followUps
+    expect(followUps?.flatMap((entry) => entry.items.map((item) => item.itemId))).toEqual([owed.id])
+  })
+})

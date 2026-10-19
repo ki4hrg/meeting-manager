@@ -115,7 +115,8 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   )
 
   if (person.isSelf) {
-    const owe = open.filter((item) => has(item, id, 'owner'))
+    // An ongoing question is pursued, not owed: it waits on its project.
+    const owe = open.filter((item) => has(item, id, 'owner') && !item.ongoing)
     const owed = open.filter((item) => has(item, id, 'with'))
     return (
       <>

@@ -417,6 +417,9 @@ export const items = pgTable(
     laterUntilItemId: uuid('later_until_item_id').references((): AnyPgColumn => items.id, {
       onDelete: 'set null',
     }),
+    /* An ongoing question: worked through several conversations, owed by no
+       one in the short term. Off I owe, Waiting on, follow-ups and Todoist. */
+    ongoing: boolean('ongoing').notNull().default(false),
     ...timestamps,
     ...deletable,
   },
@@ -434,6 +437,7 @@ export const items = pgTable(
     index('items_origin_meeting_idx').on(t.originMeetingId),
     index('items_later_until_item_idx').on(t.laterUntilItemId),
     check('items_later_until_other', sql`${t.laterUntilItemId} <> ${t.id}`),
+    check('items_ongoing_question', sql`not ${t.ongoing} or ${t.kind} = 'question'`),
   ],
 )
 
@@ -922,6 +926,8 @@ export type ProposalPayload =
       parentItemId?: string | null
       /* Raise at the next meeting of this series. */
       seriesId?: string | null
+      /* A question worked through several conversations, not owed. */
+      ongoing?: boolean
     }
   | {
       type: 'update'

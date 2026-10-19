@@ -28,6 +28,7 @@ import {
   series,
   type BlockSettings,
 } from '../db/schema'
+import { isOwed } from '../items/horizon'
 import { isOpen, listItems, type ItemView } from '../items/items'
 import type {
   BlockParty,
@@ -123,7 +124,7 @@ async function followUpsFor(
   today: string,
 ): Promise<FollowUpsBlock | null> {
   const owed = (await itemsOf(exec, meeting)).filter(
-    (item) => isOpen(item) && (item.kind === 'question' || item.kind === 'action'),
+    (item) => isOpen(item) && isOwed(item),
   )
 
   const byParty = new Map<string, FollowUpsBlock[number]>()

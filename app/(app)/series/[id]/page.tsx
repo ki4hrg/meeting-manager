@@ -25,6 +25,7 @@ import type { BlockSettings } from '@/lib/db/schema'
 import { allGroupEmails, listGroups, listMembers } from '@/lib/directory/groups'
 import { GroupCluster, MeChip, MemberLink } from '@/components/meetings/Roster'
 import { listPeople } from '@/lib/directory/people'
+import { isOwed } from '@/lib/items/horizon'
 import { answered, isOpen, listItems } from '@/lib/items/items'
 import { listMeetings, nextOccurrence } from '@/lib/meetings/meetings'
 import { calendarLinkOf, unlinkedRecurring } from '@/lib/meetings/prep'
@@ -127,7 +128,7 @@ export default async function SeriesPage({
   const all = await listItems(db, { contextId: context.id, seriesId: id })
   const open = all.filter(isOpen)
   const topics = open.filter((item) => item.kind === 'topic')
-  const owed = open.filter((item) => item.kind === 'question' || item.kind === 'action')
+  const owed = open.filter(isOwed)
   const decisions = all.filter((item) => item.kind === 'decision')
   const answers = answered(all)
 

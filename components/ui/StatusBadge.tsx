@@ -73,8 +73,27 @@ export const KIND: Record<ItemKind, { label: string; tone: Tone; icon: IconName 
 }
 
 /** The kind as a coloured mark. The name is there for a screen reader, not the eye. */
-export function KindIcon({ kind, className = 'w-5 h-5' }: { kind: ItemKind; className?: string }) {
+export function KindIcon({
+  kind,
+  ongoing = false,
+  className = 'w-5 h-5',
+}: {
+  kind: ItemKind
+  /** An ongoing question: the question mark, going round. */
+  ongoing?: boolean
+  className?: string
+}) {
   const { label, tone, icon } = KIND[kind]
+  if (ongoing && kind === 'question') {
+    return (
+      <span className={`relative inline-flex shrink-0 ${ICON[tone]}`}>
+        <Icon name={icon} className={className} label="Ongoing question" />
+        <span className="absolute -bottom-0.5 -right-1 rounded-full bg-white dark:bg-gray-800">
+          <Icon name="refresh" className="h-3 w-3" />
+        </span>
+      </span>
+    )
+  }
   return (
     <span className={`inline-flex shrink-0 ${ICON[tone]}`}>
       <Icon name={icon} className={className} label={label} />

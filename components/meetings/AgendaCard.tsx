@@ -139,7 +139,7 @@ function LineRow({
     <li className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2">
       {timed ? <Start row={line} /> : null}
       {item ? (
-        <KindIcon kind={item.kind} className="mt-0.5 h-4 w-4" />
+        <KindIcon kind={item.kind} ongoing={item.ongoing} className="mt-0.5 h-4 w-4" />
       ) : (
         <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
           <span className="h-1.5 w-1.5 rounded-full bg-gray-300 dark:bg-gray-600" />

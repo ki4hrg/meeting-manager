@@ -52,6 +52,7 @@ import {
   answerItemAction,
   askItemAction,
   convertItemAction,
+  setOngoingAction,
   deleteItemAction,
   itemStatusAction,
   parkItemAction,
@@ -85,6 +86,7 @@ const EVENT: Record<ItemEvent['type'], { icon: IconName; label: string }> = {
   parked: { icon: 'later', label: 'Later' },
   unparked: { icon: 'undo', label: 'Back' },
   needs_answer: { icon: 'question', label: 'Needs answer' },
+  ongoing: { icon: 'refresh', label: 'Ongoing' },
 }
 
 function eventDetail(event: ItemEvent, kind: ItemKind): React.ReactNode {
@@ -92,6 +94,8 @@ function eventDetail(event: ItemEvent, kind: ItemKind): React.ReactNode {
   switch (event.type) {
     case 'note':
       return data.text
+    case 'ongoing':
+      return (event.data as { ongoing?: boolean }).ongoing === false ? 'Off' : null
     case 'spawned':
       return data.text
     case 'parked':
@@ -271,7 +275,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
       <Breadcrumbs crumbs={crumbs} />
       <Card padding="md" className="mb-8">
         <div className="flex items-start gap-4">
-          <KindIcon kind={item.kind} className="h-7 w-7" />
+          <KindIcon kind={item.kind} ongoing={item.ongoing} className="h-7 w-7" />
           <div className="min-w-0 flex-1">
             {/* Badges under the title on a phone, beside it from sm up. */}
             <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
@@ -641,6 +645,19 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                         <KindIcon kind={kind} className="h-4 w-4" />
                       </ActionButton>
                     ))}
+                    {item.kind === 'question' ? (
+                      <ActionButton
+                        action={setOngoingAction}
+                        fields={{ id: item.id, ongoing: item.ongoing ? '' : 'on' }}
+                        variant="ghost"
+                        size="sm"
+                        aria-label="Ongoing"
+                        aria-pressed={item.ongoing}
+                        className={item.ongoing ? '!bg-gray-100 dark:!bg-gray-700' : ''}
+                      >
+                        <KindIcon kind="question" ongoing className="h-4 w-4" />
+                      </ActionButton>
+                    ) : null}
                   </span>
                 ) : null}
                 <FormModal action={updateItemAction} title="Edit" icon="pencil" compact>

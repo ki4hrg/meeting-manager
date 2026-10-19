@@ -15,9 +15,10 @@
  *      base are written only when every command for it was accepted; a link
  *      with a refused command is left as it was and tried again next pass.
  *
- * What syncs (`eligibleItem`): an open action or question, not deleted, in a
- * live context, with John's own person row among its owners. A group as owner
- * neither adds nor takes away: John and a group syncs, a group alone does not.
+ * What syncs (`eligibleItem`): an open action or question (not an ongoing
+ * one), not deleted, in a live context, with John's own person row among its
+ * owners. A group as owner neither adds nor takes away: John and a group
+ * syncs, a group alone does not.
  * Items open when Todoist was connected are `unmatched` instead (`match.ts`).
  */
 
@@ -76,6 +77,7 @@ export function johnOwns(selfId: string | null): SQL<boolean> {
 export function eligibleItem(selfId: string | null): SQL {
   return and(
     inArray(items.kind, ['action', 'question']),
+    eq(items.ongoing, false),
     eq(items.status, 'open'),
     isNull(items.deletedAt),
     isNull(contexts.archivedAt),

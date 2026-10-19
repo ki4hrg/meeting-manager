@@ -112,6 +112,24 @@ describe('Today', () => {
     expect(owed.mine.map((item) => item.text)).toEqual(['asked of me'])
   })
 
+  it('leaves an ongoing question off I owe and Waiting on, whoever it is asked of', async () => {
+    const { parish, john, sarah } = await makeWorld()
+    const ongoing = (text: string, personId: string) =>
+      createItem(db, actor, {
+        contextId: parish.id,
+        kind: 'question',
+        text,
+        dueOn: '2026-10-08',
+        ongoing: true,
+        parties: [{ personId, role: 'owner' }],
+      })
+    await ongoing('2028 pilgrimage dates', john.id)
+    await ongoing('Long-term venue', sarah.id)
+
+    const owed = await owedEverywhere(db, await listContexts(db), john.id, TODAY)
+    expect([...owed.mine, ...owed.waiting, ...owed.later.mine, ...owed.later.waiting]).toEqual([])
+  })
+
   it("lists today's meetings by the user's clock, apart from Next up", async () => {
     const { parish, diocese } = await makeWorld()
     // 10:00 in New York (UTC-4) on Oct 4.

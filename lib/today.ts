@@ -29,11 +29,14 @@ export type Owed = {
 
 /* What I owe, and what I am waiting on, in one context. */
 async function owedIn(exec: Executor, contextId: string, selfId: string) {
-  const mine = await listItems(exec, {
-    contextId,
-    open: true,
-    party: { personId: selfId, role: 'owner' },
-  })
+  // An ongoing question is pursued, not owed.
+  const mine = (
+    await listItems(exec, {
+      contextId,
+      open: true,
+      party: { personId: selfId, role: 'owner' },
+    })
+  ).filter((item) => !item.ongoing)
   const waiting = (await listItems(exec, { contextId, open: true, kinds: ['question', 'action'] })).filter(isWaitingOn)
   return { mine, waiting }
 }

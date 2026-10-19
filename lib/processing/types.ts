@@ -49,6 +49,7 @@ export type ExtractionInput = {
     with: string[]
     project: string | null
     dueOn: string | null
+    ongoing?: boolean
   }[]
   /** Who and what a name in the notes can resolve to. People are global; groups and projects are the context's. */
   directory: {
