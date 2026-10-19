@@ -25,6 +25,7 @@ import { missingDetails } from '../lib/processing/missing'
 import {
   acceptEdited,
   acceptProposal,
+  acceptedSteps,
   addProposals,
   approveAll,
   cleanPayload,
@@ -381,6 +382,23 @@ describe('accepting', () => {
     // An update makes nothing new.
     expect(await itemCount(w.parish.id)).toBe(4)
     expect(results[0]!.item).toMatchObject({ id: action.id, status: 'done' })
+  })
+
+  it('says which of an item’s steps came from which meeting’s review', async () => {
+    const { meeting } = await setup()
+    const [made] = await propose(meeting.id, [{ payload: item('Book the hall') }])
+    const { result } = await acceptProposal(db, actor, made!.id)
+    const itemId = result!.itemId!
+
+    const [done] = await propose(meeting.id, [{ payload: { type: 'update', itemId, change: 'complete', text: 'Booked' } }])
+    const update = await acceptProposal(db, actor, done!.id)
+
+    const steps = await acceptedSteps(db, itemId)
+    expect(steps.created).toEqual({ meetingId: meeting.id, title: 'Staff' })
+    expect([...steps.events]).toEqual([[update.result!.eventId, { meetingId: meeting.id, title: 'Staff' }]])
+
+    const byHand = await createItem(db, actor, { contextId: meeting.contextId, kind: 'action', text: 'By hand' })
+    expect(await acceptedSteps(db, byHand.id)).toEqual({ created: null, events: new Map() })
   })
 
   it('closes by what the item is, not by the word the model chose', async () => {
