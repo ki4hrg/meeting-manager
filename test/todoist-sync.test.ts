@@ -475,6 +475,48 @@ describe('comments', () => {
     expect(await db.select().from(todoistComments)).toHaveLength(0)
   })
 
+  it('reads a task’s existing comments once it is linked to an item from Match', async () => {
+    const fake = fakeTodoist()
+    const w = await world()
+    const item = await w.action('Renew the car insurance')
+    const taskId = fake.add('Renew the car insurance')
+    const old = fake.comment(taskId, 'Called the broker', '2026-10-01T09:00:00Z')
+    await connect()
+    await syncTodoist(db)
+    expect(await itemComments(db, item.id)).toHaveLength(0)
+
+    await linkItem(db, { itemId: item.id, task: taskId })
+    await syncTodoist(db)
+    expect((await itemComments(db, item.id)).map((one) => one.id)).toEqual([old])
+    expect(fake.commentReads).toEqual([taskId])
+
+    /* Read once; after that the feed carries them. */
+    const next = fake.comment(taskId, 'Quote in')
+    await syncTodoist(db)
+    expect((await itemComments(db, item.id)).map((one) => one.id)).toEqual([old, next])
+    expect(fake.commentReads).toEqual([taskId])
+  })
+
+  it('backfills comments older than the feed’s cursor on tasks linked before comments were read', async () => {
+    const { fake, item, taskId } = await synced()
+    expect(fake.commentReads).toEqual([])
+    const old = fake.comment(taskId, 'Daily review: waiting on Tom', '2026-10-10T09:00:00Z')
+    // As if linked before this shipped: the cursor is past the comment and the link never read.
+    await db.update(connections).set({ cursor: 's999999' })
+    await db.update(itemTodoistLinks).set({ commentsReadAt: null }).where(eq(itemTodoistLinks.itemId, item.id))
+
+    await syncTodoist(db)
+    expect((await itemComments(db, item.id)).map((one) => one.content)).toEqual(['Daily review: waiting on Tom'])
+    expect(fake.commentReads).toEqual([taskId])
+
+    // A whole read also drops what Todoist no longer has.
+    fake.deleteComment(old)
+    await db.update(itemTodoistLinks).set({ commentsReadAt: null }).where(eq(itemTodoistLinks.itemId, item.id))
+    await db.update(connections).set({ cursor: 's999999' })
+    await syncTodoist(db)
+    expect(await itemComments(db, item.id)).toHaveLength(0)
+  })
+
   it('writes nothing to the item’s own history', async () => {
     const { fake, item, taskId } = await synced()
     const before = await db.select().from(itemEvents).where(eq(itemEvents.itemId, item.id))

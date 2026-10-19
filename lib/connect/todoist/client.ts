@@ -169,6 +169,29 @@ export async function getTask(token: string, taskId: string): Promise<TodoistTas
   return (await response.json()) as TodoistTask
 }
 
+/** Every live comment on one task. None when Todoist no longer has the task. */
+export async function listComments(token: string, taskId: string): Promise<TodoistNote[]> {
+  const all: TodoistNote[] = []
+  let cursor: string | null = null
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = new URL('/api/v1/comments', API_BASE)
+    url.searchParams.set('task_id', taskId)
+    url.searchParams.set('limit', '100')
+    if (cursor) url.searchParams.set('cursor', cursor)
+    const response = await fetch(url, {
+      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+    })
+    if (response.status === 404) return []
+    if (!response.ok) await failure(response, '/api/v1/comments')
+    const body = (await response.json()) as { results: TodoistNote[]; next_cursor: string | null }
+    /* The REST shape may name the task differently; it is the one asked for. */
+    all.push(...body.results.filter((note) => !note.is_deleted).map((note) => ({ ...note, item_id: taskId })))
+    cursor = body.next_cursor
+    if (!cursor) break
+  }
+  return all
+}
+
 /** Whose token this is. */
 export async function tokenOwner(token: string): Promise<TodoistUser> {
   const response = await fetch(`${API_BASE}/api/v1/user`, {

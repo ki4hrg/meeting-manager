@@ -1130,6 +1130,10 @@ export const itemTodoistLinks = pgTable(
     baseClosed: boolean('base_closed').notNull().default(false),
     /* When both sides last became closed: a reopen in Todoist is honoured for 30 days. */
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    /* When the task's existing comments were last read whole: null for a link
+       made from a task John already had (or one linked before comments were
+       read), which the next pass reads. The change feed carries them after. */
+    commentsReadAt: timestamp('comments_read_at', { withTimezone: true }),
     lastError: text('last_error'),
     ...timestamps,
   },

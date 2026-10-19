@@ -36,6 +36,8 @@ export type FakeTodoist = {
   refuse: Map<string, string>
   /** Every command received, in order, repeats included. */
   commands: { type: string; uuid: string; args: Record<string, unknown> }[]
+  /** The task of every comment list asked for, in order. */
+  commentReads: string[]
   /** Answer the next request with this status instead. */
   failNext: number[]
   /** John, in Todoist: change a task as the app would. */
@@ -73,6 +75,7 @@ export function fakeTodoist(): FakeTodoist {
     token: ACCESS_TOKEN,
     refuse: new Map(),
     commands: [],
+    commentReads: [],
     failNext: [],
     edit: (id, patch) => {
       const task = fake.tasks.get(id)
@@ -177,6 +180,15 @@ export function fakeTodoist(): FakeTodoist {
     }
     if (method === 'GET' && url.pathname === '/api/v1/projects') {
       return json({ results: fake.projects, next_cursor: null })
+    }
+    if (method === 'GET' && url.pathname === '/api/v1/comments') {
+      const taskId = url.searchParams.get('task_id') ?? ''
+      fake.commentReads.push(taskId)
+      if (!fake.tasks.has(taskId)) return json({}, 404)
+      const results = [...fake.notes.values()]
+        .filter((note) => note.item_id === taskId && !note.is_deleted)
+        .map((note) => ({ ...note, seq: undefined }))
+      return json({ results, next_cursor: null })
     }
     const one = /^\/api\/v1\/tasks\/([^/]+)$/.exec(url.pathname)
     if (method === 'GET' && one) {

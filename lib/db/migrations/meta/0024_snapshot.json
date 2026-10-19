@@ -1,5 +1,5 @@
 {
-  "id": "f4a10aa0-8f21-40a8-aba8-c977f939e0cf",
+  "id": "edef0ac0-16e4-4ff9-a8bb-1b356aaf50bb",
   "prevId": "109cb773-98eb-40b1-93c1-14724ce260ad",
   "version": "7",
   "dialect": "postgresql",
@@ -1405,6 +1405,12 @@
         },
         "closed_at": {
           "name": "closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "comments_read_at": {
+          "name": "comments_read_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

@@ -59,7 +59,7 @@ import {
   todoistProjectFor,
   withTodoist,
 } from './connection'
-import { cacheComments } from './comments'
+import { cacheComments, readLinkedComments } from './comments'
 import { mergeLink, type Base, type ItemOp, type TaskCommand, type UnlinkReason } from './merge'
 
 export function todoistActor(): ActorContext {
@@ -482,7 +482,8 @@ async function settle(
       await tx
         .update(itemTodoistLinks)
         .set({
-          ...(taskId ? { taskId, state: 'linked' } : {}),
+          /* A task just made has no comments yet; the feed brings any later. */
+          ...(taskId ? { taskId, state: 'linked', commentsReadAt: new Date() } : {}),
           ...(plan.unlink ? { state: 'unlinked', unlinkedReason: plan.unlink } : {}),
           baseText: plan.base.text,
           baseDueOn: plan.base.dueOn,
@@ -553,6 +554,8 @@ export async function syncTodoist(exec: Executor, now: Date = new Date()): Promi
   if (!connection) return null
 
   const pulled = await pull(exec, connection)
+  /* Comments already on a task when it was linked, which the feed will not send. */
+  await readLinkedComments(exec, connection.id)
   const self = await findSelf(exec)
   const selfId = self?.id ?? null
 

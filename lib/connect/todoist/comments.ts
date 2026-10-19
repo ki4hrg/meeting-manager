@@ -6,12 +6,18 @@
  * its comments; a comment deleted in Todoist is deleted here. They live in
  * `todoist_comments`, never in `item_events`, so an accept's undo still sees
  * exactly the history accepting made.
+ *
+ * The change feed carries comments made after a task was linked. A link to a
+ * task John already had (Match, or any link from before comments were read)
+ * has `comments_read_at` null, and the next pass reads that task's comments
+ * whole (`readLinkedComments`), a few tasks a pass.
  */
 
-import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
-import type { Executor } from '../../core/types'
+import { and, asc, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
+import { inTransaction, type Executor } from '../../core/types'
 import { itemTodoistLinks, todoistComments } from '../../db/schema'
-import type { TodoistNote } from './client'
+import { listComments, TodoistApiError, type TodoistNote } from './client'
+import { withTodoist } from './connection'
 
 /** Keep what the change feed said about comments: new and edited on linked tasks, deleted anywhere. */
 export async function cacheComments(exec: Executor, connectionId: string, notes: TodoistNote[]): Promise<void> {
@@ -47,16 +53,22 @@ export async function cacheComments(exec: Executor, connectionId: string, notes:
     for (const row of rows) linked.add(row.taskId!)
   }
 
-  const rows = live
-    .filter((note) => linked.has(note.item_id))
-    .map((note) => ({
-      connectionId,
-      commentId: note.id,
-      taskId: note.item_id,
-      content: note.content ?? '',
-      postedAt: note.posted_at ? new Date(note.posted_at) : new Date(),
-      seenAt: new Date(),
-    }))
+  await upsertComments(
+    exec,
+    connectionId,
+    live.filter((note) => linked.has(note.item_id)),
+  )
+}
+
+async function upsertComments(exec: Executor, connectionId: string, notes: TodoistNote[]): Promise<void> {
+  const rows = notes.map((note) => ({
+    connectionId,
+    commentId: note.id,
+    taskId: note.item_id,
+    content: note.content ?? '',
+    postedAt: note.posted_at ? new Date(note.posted_at) : new Date(),
+    seenAt: new Date(),
+  }))
   for (let start = 0; start < rows.length; start += 500) {
     await exec
       .insert(todoistComments)
@@ -71,6 +83,62 @@ export async function cacheComments(exec: Executor, connectionId: string, notes:
         },
       })
   }
+}
+
+/** At most this many tasks have their comments read in one pass; the rest wait for the next. */
+export const COMMENT_READS_PER_PASS = 50
+
+/**
+ * Read whole the comments of linked tasks not read yet: what was there before
+ * the link, or before comments were read at all. Returns how many tasks.
+ */
+export async function readLinkedComments(
+  exec: Executor,
+  connectionId: string,
+  limit = COMMENT_READS_PER_PASS,
+): Promise<number> {
+  const links = await exec
+    .select({ id: itemTodoistLinks.id, taskId: itemTodoistLinks.taskId })
+    .from(itemTodoistLinks)
+    .where(
+      and(
+        eq(itemTodoistLinks.connectionId, connectionId),
+        eq(itemTodoistLinks.state, 'linked'),
+        isNotNull(itemTodoistLinks.itemId),
+        isNotNull(itemTodoistLinks.taskId),
+        isNull(itemTodoistLinks.commentsReadAt),
+      ),
+    )
+    .orderBy(asc(itemTodoistLinks.createdAt))
+    .limit(limit)
+
+  let read = 0
+  for (const link of links) {
+    let notes: TodoistNote[]
+    try {
+      notes = await withTodoist(exec, connectionId, (token) => listComments(token, link.taskId!))
+    } catch (err) {
+      /* Todoist busy or down: the rest wait for the next pass. */
+      if (err instanceof TodoistApiError && err.retryable) break
+      throw err
+    }
+    await inTransaction(exec, async (tx) => {
+      const ids = notes.map((note) => note.id)
+      await tx
+        .delete(todoistComments)
+        .where(
+          and(
+            eq(todoistComments.connectionId, connectionId),
+            eq(todoistComments.taskId, link.taskId!),
+            ...(ids.length > 0 ? [notInArray(todoistComments.commentId, ids)] : []),
+          ),
+        )
+      await upsertComments(tx, connectionId, notes)
+      await tx.update(itemTodoistLinks).set({ commentsReadAt: new Date() }).where(eq(itemTodoistLinks.id, link.id))
+    })
+    read++
+  }
+  return read
 }
 
 export type ItemComment = { id: string; content: string; postedAt: Date }
