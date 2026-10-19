@@ -4,9 +4,10 @@ import { Icon } from './icons'
 export type Crumb = { href: string; label: string }
 
 /**
- * The way back up from a page: its section, then whatever it sits within.
- * Installed as an app there is no browser back button, so every page below a
- * section shows one.
+ * The way back from a page: to the page it was opened from, when a card's
+ * link said (`from`, `lib/web/from.ts`); otherwise up to its section, then
+ * whatever it sits within. Installed as an app there is no browser back
+ * button, so every page below a section shows one.
  */
 export function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
   if (crumbs.length === 0) return null

@@ -21,6 +21,7 @@ export const WORLD = {
     scripture: 'What is the scripture for closing worship?',
     longForm: 'Does the bishop want the long form of the liturgy?',
     loose: 'Ideas for the youth retreat',
+    venue: 'Confirm the venue contract',
   },
   meetings: {
     checkIn: 'Adlene/John Check-In',

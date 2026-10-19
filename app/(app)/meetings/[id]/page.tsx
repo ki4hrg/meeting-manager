@@ -39,6 +39,7 @@ import { listSeries } from '@/lib/meetings/series'
 import { pendingOnCards } from '@/lib/processing/proposals'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addSectionAction,
   addSessionAction,
@@ -49,7 +50,13 @@ import {
   updateMeetingAction,
 } from '../actions'
 
-export default async function MeetingPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function MeetingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string | string[] }>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -198,10 +205,12 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     <>
       <PageHeader
         title={meeting.title}
-        crumbs={[
-          { href: '/meetings', label: 'Meetings' },
-          ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
-        ]}
+        crumbs={
+          (await crumbsFrom(db, (await searchParams).from, meeting.contextId)) ?? [
+            { href: '/meetings', label: 'Meetings' },
+            ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
+          ]
+        }
         actions={
           <>
             <Export

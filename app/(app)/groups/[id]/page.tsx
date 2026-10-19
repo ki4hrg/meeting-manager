@@ -19,6 +19,7 @@ import { getGroup, listGroupEmails, listMembers } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import { answered, listItems, type ItemView } from '@/lib/items/items'
 import { viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addGroupEmailAction,
   addMemberAction,
@@ -65,7 +66,9 @@ export default async function GroupPage({
     <>
       <PageHeader
         title={group.name}
-        crumbs={[{ href: '/groups', label: 'Groups' }]}
+        crumbs={
+          (await crumbsFrom(db, (await searchParams).from, group.contextId)) ?? [{ href: '/groups', label: 'Groups' }]
+        }
         actions={
           archived ? null : (
             <ActionButton action={prepWithGroupAction} fields={{ groupId: group.id }}>

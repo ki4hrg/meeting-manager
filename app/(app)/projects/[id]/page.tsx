@@ -34,6 +34,7 @@ import {
   treeOrder,
 } from '@/lib/projects/projects'
 import { viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addLinkAction,
   addMilestoneAction,
@@ -136,10 +137,12 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
     <>
       <PageHeader
         title={project.name}
-        crumbs={[
-          { href: '/projects', label: 'Projects' },
-          ...trail.map((one) => ({ href: `/projects/${one.id}`, label: one.name })),
-        ]}
+        crumbs={
+          (await crumbsFrom(db, query.from, project.contextId)) ?? [
+            { href: '/projects', label: 'Projects' },
+            ...trail.map((one) => ({ href: `/projects/${one.id}`, label: one.name })),
+          ]
+        }
         actions={<ProjectStatusBadge status={project.status} />}
         tools={
           <>

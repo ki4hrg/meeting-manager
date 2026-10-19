@@ -30,6 +30,7 @@ import { listProposals, type ProposalView } from '@/lib/processing/proposals'
 import { latestRun } from '@/lib/processing/run'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import { openMeetingAction, settleAttendanceAction } from '../../actions'
 import { addNoteAction, moveNoteAction } from '../../processing-actions'
 
@@ -40,7 +41,13 @@ const SUMMARY =
 const firstLine = (note: { title: string | null; body: string }) =>
   note.title ?? note.body.split('\n').find((line) => line.trim() !== '')?.trim() ?? '—'
 
-export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ReviewPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string | string[] }>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -184,11 +191,13 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     <>
       <PageHeader
         title="Review"
-        crumbs={[
-          { href: '/meetings', label: 'Meetings' },
-          ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
-          { href: `/meetings/${meeting.id}`, label: meeting.title },
-        ]}
+        crumbs={
+          (await crumbsFrom(db, (await searchParams).from, meeting.contextId)) ?? [
+            { href: '/meetings', label: 'Meetings' },
+            ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
+            { href: `/meetings/${meeting.id}`, label: meeting.title },
+          ]
+        }
         count={pending.length}
         actions={
           <div className="flex flex-wrap items-center gap-2">

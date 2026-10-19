@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { FromLink } from './FromLink'
 import { Icon, type IconName } from './icons'
 import type { Tone } from './StatusBadge'
 
@@ -29,17 +30,11 @@ export function LinkCard({
   plain?: boolean
 }) {
   const classes = `block ${SURFACE} ${PADDING[padding]} transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${className}`
-  if (plain) {
-    return (
-      <a href={href} className={classes}>
-        {children}
-      </a>
-    )
-  }
+  // Carries the page it is on as `from`, for the breadcrumbs of the page it opens.
   return (
-    <Link href={href} className={classes}>
+    <FromLink href={href} plain={plain} className={classes}>
       {children}
-    </Link>
+    </FromLink>
   )
 }
 
