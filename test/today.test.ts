@@ -5,7 +5,8 @@ import { createItem, parkItem } from '../lib/items/items'
 import { createMeeting } from '../lib/meetings/meetings'
 import { saveNote } from '../lib/notes/notes'
 import { addProposals } from '../lib/processing/proposals'
-import { meetingsEverywhere, owedEverywhere } from '../lib/today'
+import { inboxCountEverywhere, inboxEverywhere, meetingsEverywhere, owedEverywhere, reviewEverywhere } from '../lib/today'
+import { openHref } from '../lib/web/open'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 
@@ -194,5 +195,44 @@ describe('Today', () => {
       ['Annual Conference · Day two', 'now'],
     ])
     expect(next).toEqual([])
+  })
+})
+
+describe('Inbox', () => {
+  it("lists another context's inbox items and meetings to review, each with its context, opening there", async () => {
+    const { parish, diocese, synod, john } = await makeWorld()
+    const loose = (contextId: string, text: string) => createItem(db, actor, { contextId, kind: 'topic', text })
+    const here = await loose(parish.id, 'loose in the parish')
+    const there = await loose(diocese.id, 'loose in the diocese')
+    // Not the Inbox's: it has a project, or a party.
+    await createItem(db, actor, { contextId: diocese.id, kind: 'topic', text: 'filed', projectId: synod.id })
+    await createItem(db, actor, {
+      contextId: diocese.id,
+      kind: 'action',
+      text: 'owned',
+      parties: [{ personId: john.id, role: 'owner' }],
+    })
+    const attic = await createContext(db, { name: 'Attic' })
+    await loose(attic.id, 'in the attic')
+    await archive(db, 'context', attic.id)
+
+    const contexts = await listContexts(db)
+    const items = await inboxEverywhere(db, contexts)
+    expect(items.map((item) => item.text).sort()).toEqual(['loose in the diocese', 'loose in the parish'])
+    expect(await inboxCountEverywhere(db, contexts)).toBe(2)
+    const row = items.find((item) => item.id === there.id)!
+    expect(row.contextId).toBe(diocese.id)
+    // With the parish selected, the diocese's row opens through /api/open, which selects the diocese.
+    expect(openHref(`/items/${row.id}`, row.contextId, parish.id)).toBe(
+      `/api/open?context=${diocese.id}&to=%2Fitems%2F${there.id}`,
+    )
+    expect(openHref(`/items/${here.id}`, here.contextId, parish.id)).toBe(`/items/${here.id}`)
+
+    const meeting = await createMeeting(db, actor, { contextId: diocese.id, title: 'Chapter' })
+    const note = await saveNote(db, actor, { meetingId: meeting.id, source: 'pasted', body: 'Book the hall.' })
+    await addProposals(db, { meetingId: meeting.id, noteId: note.note.id }, [
+      { payload: { type: 'item', kind: 'action', text: 'Book the hall', parties: [] } },
+    ])
+    expect(await reviewEverywhere(db, contexts)).toEqual(new Map([[meeting.id, { contextId: diocese.id, count: 1 }]]))
   })
 })

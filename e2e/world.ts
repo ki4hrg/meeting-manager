@@ -20,6 +20,7 @@ export const WORLD = {
     delegateCost: 'Estimated per-delegate cost for General Conference',
     scripture: 'What is the scripture for closing worship?',
     longForm: 'Does the bishop want the long form of the liturgy?',
+    loose: 'Ideas for the youth retreat',
   },
   meetings: {
     checkIn: 'Adlene/John Check-In',
