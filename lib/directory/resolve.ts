@@ -15,6 +15,9 @@ import { listContexts, type Context } from './contexts'
 
 export type Party = { type: 'person' | 'group'; id: string; name: string }
 
+/** A name that matched nothing at all, as against one that matched several. */
+export class NoMatchError extends ValidationError {}
+
 /* An id still reaches an archived row; a name only finds what the lists show. */
 function named<T extends { archivedAt: Date | null }>(rows: T[]): T[] {
   return rows.filter((row) => !row.archivedAt)
@@ -58,7 +61,7 @@ export async function resolveParty(exec: Executor, contextId: string, ref: strin
   const matches = matchName(candidates, wanted)
 
   if (matches.length === 1) return matches[0]!
-  if (matches.length === 0) throw new ValidationError(`No person or group matches ${wanted}.`)
+  if (matches.length === 0) throw new NoMatchError(`No person or group matches ${wanted}.`)
   throw new ValidationError(`${wanted} could be ${listNames(matches)}. Be more specific.`)
 }
 
@@ -130,7 +133,7 @@ export async function resolvePerson(exec: Executor, ref: string): Promise<{ id: 
 
   const matches = matchName(named(rows), wanted)
   if (matches.length === 1) return only(matches[0]!)
-  if (matches.length === 0) throw new ValidationError(`No person matches ${wanted}.`)
+  if (matches.length === 0) throw new NoMatchError(`No person matches ${wanted}.`)
   throw new ValidationError(`${wanted} could be ${listNames(matches)}. Be more specific.`)
 }
 

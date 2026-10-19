@@ -19,7 +19,7 @@ import {
   skeletonFromOutline,
   updateSeries,
 } from '@/lib/meetings/series'
-import { act, field, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { act, field, pickedParties, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 const ids = (formData: FormData, name: string): string[] =>
@@ -29,11 +29,12 @@ export async function createSeriesAction(formData: FormData): Promise<ActionResu
   return act(async () => {
     const context = await currentContext()
     if (!context) throw new ValidationError('Create a context first.')
+    const { people, groups } = await pickedParties(db, formData, 'personIds', context.id)
     await createSeries(db, {
       contextId: context.id,
       name: field(formData, 'name'),
-      groupIds: pickedGroups(formData, 'personIds'),
-      personIds: await pickedPeople(db, formData, 'personIds'),
+      groupIds: groups,
+      personIds: people,
       projectIds: ids(formData, 'projectIds'),
     })
   })
@@ -138,10 +139,9 @@ export async function rosterInviteeAction(formData: FormData): Promise<ActionRes
 
 export async function addSeriesPeopleAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {
-    const adding = await pickedPeople(db, formData, 'personIds')
-    const groups = pickedGroups(formData, 'personIds')
-    if (adding.length + groups.length === 0) throw new ValidationError('Pick a person or a group.')
     const series = await getSeries(db, field(formData, 'id'))
+    const { people: adding, groups } = await pickedParties(db, formData, 'personIds', series.contextId)
+    if (adding.length + groups.length === 0) throw new ValidationError('Pick a person or a group.')
     if (adding.length > 0) {
       await setSeriesPeople(db, series.id, [...series.people.map((person) => person.id), ...adding])
     }
