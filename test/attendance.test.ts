@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { addMember } from '../lib/directory/groups'
 import { createPerson } from '../lib/directory/people'
-import { rollCall, settleAttendance, settleIfOver } from '../lib/meetings/attendance'
+import { addAttendees, attendanceLocked, rollCall, settleAttendance, settleIfOver } from '../lib/meetings/attendance'
 import { createMeeting, getMeeting, listMeetings, setMeetingPeople } from '../lib/meetings/meetings'
 import { saveNote } from '../lib/notes/notes'
 import { acceptProposal, listProposals } from '../lib/processing/proposals'
@@ -161,6 +161,33 @@ describe('settling on the first look after', () => {
     await expect(settleAttendance(db, meeting.id, [w.sarah.id, w.tom.id])).rejects.toThrow('stays as it is')
   })
 
+  it('after an accept, someone who was there can still be added, but no one marked out', async () => {
+    const w = await makeWorld()
+    const guest = await createPerson(db, { name: 'Guest Preacher' })
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      startsAt: new Date('2020-01-01T15:00:00Z'),
+    })
+    const { note } = await saveNote(db, actor, { meetingId: meeting.id, source: 'pasted', body: 'D: Keep the Thursday slot' })
+    const run = await queueRun(db, note.id)
+    await processRun(db, run!.id)
+    // Tom was out.
+    await settleAttendance(db, meeting.id, [w.sarah.id])
+    const [proposal] = await listProposals(db, meeting.id)
+    await acceptProposal(db, actor, proposal!.id)
+    expect(await attendanceLocked(db, meeting.id)).toBe(true)
+
+    // Tom was there after all, and so was a guest.
+    await addAttendees(db, meeting.id, [w.tom.id, guest.id, w.john.id])
+    expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([guest, w.sarah, w.tom]))
+    expect((await rollCall(db, meeting.id)).every((e) => e.present)).toBe(true)
+    expect((await listMeetings(db, { contextId: w.parish.id, personId: w.tom.id })).map((m) => m.id)).toEqual([meeting.id])
+
+    // Taking anyone off stays refused.
+    await expect(settleAttendance(db, meeting.id, [w.sarah.id])).rejects.toThrow('stays as it is')
+    expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([guest, w.sarah, w.tom]))
+  })
 })
 
 describe('people added to a meeting', () => {

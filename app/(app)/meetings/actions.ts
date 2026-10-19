@@ -39,7 +39,7 @@ import {
   seriesFromEvent,
   unpreppedOn,
 } from '@/lib/meetings/prep'
-import { settleAttendance } from '@/lib/meetings/attendance'
+import { addAttendees, settleAttendance } from '@/lib/meetings/attendance'
 import { addToRoster } from '@/lib/meetings/series'
 import { act, field, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { clearAbsences, joinRoster, recordAbsences } from '@/lib/meetings/roster'
@@ -423,6 +423,17 @@ export async function settleAttendanceAction(formData: FormData): Promise<Action
       const present = formData.getAll('present').map(String).filter(Boolean)
       const added = await pickedPeople(tx, formData, 'personIds')
       await settleAttendance(tx, field(formData, 'meetingId'), [...present, ...added])
+    })
+  })
+}
+
+/* Someone else who was there, once who was there is settled for good: adding
+   takes nothing from what was accepted, so it is always open. */
+export async function addAttendeesAction(formData: FormData): Promise<ActionResult> {
+  return act(async () => {
+    await inTransaction(db, async (tx) => {
+      const meeting = await getMeeting(tx, field(formData, 'meetingId'))
+      await addAttendees(tx, meeting.id, await pickedPeople(tx, formData, 'personIds'))
     })
   })
 }

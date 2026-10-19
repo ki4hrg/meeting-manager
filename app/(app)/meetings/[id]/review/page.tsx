@@ -8,6 +8,7 @@ import { FormModal } from '@/components/forms'
 import { LivesIn } from '@/components/meetings/Move'
 import { ApproveAll } from '@/components/processing/ApproveAll'
 import { ProposalCard } from '@/components/processing/ProposalCard'
+import { PartyPicker } from '@/components/processing/PartyPicker'
 import { RunState } from '@/components/processing/RunState'
 import { UnknownAttendee } from '@/components/processing/UnknownAttendee'
 import { ButtonLink } from '@/components/ui/Button'
@@ -30,7 +31,7 @@ import { listProposals, type ProposalView } from '@/lib/processing/proposals'
 import { latestRun } from '@/lib/processing/run'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
-import { openMeetingAction, settleAttendanceAction } from '../../actions'
+import { addAttendeesAction, openMeetingAction, settleAttendanceAction } from '../../actions'
 import { addNoteAction, moveNoteAction } from '../../processing-actions'
 
 const SUMMARY =
@@ -209,10 +210,36 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
       {/* Who was there comes before what was said: a name settled here is one
           the proposals below can be given to. */}
-      <Section title="Attendance">
+      <Section
+        title="Attendance"
+        action={
+          locked ? (
+            // Nobody can be marked out any more, but someone who was there can still be added.
+            <FormModal
+              action={addAttendeesAction}
+              title="Add"
+              label="Add"
+              icon="plus"
+              variant="secondary"
+              size="sm"
+              submit="Add"
+            >
+              <input type="hidden" name="meetingId" value={meeting.id} />
+              <PartyPicker
+                label="Also here"
+                name="personIds"
+                options={people
+                  .filter((person) => !person.isSelf && !meeting.attendees.some((one) => one.id === person.id))
+                  .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
+                allowNew
+              />
+            </FormModal>
+          ) : null
+        }
+      >
         <Card>
           {locked ? (
-            // Settled for good once something from the notes was accepted.
+            // Settled for good once something from the notes was accepted, but for who is added.
             <div className="flex flex-wrap items-center gap-2">
               <Icon name="lock" className="h-4 w-4 text-gray-400 dark:text-gray-500" label="Settled" />
               <Roster selfId={self.id} groups={meeting.groups} attendees={meeting.attendees} />
