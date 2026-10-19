@@ -42,7 +42,10 @@ import {
   KindIcon,
   PROJECT_STATUS,
   ProjectStatusBadge,
+  SOURCE,
+  SourceMark,
   StatusBadge,
+  type EventSource,
   type ItemKind,
   type ItemStatus,
   type ProjectStatus,
@@ -476,6 +479,17 @@ export default function DesignPage() {
               </div>
             </div>
             <div>
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Source (history; the app has none)</p>
+              <div className="flex flex-wrap items-center gap-4">
+                {(Object.keys(SOURCE) as EventSource[]).map((source) => (
+                  <span key={source} className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    <SourceMark source={source} className="h-4 w-4" />
+                    {source}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div>
               <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">Project status</p>
               <div className="flex flex-wrap items-center gap-2">
                 {PROJECT_STATUSES.map((status) => (
@@ -506,7 +520,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'share', 'printer', 'download', 'broadcast', 'log', 'search', 'key'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'share', 'printer', 'download', 'broadcast', 'log', 'search', 'key', 'todoist'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>
@@ -847,7 +861,12 @@ export default function DesignPage() {
                     { value: 'person:tom', name: 'Tom Baker', icon: 'person' },
                     { value: 'group:staff', name: 'Staff', icon: 'group' },
                   ]}
-                  selected={[{ value: 'person:sarah', name: 'Sarah Jones', icon: 'person' }]}
+                  selected={[
+                    { value: 'person:sarah', name: 'Sarah Jones', icon: 'person' },
+                    { value: 'new-person:Neil', name: 'Neil Campbell', icon: 'person' },
+                  ]}
+                  allowNew
+                  allowNewGroup
                 />
                 <PartyPicker
                   label="Members"

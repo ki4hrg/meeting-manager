@@ -125,6 +125,7 @@ export function ItemFields({
                 : undefined
             }
             allowNew
+            allowNewGroup
           />
         ))}
       {project || due || raiseAt ? (

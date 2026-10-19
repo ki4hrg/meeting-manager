@@ -1073,6 +1073,29 @@ export const todoistTasks = pgTable(
 )
 
 /*
+ * Comments on tasks linked to an item, as Todoist last reported them: read
+ * only, shown in the item's history. Only a task with a link is kept; a
+ * comment deleted in Todoist is deleted here. Never in `item_events`.
+ */
+export const todoistComments = pgTable(
+  'todoist_comments',
+  {
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    commentId: text('comment_id').notNull(),
+    taskId: text('task_id').notNull(),
+    content: text('content').notNull(),
+    postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
+    seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.connectionId, t.commentId] }),
+    index('todoist_comments_task_idx').on(t.connectionId, t.taskId),
+  ],
+)
+
+/*
  * An item and its Todoist task (docs/SPEC.md, "Todoist sync").
  *
  * `base_*` is what both sides last agreed on: the merge compares each side
@@ -1107,6 +1130,10 @@ export const itemTodoistLinks = pgTable(
     baseClosed: boolean('base_closed').notNull().default(false),
     /* When both sides last became closed: a reopen in Todoist is honoured for 30 days. */
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    /* When the task's existing comments were last read whole: null for a link
+       made from a task John already had (or one linked before comments were
+       read), which the next pass reads. The change feed carries them after. */
+    commentsReadAt: timestamp('comments_read_at', { withTimezone: true }),
     lastError: text('last_error'),
     ...timestamps,
   },

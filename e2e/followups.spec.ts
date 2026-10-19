@@ -8,8 +8,10 @@ test('someone not yet in the directory is added to an item as who it is for', as
   await expect(page.getByRole('heading', { name: WORLD.items.overdue })).toBeVisible()
 
   await page.getByRole('button', { name: 'People', exact: true }).click()
-  await dialog(page).getByLabel('Person or group').fill('Neil Carter')
-  await dialog(page).getByRole('option', { name: 'Neil Carter' }).click()
+  // Only a first name to go on: picked as a new person, and completed before it is made.
+  await dialog(page).getByLabel('Person or group').fill('Neil')
+  await dialog(page).getByRole('option', { name: 'New person Neil' }).click()
+  await dialog(page).getByLabel("New person's name").fill('Neil Carter')
   await dialog(page).getByRole('button', { name: 'For', exact: true }).click()
   await expect(dialog(page)).toHaveCount(0)
 
@@ -26,6 +28,20 @@ test('someone not yet in the directory is added to an item as who it is for', as
   await expect(page.getByRole('listitem').filter({ hasText: /^Role/ })).toHaveCount(2)
   await page.goto('/people')
   await expect(page.getByText('Neil Carter')).toBeVisible()
+})
+
+test('a new group is made from the name picked for an item', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('link').filter({ hasText: WORLD.items.overdue }).first().click()
+  await expect(page.getByRole('heading', { name: WORLD.items.overdue })).toBeVisible()
+
+  await page.getByRole('button', { name: 'People', exact: true }).click()
+  await dialog(page).getByLabel('Person or group').fill('Wardens')
+  await dialog(page).getByRole('option', { name: 'New group Wardens' }).click()
+  await dialog(page).getByRole('button', { name: 'With', exact: true }).click()
+  await expect(dialog(page)).toHaveCount(0)
+
+  await expect(page.getByTitle('With').filter({ hasText: 'Wardens' })).toBeVisible()
 })
 
 test("a recap's prose is reworded by hand, and the edit can be undone", async ({ page }) => {

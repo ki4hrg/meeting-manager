@@ -11,8 +11,8 @@ import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { requireUser, type AuthUser } from '../auth/guards'
 import { AppError, ValidationError, type ActorContext, type Executor } from '../core/types'
-import { createPerson } from '../directory/people'
-import { resolvePerson } from '../directory/resolve'
+import { createNamed } from '../directory/create'
+import { NoMatchError, resolveParty, resolvePerson } from '../directory/resolve'
 import type { PartyRef, ReportTo } from '../items/items'
 import { syncTodoistSoon } from '../jobs'
 import { webActor } from './context'
@@ -69,50 +69,98 @@ export function partyRef(value: string): PartyRef | null {
 }
 
 /**
- * The people a picker submits under `name`: ids, and `new:<name>` for someone
- * to add to the directory now. Whatever was typed and not picked (`<name>Text`)
- * is looked up by name, and refused by name when it finds nobody.
+ * Who a picker submits under `name`: `person:<id>` (or a bare id),
+ * `group:<id>`, and `new-person:<name>` / `new-group:<name>` for one to add
+ * to the directory now (`new:<name>` is an older spelling of a new person).
+ * A new one is made through `createNamed`, so a name already taken is refused.
+ *
+ * Whatever was typed and not picked (`<name>Text`) is looked up by name. When
+ * the picker offers new names (`<name>New`), a typed name that matches nobody
+ * becomes a new person, the same as picking it; otherwise it is refused.
+ *
+ * With a `contextId` the picker takes groups, made and found in that context;
+ * without one it takes people only.
  */
-export async function pickedPeople(exec: Executor, formData: FormData, name: string): Promise<string[]> {
-  const ids: string[] = []
+export async function pickedParties(
+  exec: Executor,
+  formData: FormData,
+  name: string,
+  contextId: string | null,
+): Promise<{ people: string[]; groups: string[] }> {
+  const people: string[] = []
+  const groups: string[] = []
+  const noGroups = () => new ValidationError('Pick a person.')
+  /* A person belongs to no context; `createNamed` only needs one for a group. */
+  const make = async (kind: 'person' | 'group', named: string) => {
+    if (kind === 'group' && !contextId) throw noGroups()
+    return (await createNamed(exec, contextId ?? '', kind, named)).id
+  }
+
   for (const value of formData.getAll(name).map(String).filter(Boolean)) {
-    // Groups and series ride in the same picker; read on their own.
-    if (value.startsWith('group:') || value.startsWith('series:')) continue
-    if (value.startsWith('new:')) ids.push((await createPerson(exec, { name: value.slice(4) })).id)
-    else ids.push(value.replace(/^person:/, ''))
+    const fresh = NEW_VALUE.exec(value)
+    if (fresh) {
+      const kind = fresh[1] === 'group' ? 'group' : 'person'
+      ;(kind === 'group' ? groups : people).push(await make(kind, fresh[2]!))
+    } else if (value.startsWith('series:')) {
+      // A series rides in a Report to picker; `pickedReportTo` reads it.
+      continue
+    } else if (value.startsWith('group:')) {
+      if (!contextId) throw noGroups()
+      groups.push(value.slice(6))
+    } else {
+      people.push(value.replace(/^person:/, ''))
+    }
   }
-  for (const typed of field(formData, `${name}Text`).split(',')) {
-    if (typed.trim()) ids.push((await resolvePerson(exec, typed.trim())).id)
+
+  const offersNew = formData.get(`${name}New`) !== null
+  for (const raw of field(formData, `${name}Text`).split(',')) {
+    const typed = raw.trim()
+    if (typed === '') continue
+    try {
+      if (contextId) {
+        const found = await resolveParty(exec, contextId, typed)
+        ;(found.type === 'group' ? groups : people).push(found.id)
+      } else {
+        people.push((await resolvePerson(exec, typed)).id)
+      }
+    } catch (err) {
+      if (!(offersNew && err instanceof NoMatchError)) throw err
+      people.push(await make('person', typed.replace(/^@/, '')))
+    }
   }
-  return [...new Set(ids)]
+  return { people: [...new Set(people)], groups: [...new Set(groups)] }
 }
 
-/** The groups a picker submits under `name`, as `group:<id>`, among its people. */
-export function pickedGroups(formData: FormData, name: string): string[] {
-  return [
-    ...new Set(
-      formData
-        .getAll(name)
-        .map(String)
-        .filter((value) => value.startsWith('group:'))
-        .map((value) => value.slice(6)),
-    ),
-  ]
+/** `new-person:<name>`, `new-group:<name>`, or the older `new:<name>` for a person. */
+const NEW_VALUE = /^new(?:-(person|group))?:(.*)$/s
+
+/** The people a picker that takes no groups submits under `name` (see `pickedParties`). */
+export async function pickedPeople(exec: Executor, formData: FormData, name: string): Promise<string[]> {
+  return (await pickedParties(exec, formData, name, null)).people
 }
 
 /**
- * The one a Report to picker names: a person (a new one added to the
- * directory now), a group, or `series:<id>`, whose next meeting raises it.
+ * The one a Report to picker names, in the item's context: a person or a
+ * group (a new one made now, as `pickedParties` does), or `series:<id>`,
+ * whose next meeting raises it.
  */
-export async function pickedReportTo(exec: Executor, formData: FormData, name: string): Promise<ReportTo | null> {
+export async function pickedReportTo(
+  exec: Executor,
+  formData: FormData,
+  name: string,
+  contextId: string,
+): Promise<ReportTo | null> {
   const series = formData
     .getAll(name)
     .map(String)
     .filter((value) => value.startsWith('series:'))
     .map((value) => ({ seriesId: value.slice(7) }))
-  const groups = pickedGroups(formData, name).map((groupId) => ({ groupId }))
-  const people = (await pickedPeople(exec, formData, name)).map((personId) => ({ personId }))
-  const picked: ReportTo[] = [...people, ...groups, ...series]
+  const { people, groups } = await pickedParties(exec, formData, name, contextId)
+  const picked: ReportTo[] = [
+    ...people.map((personId) => ({ personId })),
+    ...groups.map((groupId) => ({ groupId })),
+    ...series,
+  ]
   if (picked.length > 1) throw new ValidationError('Report to one at a time.')
   return picked[0] ?? null
 }

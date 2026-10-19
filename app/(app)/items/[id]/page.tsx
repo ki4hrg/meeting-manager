@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ActionButton, ActionForm, FormModal } from '@/components/forms'
+import { ActionButton, FormModal } from '@/components/forms'
+import { History } from '@/components/items/History'
 import { ItemCard } from '@/components/items/ItemCard'
 import { ItemPicker, type ItemOption } from '@/components/items/ItemPicker'
 import { PartyOptions } from '@/components/items/PartyOptions'
@@ -11,13 +12,12 @@ import { PartyPicker, type PartyOption } from '@/components/processing/PartyPick
 import { GranolaChip } from '@/components/GranolaChip'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs'
-import { Button } from '@/components/ui/Button'
 import { Card, Section } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
 import { RemovableChip } from '@/components/ui/RemovableChip'
 import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Markdown } from '@/components/ui/Markdown'
-import { Icon, type IconName } from '@/components/ui/icons'
+import { Icon } from '@/components/ui/icons'
 import {
   Badge,
   DueBadge,
@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/StatusBadge'
 import { iconButtonClasses } from '@/components/ui/IconButton'
 import { splitGranolaLinks } from '@/lib/connect/granola/links'
+import { itemComments } from '@/lib/connect/todoist/comments'
 import { itemTodoist, openTasks, rankTasks } from '@/lib/connect/todoist/match'
 import { formatDay, formatMoment, todayIn } from '@/lib/core/dates'
 import { isUuid } from '@/lib/core/match'
@@ -42,16 +43,15 @@ import {
   getThread,
   isOpen,
   listItems,
-  type ItemEvent,
 } from '@/lib/items/items'
-import { COLLABORATOR, hasCollaborators, roleLabel } from '@/lib/items/roles'
+import { roleLabel } from '@/lib/items/roles'
 import { getProject, listProjectChoices } from '@/lib/projects/projects'
 import { getMeeting, listMeetings, type MeetingView } from '@/lib/meetings/meetings'
 import { findNoteByExternalId, listNotes } from '@/lib/notes/notes'
 import { listSeries } from '@/lib/meetings/series'
+import { acceptedSteps } from '@/lib/processing/proposals'
 import { viewer } from '@/lib/web/context'
 import {
-  addNoteAction,
   addPartyAction,
   answerItemAction,
   askItemAction,
@@ -71,86 +71,6 @@ import {
 import { MatchActions } from '../../settings/Todoist'
 
 const CONVERTIBLE: ItemKind[] = ['topic', 'question', 'action']
-
-const EVENT: Record<ItemEvent['type'], { icon: IconName; label: string }> = {
-  created: { icon: 'plus', label: 'Created' },
-  edited: { icon: 'pencil', label: 'Edited' },
-  parties: { icon: 'group', label: 'People' },
-  role: { icon: 'refresh', label: 'Role' },
-  note: { icon: 'topic', label: 'Note' },
-  converted: { icon: 'refresh', label: 'Converted' },
-  answered: { icon: 'check', label: 'Answered' },
-  completed: { icon: 'check', label: 'Done' },
-  dropped: { icon: 'close', label: 'Dropped' },
-  reopened: { icon: 'refresh', label: 'Reopened' },
-  spawned: { icon: 'arrowRight', label: 'Follow-up' },
-  superseded: { icon: 'refresh', label: 'Superseded' },
-  targeted: { icon: 'meeting', label: 'Agenda' },
-  discussed: { icon: 'meeting', label: 'Discussed' },
-  parked: { icon: 'later', label: 'Later' },
-  unparked: { icon: 'undo', label: 'Back' },
-  needs_answer: { icon: 'question', label: 'Needs answer' },
-  ongoing: { icon: 'refresh', label: 'Ongoing' },
-}
-
-function eventDetail(event: ItemEvent, kind: ItemKind): React.ReactNode {
-  const data = event.data as Record<string, string | string[] | undefined>
-  switch (event.type) {
-    case 'note':
-      return data.text
-    case 'ongoing':
-      return (event.data as { ongoing?: boolean }).ongoing === false ? 'Off' : null
-    case 'spawned':
-      return data.text
-    case 'parked':
-      return typeof data.until === 'string' ? formatDay(data.until, data.until) : null
-    case 'unparked':
-      // Brought back by the item it waited on closing.
-      return data.text
-    case 'completed':
-    case 'answered':
-    case 'dropped': {
-      const said = event.type === 'completed' ? data.resolution : event.type === 'answered' ? data.answer : null
-      const released = (event.data.released as { text: string }[] | undefined)?.map((one) => one.text) ?? []
-      if (released.length === 0) return said
-      return (
-        <>
-          {said}
-          <span className="mt-1 flex items-start gap-1">
-            <Icon name="link" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" label="Released" />
-            {released.join(', ')}
-          </span>
-        </>
-      )
-    }
-    case 'converted':
-      return (
-        <span className="inline-flex items-center gap-1 align-middle">
-          <KindIcon kind={data.from as ItemKind} className="h-4 w-4" />
-          <Icon name="arrowRight" className="h-3 w-3" />
-          <KindIcon kind={data.to as ItemKind} className="h-4 w-4" />
-        </span>
-      )
-    case 'edited':
-      return ((data.fields as string[]) ?? [])
-        .map((name) => ({ projectId: 'project', dueOn: 'due' })[name] ?? name)
-        .join(', ')
-    case 'parties':
-      return [...((data.owners as string[]) ?? []), ...((data.with as string[]) ?? [])].join(', ')
-    case 'role': {
-      const role = event.data as { name: string; role: 'owner' | 'with'; collaborator?: boolean }
-      return (
-        <span className="inline-flex items-center gap-1 align-middle">
-          {role.name}
-          <Icon name="arrowRight" className="h-3 w-3" />
-          {role.collaborator && hasCollaborators(kind) ? COLLABORATOR : roleLabel(kind, role.role)}
-        </span>
-      )
-    }
-    default:
-      return null
-  }
-}
 
 /* One item, the thread it belongs to, and everything that has happened to it. */
 export default async function ItemPage({ params }: { params: Promise<{ id: string }> }) {
@@ -307,6 +227,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
         ...series.map((one): PartyOption => ({ value: `series:${one.id}`, name: one.name, icon: 'refresh' })),
       ]}
       allowNew
+      allowNewGroup
     />
   )
 
@@ -385,6 +306,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                     ]}
                     required
                     allowNew
+                    allowNewGroup
                   />
                 </FormModal>
               </PartyRoles>
@@ -743,54 +665,13 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
         </Section>
       ) : null}
 
-      <Section title="History">
-        <Card>
-          <ul className="flex flex-col gap-3">
-            {events.map((event) => {
-              const detail = eventDetail(event, item.kind)
-              return (
-                <li key={event.id} className="flex items-start gap-3 text-sm">
-                  <Icon
-                    name={EVENT[event.type]?.icon ?? 'clock'}
-                    className="mt-0.5 h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">
-                      {EVENT[event.type]?.label ?? event.type}
-                    </span>
-                    {event.source === 'todoist' ? (
-                      <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Todoist</span>
-                    ) : null}
-                    {detail ? (
-                      <span className="ml-2 whitespace-pre-wrap text-gray-600 dark:text-gray-300">
-                        {detail}
-                      </span>
-                    ) : null}
-                  </div>
-                  <time
-                    dateTime={event.createdAt.toISOString()}
-                    className="shrink-0 text-xs tabular-nums text-gray-500 dark:text-gray-400"
-                  >
-                    {formatMoment(event.createdAt, user.timeZone)}
-                  </time>
-                </li>
-              )
-            })}
-          </ul>
-
-          <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-700">
-            <ActionForm action={addNoteAction} className="flex flex-col gap-2">
-              <input type="hidden" name="id" value={item.id} />
-              <div className="flex items-start gap-2">
-                <Input name="text" aria-label="Note" placeholder="Note" required className="!mt-0" />
-                <Button type="submit" variant="secondary">
-                  Add
-                </Button>
-              </div>
-            </ActionForm>
-          </div>
-        </Card>
-      </Section>
+      <History
+        item={item}
+        events={events}
+        comments={await itemComments(db, item.id)}
+        accepted={await acceptedSteps(db, item.id)}
+        timeZone={user.timeZone}
+      />
     </>
   )
 }

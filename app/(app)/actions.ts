@@ -56,7 +56,7 @@ import {
 } from '@/lib/projects/projects'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { getSeries } from '@/lib/meetings/series'
-import { act, field, partyRef, pickedGroups, pickedPeople, pickedReportTo, type ActionResult } from '@/lib/web/action'
+import { act, field, partyRef, pickedParties, pickedPeople, pickedReportTo, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 import { switchTarget } from '@/lib/web/switch'
 
@@ -211,15 +211,16 @@ export async function deleteItemAction(formData: FormData): Promise<ActionResult
 
 export async function answerItemAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await inTransaction(db, async (tx) =>
-      answerItem(tx, actor, field(formData, 'id'), {
+    await inTransaction(db, async (tx) => {
+      const item = await getItem(tx, field(formData, 'id'))
+      await answerItem(tx, actor, item.id, {
         answer: field(formData, 'answer'),
-        reportTo: await pickedReportTo(tx, formData, 'reportTo'),
+        reportTo: await pickedReportTo(tx, formData, 'reportTo', item.contextId),
         toldThem: formData.get('told') === 'on',
         closeAsk: formData.get('closeAsk') === 'on',
         decision: { text: field(formData, 'decision') },
-      }),
-    )
+      })
+    })
   })
 }
 
@@ -249,14 +250,15 @@ export async function convertItemAction(formData: FormData): Promise<ActionResul
 
 export async function recordDecisionAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await inTransaction(db, async (tx) =>
-      recordDecision(tx, actor, {
-        fromItemId: field(formData, 'fromItemId'),
+    await inTransaction(db, async (tx) => {
+      const source = await getItem(tx, field(formData, 'fromItemId'))
+      await recordDecision(tx, actor, {
+        fromItemId: source.id,
         text: field(formData, 'text'),
         detail: field(formData, 'detail'),
-        reportTo: await pickedReportTo(tx, formData, 'reportTo'),
-      }),
-    )
+        reportTo: await pickedReportTo(tx, formData, 'reportTo', source.contextId),
+      })
+    })
   })
 }
 
@@ -281,8 +283,8 @@ export async function addPartyAction(formData: FormData): Promise<ActionResult> 
     const role = field(formData, 'role') === 'owner' ? 'owner' : 'with'
     const id = field(formData, 'id')
     await inTransaction(db, async (tx) => {
-      const people = await pickedPeople(tx, formData, 'party')
-      const groups = pickedGroups(formData, 'party')
+      const item = await getItem(tx, id)
+      const { people, groups } = await pickedParties(tx, formData, 'party', item.contextId)
       if (people.length + groups.length === 0) throw new ValidationError('Pick a person or a group.')
       for (const personId of people) await addItemParty(tx, actor, id, { personId, role })
       for (const groupId of groups) await addItemParty(tx, actor, id, { groupId, role })

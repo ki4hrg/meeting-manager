@@ -21,7 +21,7 @@ import { TODOIST, todoistApp, todoistConnection } from './connection'
 export type TodoistDeliveryResult = {
   status: number
   body: Record<string, unknown>
-  /** A task changed: the caller kicks the sync. */
+  /** A task or its comments changed: the caller kicks the sync. */
   sync: boolean
 }
 
@@ -69,7 +69,8 @@ export async function receiveTodoistDelivery(
     await settleDelivery(exec, event.id, 'ignored', 'Todoist is not connected.')
     return answer(200, { ok: true, outcome: 'ignored' })
   }
-  if (!type.startsWith('item:')) {
+  /* A task, or a comment on one. */
+  if (!type.startsWith('item:') && !type.startsWith('note:')) {
     await settleDelivery(exec, event.id, 'ignored', 'Not a task.')
     return answer(200, { ok: true, outcome: 'ignored' })
   }
