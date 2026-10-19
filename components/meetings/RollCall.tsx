@@ -10,18 +10,7 @@ import type { ActionResult } from '@/lib/web/action'
 
 type Entry = { id: string; name: string; present: boolean; groupId?: string | null }
 
-/**
- * Who is here: everyone expected, Me first and fixed, then those on it by
- * name, then each group around the people it brings. A tap marks someone out
- * or back; anyone else who came is added below. Confirm settles it.
- */
-export function RollCall({
-  action,
-  meetingId,
-  entries,
-  groups = [],
-  people,
-}: {
+type Props = {
   action: (formData: FormData) => Promise<ActionResult>
   meetingId: string
   entries: Entry[]
@@ -29,7 +18,29 @@ export function RollCall({
   groups?: { id: string; name: string }[]
   /** Who can be added: the directory, less who is already listed. */
   people: PartyOption[]
-}) {
+}
+
+/**
+ * Who is here: everyone expected, Me first and fixed, then those on it by
+ * name, then each group around the people it brings. A tap marks someone out
+ * or back; anyone else who came is added below. Confirm settles it.
+ *
+ * Once settled, the page comes back with who is here as it now stands: the
+ * form starts again from that, so whoever was just added shows as here (and
+ * stays here on the next Confirm), and the picker is empty again.
+ */
+export function RollCall(props: Props) {
+  const settled = props.entries.map((entry) => `${entry.id}:${entry.present ? 1 : 0}`).join(',')
+  return <RollCallForm key={settled} {...props} />
+}
+
+function RollCallForm({
+  action,
+  meetingId,
+  entries,
+  groups = [],
+  people,
+}: Props) {
   const [present, setPresent] = useState(() => new Set(entries.filter((entry) => entry.present).map((entry) => entry.id)))
   const toggle = (id: string) =>
     setPresent((current) => {

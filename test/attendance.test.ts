@@ -49,6 +49,28 @@ describe('the roll call', () => {
     expect((await listMeetings(db, { contextId: w.parish.id, personId: w.sarah.id })).map((m) => m.id)).toEqual([meeting.id])
   })
 
+  it('someone added after it ended is here, and stays here when it is taken again', async () => {
+    const w = await makeWorld()
+    const guest = await createPerson(db, { name: 'Guest Preacher' })
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt: START })
+    expect(await settleIfOver(db, meeting.id, AFTER)).toBe(true)
+
+    // Also here: the guest, with everyone who was marked here.
+    const here = (await rollCall(db, meeting.id)).filter((e) => e.present).map((e) => e.id)
+    await settleAttendance(db, meeting.id, [...here, guest.id], AFTER)
+    const after = await rollCall(db, meeting.id)
+    expect(after.map((e) => [e.name, e.present])).toEqual([
+      ['Guest Preacher', true],
+      ['Sarah Jones', true],
+      ['Tom Baker', true],
+    ])
+
+    // Confirmed again as the roll call now reads, the guest is still here.
+    await settleAttendance(db, meeting.id, after.filter((e) => e.present).map((e) => e.id), AFTER)
+    expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([guest, w.sarah, w.tom]))
+    expect((await rollCall(db, meeting.id)).every((e) => e.present)).toBe(true)
+  })
+
   it('a member marked out before it is settled stays out, and a new member is in', async () => {
     const w = await makeWorld()
     const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt: START })
@@ -138,6 +160,7 @@ describe('settling on the first look after', () => {
     await acceptProposal(db, actor, proposal!.id)
     await expect(settleAttendance(db, meeting.id, [w.sarah.id, w.tom.id])).rejects.toThrow('stays as it is')
   })
+
 })
 
 describe('people added to a meeting', () => {

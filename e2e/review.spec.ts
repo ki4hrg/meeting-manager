@@ -10,6 +10,18 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   expect(await selectedContext(page)).toBe(WORLD.contexts.church)
 
   await expect(page.getByText(WORLD.proposal)).toBeVisible()
+
+  // Someone else who was there comes in as here, and stays here when confirmed again (#41).
+  const attendance = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Attendance' }) })
+  await attendance.getByLabel('Also here').fill(WORLD.people.bishop)
+  await attendance.getByRole('option', { name: WORLD.people.bishop }).click()
+  await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
+  const bishop = attendance.getByRole('button', { name: WORLD.people.bishop })
+  await expect(bishop).toHaveAttribute('aria-pressed', 'true')
+  await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await page.reload()
+  await expect(bishop).toHaveAttribute('aria-pressed', 'true')
+
   // Changing its kind relabels the people and keeps who is picked; a decision takes no deadline.
   await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
   await dialog(page).getByLabel('Assigned to', { exact: true }).fill(WORLD.people.sarah)
@@ -28,6 +40,7 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await page.getByRole('button', { name: 'Accept', exact: true }).first().click()
   await dialog(page).getByRole('button', { name: 'Accept', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible()
+
 
   // Nothing of it is left waiting on home.
   await page.goto('/')
