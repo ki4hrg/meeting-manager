@@ -10,11 +10,12 @@
  * every change bumps a sequence, `sync_token` is the sequence it was read at,
  * a full read lists open tasks only, an incremental one lists every task
  * changed since (completed and deleted ones included), and a command's uuid is
- * remembered so sending it again changes nothing.
+ * remembered so sending it again changes nothing. Comments (Todoist's notes)
+ * come the same way: every live one on a full read, every changed one since.
  */
 
 import { vi } from 'vitest'
-import { API_BASE, signWebhook, type TodoistProject, type TodoistTask } from '../../lib/connect/todoist/client'
+import { API_BASE, signWebhook, type TodoistNote, type TodoistProject, type TodoistTask } from '../../lib/connect/todoist/client'
 import { connectTodoist } from '../../lib/connect/todoist/sync'
 import { db } from './db'
 
@@ -23,9 +24,11 @@ export const CLIENT_ID = 'todoist_client_id'
 export const CLIENT_SECRET = 'todoist_client_secret'
 
 type Stored = TodoistTask & { seq: number }
+type StoredNote = TodoistNote & { seq: number }
 
 export type FakeTodoist = {
   tasks: Map<string, Stored>
+  notes: Map<string, StoredNote>
   projects: TodoistProject[]
   /** The token Todoist accepts. Change it to revoke the one in use. */
   token: string
@@ -39,6 +42,12 @@ export type FakeTodoist = {
   edit: (id: string, patch: Partial<TodoistTask>) => void
   /** John adds a task in Todoist. */
   add: (content: string, patch?: Partial<TodoistTask>) => string
+  /** John comments on a task in Todoist. Returns the comment's id. */
+  comment: (taskId: string, content: string, postedAt?: string) => string
+  /** John edits a comment. */
+  editComment: (id: string, content: string) => void
+  /** John deletes a comment. */
+  deleteComment: (id: string) => void
   /** Each task's current state, by its content. */
   byContent: (content: string) => Stored | undefined
 }
@@ -55,6 +64,7 @@ export function fakeTodoist(): FakeTodoist {
   const done = new Map<string, Record<string, string>>()
   const fake: FakeTodoist = {
     tasks: new Map(),
+    notes: new Map(),
     projects: [
       { id: 'inbox', name: 'Inbox', parent_id: null, inbox_project: true },
       { id: 'work', name: 'Work', parent_id: null },
@@ -83,6 +93,21 @@ export function fakeTodoist(): FakeTodoist {
         seq: ++seq,
       })
       return id
+    },
+    comment: (taskId, content, postedAt = new Date().toISOString()) => {
+      const id = `n${++ids}`
+      fake.notes.set(id, { id, item_id: taskId, content, posted_at: postedAt, is_deleted: false, seq: ++seq })
+      return id
+    },
+    editComment: (id, content) => {
+      const note = fake.notes.get(id)
+      if (!note) throw new Error(`no comment ${id}`)
+      Object.assign(note, { content, seq: ++seq })
+    },
+    deleteComment: (id) => {
+      const note = fake.notes.get(id)
+      if (!note) throw new Error(`no comment ${id}`)
+      Object.assign(note, { is_deleted: true, seq: ++seq })
     },
     byContent: (content) => [...fake.tasks.values()].find((task) => task.content === content),
   }
@@ -192,6 +217,9 @@ export function fakeTodoist(): FakeTodoist {
         body.full_sync = full
         body.items = (full ? all.filter((task) => !task.checked && !task.is_deleted) : all.filter((task) => task.seq > since))
           .map((task) => ({ ...task, seq: undefined }))
+        const notes = [...fake.notes.values()]
+        body.notes = (full ? notes.filter((note) => !note.is_deleted) : notes.filter((note) => note.seq > since))
+          .map((note) => ({ ...note, seq: undefined }))
       }
       return json(body)
     }

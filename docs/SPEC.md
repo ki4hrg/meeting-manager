@@ -176,6 +176,7 @@ One page component, four filters:
   - **Removed:** an accept undone deletes the task it made, if still open; an item deleted after being closed leaves its closed task alone.
   - **What closes a task, Todoist cannot undo:** a task reopened in Todoist reopens a done, dropped or needs-answer action or question; one closed because John is no longer an owner, or because it became a topic, is closed again.
   - **Disconnect** removes every link and binding; the tasks stay in Todoist, and connecting again starts the matching over.
+  - **Comments** *(issue #52)*: a linked task's comments (Todoist's notes) are read one way into `todoist_comments`, never `item_events`, and shown in the item's history among its own steps, marked as Todoist's. One deleted in Todoist goes here too; one on a task with no item is not kept. Comments made before a task was linked are not fetched. Writing comments back is not done.
 
 ## MCP
 

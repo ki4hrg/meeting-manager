@@ -63,6 +63,15 @@ export type TodoistTask = {
   updated_at?: string | null
 }
 
+/** A comment on a task: Todoist calls them notes. */
+export type TodoistNote = {
+  id: string
+  item_id: string
+  content: string
+  posted_at: string
+  is_deleted: boolean
+}
+
 export type TodoistProject = {
   id: string
   name: string
@@ -86,6 +95,7 @@ export type SyncResponse = {
   sync_token: string
   full_sync: boolean
   items?: TodoistTask[]
+  notes?: TodoistNote[]
   /* "ok", or what went wrong with that one command. */
   sync_status?: Record<string, 'ok' | { error?: string; error_code?: number }>
   temp_id_mapping?: Record<string, string>
@@ -97,8 +107,8 @@ export type SyncResponse = {
 export const MAX_COMMANDS = 100
 
 /**
- * One call to the sync endpoint: the tasks changed since `syncToken` ('*' for
- * all of them), and the commands, applied in order.
+ * One call to the sync endpoint: the tasks and their comments changed since
+ * `syncToken` ('*' for all of them), and the commands, applied in order.
  */
 export async function todoistSync(
   token: string,
@@ -107,7 +117,7 @@ export async function todoistSync(
   const body = new URLSearchParams()
   if (request.syncToken !== undefined) {
     body.set('sync_token', request.syncToken ?? '*')
-    body.set('resource_types', JSON.stringify(['items']))
+    body.set('resource_types', JSON.stringify(['items', 'notes']))
   }
   if (request.commands && request.commands.length > 0) {
     body.set('commands', JSON.stringify(request.commands))

@@ -2,11 +2,12 @@ import { and, eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { archive, unarchive } from '../lib/archive/archive'
 import { createFirstUser, setTimeZone } from '../lib/auth/users'
+import { itemComments } from '../lib/connect/todoist/comments'
 import { bindTodoistProject, todoistConnection } from '../lib/connect/todoist/connection'
 import { itemTodoist, linkItem, openTasks, rankTasks, sendItem, skipItem, unmatchedItemIds } from '../lib/connect/todoist/match'
 import { syncTodoist } from '../lib/connect/todoist/sync'
 import { receiveTodoistDelivery } from '../lib/connect/todoist/webhook'
-import { connections, integrationEvents, itemEvents, itemTodoistLinks } from '../lib/db/schema'
+import { connections, integrationEvents, itemEvents, itemTodoistLinks, todoistComments } from '../lib/db/schema'
 import { createProject } from '../lib/projects/projects'
 import {
   answerItem,
@@ -430,8 +431,61 @@ describe('matching', () => {
   })
 })
 
+describe('comments', () => {
+  async function synced() {
+    const fake = fakeTodoist()
+    const w = await world()
+    await connect()
+    const item = await w.action('Send the form')
+    await syncTodoist(db)
+    const taskId = (await link(item.id))!.taskId!
+    return { fake, w, item, taskId }
+  }
+
+  it('shows a comment on a linked task on its item, edited as it is in Todoist', async () => {
+    const { fake, item, taskId } = await synced()
+    const id = fake.comment(taskId, 'Chased the printer', '2026-10-18T09:00:00Z')
+    await syncTodoist(db)
+    expect(await itemComments(db, item.id)).toEqual([
+      { id, content: 'Chased the printer', postedAt: new Date('2026-10-18T09:00:00Z') },
+    ])
+
+    fake.editComment(id, 'Chased the printer again')
+    await syncTodoist(db)
+    expect((await itemComments(db, item.id)).map((one) => one.content)).toEqual(['Chased the printer again'])
+  })
+
+  it('removes a comment deleted in Todoist', async () => {
+    const { fake, item, taskId } = await synced()
+    const keep = fake.comment(taskId, 'Keep', '2026-10-18T09:00:00Z')
+    const gone = fake.comment(taskId, 'Gone', '2026-10-18T10:00:00Z')
+    await syncTodoist(db)
+    expect(await itemComments(db, item.id)).toHaveLength(2)
+
+    fake.deleteComment(gone)
+    await syncTodoist(db)
+    expect((await itemComments(db, item.id)).map((one) => one.id)).toEqual([keep])
+  })
+
+  it('ignores a comment on a task no item is linked to', async () => {
+    const { fake } = await synced()
+    const own = fake.add('Renew the car insurance')
+    fake.comment(own, 'Quote in')
+    await syncTodoist(db)
+    expect(await db.select().from(todoistComments)).toHaveLength(0)
+  })
+
+  it('writes nothing to the item’s own history', async () => {
+    const { fake, item, taskId } = await synced()
+    const before = await db.select().from(itemEvents).where(eq(itemEvents.itemId, item.id))
+    fake.comment(taskId, 'Status: waiting')
+    await syncTodoist(db)
+    expect(await db.select().from(itemEvents).where(eq(itemEvents.itemId, item.id))).toHaveLength(before.length)
+  })
+})
+
 describe('the webhook', () => {
-  it('asks for a sync on a task event, once per delivery', async () => {
+  it('asks for a sync on a task or comment event, once per delivery', async () => {
     fakeTodoist()
     await world()
     await connect()
@@ -439,10 +493,13 @@ describe('the webhook', () => {
     expect(await receiveTodoistDelivery(db, one)).toMatchObject({ status: 200, sync: true })
     expect(await receiveTodoistDelivery(db, one)).toMatchObject({ status: 200, sync: false, body: { replay: true } })
 
+    const note = delivery({ event_name: 'note:added', event_data: { id: 'n1', item_id: 't1' } })
+    expect(await receiveTodoistDelivery(db, note)).toMatchObject({ status: 200, sync: true })
+
     const project = delivery({ event_name: 'project:added' })
     expect(await receiveTodoistDelivery(db, project)).toMatchObject({ status: 200, sync: false })
     const rows = await db.select().from(integrationEvents).where(and(eq(integrationEvents.provider, 'todoist')))
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(3)
   })
 
   it('refuses a delivery signed with anything else', async () => {

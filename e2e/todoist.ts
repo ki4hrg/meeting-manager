@@ -1,7 +1,8 @@
 /*
  * A Todoist for the browser tests, on a port of its own: the account, its
  * projects, and the sync endpoint with tasks kept in memory. Just enough for
- * the app to connect, list projects, read the change feed and make tasks.
+ * the app to connect, list projects, read the change feed and make tasks. It
+ * has no comments: the feed answers with none.
  */
 
 import { createServer } from 'node:http'
@@ -100,6 +101,7 @@ export function startTodoist(): Promise<() => void> {
           body.items = [...tasks.values()].filter((task) =>
             full ? !task.checked && !task.is_deleted : task.seq > since,
           )
+          body.notes = []
         }
         return send(body)
       }

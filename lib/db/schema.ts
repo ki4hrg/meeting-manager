@@ -1073,6 +1073,29 @@ export const todoistTasks = pgTable(
 )
 
 /*
+ * Comments on tasks linked to an item, as Todoist last reported them: read
+ * only, shown in the item's history. Only a task with a link is kept; a
+ * comment deleted in Todoist is deleted here. Never in `item_events`.
+ */
+export const todoistComments = pgTable(
+  'todoist_comments',
+  {
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    commentId: text('comment_id').notNull(),
+    taskId: text('task_id').notNull(),
+    content: text('content').notNull(),
+    postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
+    seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.connectionId, t.commentId] }),
+    index('todoist_comments_task_idx').on(t.connectionId, t.taskId),
+  ],
+)
+
+/*
  * An item and its Todoist task (docs/SPEC.md, "Todoist sync").
  *
  * `base_*` is what both sides last agreed on: the merge compares each side
