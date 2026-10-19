@@ -173,7 +173,8 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
      whose next occurrence then takes it. What is on offer is what is still to
      come; a target already in the past stays listed so the select can show it. */
   const raisable = open && !decision
-  const series = raisable || item.targetSeriesId ? await listSeries(db, item.contextId) : []
+  // Also who a decision or an answer can be reported to.
+  const series = await listSeries(db, item.contextId)
   const meetings = raisable
     ? [
         ...(await listMeetings(db, { contextId: item.contextId, when: 'upcoming' })),
@@ -262,12 +263,21 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
           : [{ href: '/groups', label: 'Groups' }, { href: `/groups/${party.id}`, label: party.name }]
         : [{ href: '/inbox', label: 'Inbox' }]
 
+  const partyOptions: PartyOption[] = [
+    ...people.map((person): PartyOption => ({ value: `person:${person.id}`, name: person.name, icon: 'person' })),
+    ...groups.map((group): PartyOption => ({ value: `group:${group.id}`, name: group.name, icon: 'group' })),
+  ]
+  /* A person, a group, or a series, whose next meeting raises it. */
   const reportTo = (
-    <Field label="Report to">
-      <Select name="reportTo" defaultValue="">
-        <PartyOptions people={people} groups={groups} />
-      </Select>
-    </Field>
+    <PartyPicker
+      label="Report to"
+      name="reportTo"
+      options={[
+        ...partyOptions,
+        ...series.map((one): PartyOption => ({ value: `series:${one.id}`, name: one.name, icon: 'refresh' })),
+      ]}
+      allowNew
+    />
   )
 
   return (
@@ -570,7 +580,11 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 </FormModal>
               )}
 
-              <QuickAdd label="Follow-up" presets={{ parentItemId: item.id, kind: 'action' }} />
+              <QuickAdd
+                label="Follow-up"
+                title="New follow-up action"
+                presets={{ parentItemId: item.id, kind: 'action' }}
+              />
 
 
               {open && !decision ? (
@@ -585,7 +599,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 >
                   <input type="hidden" name="id" value={item.id} />
                   <Field label="Back on">
-                    <Input name="until" type="date" defaultValue={item.laterOn ?? ''} />
+                    <Input name="until" type="date" />
                   </Field>
                   {waitable.length > 0 ? (
                     <ItemPicker
@@ -599,15 +613,19 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               ) : null}
 
               {open ? (
-                <ActionButton
+                <FormModal
                   action={itemStatusAction}
-                  fields={{ id: item.id, op: 'drop' }}
+                  title="Drop item"
+                  label="Drop"
+                  icon="close"
                   variant="secondary"
                   size="sm"
+                  submit="Drop"
+                  danger
                 >
-                  <Icon name="close" className="h-4 w-4" />
-                  Drop
-                </ActionButton>
+                  <input type="hidden" name="id" value={item.id} />
+                  <input type="hidden" name="op" value="drop" />
+                </FormModal>
               ) : null}
 
               {/* Housekeeping, icon only, last: Todoist, its kind, Edit, Delete. */}

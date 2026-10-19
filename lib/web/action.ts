@@ -13,7 +13,7 @@ import { requireUser, type AuthUser } from '../auth/guards'
 import { AppError, ValidationError, type ActorContext, type Executor } from '../core/types'
 import { createPerson } from '../directory/people'
 import { resolvePerson } from '../directory/resolve'
-import type { PartyRef } from '../items/items'
+import type { PartyRef, ReportTo } from '../items/items'
 import { syncTodoistSoon } from '../jobs'
 import { webActor } from './context'
 
@@ -76,8 +76,8 @@ export function partyRef(value: string): PartyRef | null {
 export async function pickedPeople(exec: Executor, formData: FormData, name: string): Promise<string[]> {
   const ids: string[] = []
   for (const value of formData.getAll(name).map(String).filter(Boolean)) {
-    // Groups ride in the same picker; `pickedGroups` reads them.
-    if (value.startsWith('group:')) continue
+    // Groups and series ride in the same picker; read on their own.
+    if (value.startsWith('group:') || value.startsWith('series:')) continue
     if (value.startsWith('new:')) ids.push((await createPerson(exec, { name: value.slice(4) })).id)
     else ids.push(value.replace(/^person:/, ''))
   }
@@ -98,4 +98,21 @@ export function pickedGroups(formData: FormData, name: string): string[] {
         .map((value) => value.slice(6)),
     ),
   ]
+}
+
+/**
+ * The one a Report to picker names: a person (a new one added to the
+ * directory now), a group, or `series:<id>`, whose next meeting raises it.
+ */
+export async function pickedReportTo(exec: Executor, formData: FormData, name: string): Promise<ReportTo | null> {
+  const series = formData
+    .getAll(name)
+    .map(String)
+    .filter((value) => value.startsWith('series:'))
+    .map((value) => ({ seriesId: value.slice(7) }))
+  const groups = pickedGroups(formData, name).map((groupId) => ({ groupId }))
+  const people = (await pickedPeople(exec, formData, name)).map((personId) => ({ personId }))
+  const picked: ReportTo[] = [...people, ...groups, ...series]
+  if (picked.length > 1) throw new ValidationError('Report to one at a time.')
+  return picked[0] ?? null
 }

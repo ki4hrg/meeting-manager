@@ -441,6 +441,22 @@ describe('threads', () => {
     expect(waiting.map((i) => i.id)).toEqual([report!.id])
   })
 
+  it('reports a decision to a series as a topic raised at its next meeting', async () => {
+    const { parish } = await makeWorld()
+    const weekly = await createSeries(db, { contextId: parish.id, name: 'Weekly' })
+    const topic = await createItem(db, actor, { contextId: parish.id, text: 'Hall booking' })
+
+    const { report } = await recordDecision(db, actor, {
+      fromItemId: topic.id,
+      text: 'Book the hall for May',
+      detail: 'Any weekend but the 16th',
+      reportTo: { seriesId: weekly.id },
+    })
+
+    expect(report).toMatchObject({ kind: 'topic', status: 'open', targetSeriesId: weekly.id, parties: [] })
+    expect(report!.detail).toBe('Any weekend but the 16th')
+  })
+
   it('holds one question owned by three', async () => {
     const { parish, john, sarah, tom } = await makeWorld()
     const q = await createItem(db, actor, {

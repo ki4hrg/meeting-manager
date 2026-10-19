@@ -9,8 +9,8 @@ export type PartyOption = {
   /** What is submitted: an id, `person:<id>` / `group:<id>` / `name:<text>`, or `new:<name>`. */
   value: string
   name: string
-  /** `alert` is a name nobody has been matched to yet; `plus` someone to add. */
-  icon: 'person' | 'group' | 'alert' | 'plus'
+  /** `alert` is a name nobody has been matched to yet; `plus` someone to add; `refresh` a series. */
+  icon: 'person' | 'group' | 'alert' | 'plus' | 'refresh'
 }
 
 /**

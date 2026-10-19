@@ -56,7 +56,7 @@ import {
 } from '@/lib/projects/projects'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { getSeries } from '@/lib/meetings/series'
-import { act, field, partyRef, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { act, field, partyRef, pickedGroups, pickedPeople, pickedReportTo, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 import { switchTarget } from '@/lib/web/switch'
 
@@ -211,13 +211,15 @@ export async function deleteItemAction(formData: FormData): Promise<ActionResult
 
 export async function answerItemAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await answerItem(db, actor, field(formData, 'id'), {
-      answer: field(formData, 'answer'),
-      reportTo: partyRef(field(formData, 'reportTo')),
-      toldThem: formData.get('told') === 'on',
-      closeAsk: formData.get('closeAsk') === 'on',
-      decision: { text: field(formData, 'decision') },
-    })
+    await inTransaction(db, async (tx) =>
+      answerItem(tx, actor, field(formData, 'id'), {
+        answer: field(formData, 'answer'),
+        reportTo: await pickedReportTo(tx, formData, 'reportTo'),
+        toldThem: formData.get('told') === 'on',
+        closeAsk: formData.get('closeAsk') === 'on',
+        decision: { text: field(formData, 'decision') },
+      }),
+    )
   })
 }
 
@@ -247,12 +249,14 @@ export async function convertItemAction(formData: FormData): Promise<ActionResul
 
 export async function recordDecisionAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await recordDecision(db, actor, {
-      fromItemId: field(formData, 'fromItemId'),
-      text: field(formData, 'text'),
-      detail: field(formData, 'detail'),
-      reportTo: partyRef(field(formData, 'reportTo')),
-    })
+    await inTransaction(db, async (tx) =>
+      recordDecision(tx, actor, {
+        fromItemId: field(formData, 'fromItemId'),
+        text: field(formData, 'text'),
+        detail: field(formData, 'detail'),
+        reportTo: await pickedReportTo(tx, formData, 'reportTo'),
+      }),
+    )
   })
 }
 

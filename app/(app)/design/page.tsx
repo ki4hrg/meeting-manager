@@ -24,7 +24,7 @@ import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile, 
 import { CheckList } from '@/components/ui/CheckList'
 import { Chip, FilterChip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/Field'
+import { Checkbox, Field, Input, SearchInput, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { RemovableChip } from '@/components/ui/RemovableChip'
@@ -50,6 +50,7 @@ import type { MeetingView } from '@/lib/meetings/meetings'
 import type { UpcomingEntry } from '@/lib/meetings/prep'
 import type { ProposalView } from '@/lib/processing/proposals'
 import type { Run } from '@/lib/processing/run'
+import { MatchActions } from '../settings/Todoist'
 import { sampleAction } from './actions'
 import { Interactive } from './interactive'
 
@@ -683,6 +684,9 @@ export default function DesignPage() {
             <Field label="Detail">
               <Textarea name="detail" rows={3} />
             </Field>
+            <Field label="Find">
+              <SearchInput name="find" />
+            </Field>
             <WhenInputs starts="2026-10-07T09:00" ends="2026-10-09T17:00" />
           </div>
         </Card>
@@ -718,6 +722,9 @@ export default function DesignPage() {
                 submit="Delete"
                 danger
               />
+            </div>
+            <div className="flex">
+              <MatchActions itemId="sample" choices={[{ id: 'sample', content: 'Send the budget', deadline: null }]} />
             </div>
             <CheckList
               label="People"

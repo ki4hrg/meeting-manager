@@ -49,6 +49,8 @@ export const OPEN_STATUSES: ItemStatus[] = ['open', 'needs_answer']
 
 export type PartyRef = { personId: string; groupId?: undefined } | { groupId: string; personId?: undefined }
 export type PartyInput = PartyRef & { role: PartyRole }
+/** Who an answer or a decision is reported to: a person, a group, or a series' next meeting. */
+export type ReportTo = PartyRef | { seriesId: string; personId?: undefined; groupId?: undefined }
 
 export type ItemParty = {
   type: 'person' | 'group'
@@ -1044,7 +1046,7 @@ async function reportBack(
   exec: Executor,
   actor: ActorContext,
   source: ItemView,
-  to: PartyRef,
+  to: ReportTo,
   resolution: string | null,
 ): Promise<ItemView> {
   return createItem(exec, actor, {
@@ -1054,7 +1056,10 @@ async function reportBack(
     detail: resolution,
     projectId: source.project?.id ?? null,
     parentItemId: source.id,
-    parties: [{ ...to, role: 'with' }],
+    /* A series has no one to hand it to: it is raised at its next meeting. */
+    ...('seriesId' in to && to.seriesId
+      ? { target: { seriesId: to.seriesId } }
+      : { parties: [{ ...(to as PartyRef), role: 'with' as const }] }),
   })
 }
 
@@ -1140,7 +1145,7 @@ export async function answerItem(
 
 export type AnswerInput = {
   answer: string
-  reportTo?: PartyRef | null
+  reportTo?: ReportTo | null
   /** The meeting it was answered in: the people there heard it. */
   meetingId?: string | null
   /** John has already passed the answer on: nothing more to report. */
@@ -1381,7 +1386,7 @@ export type RecordDecisionInput = {
   contextId?: string
   projectId?: string | null
   parties?: PartyInput[]
-  reportTo?: PartyRef | null
+  reportTo?: ReportTo | null
 }
 
 /** A decision as its own record, linked to the item it settled when there is one. */

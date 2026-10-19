@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Input } from '@/components/ui/Field'
+import { SearchInput } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { matchName } from '@/lib/core/match'
 
@@ -30,9 +30,8 @@ export function TaskPicker({ name, options }: { name: string; options: TaskOptio
   return (
     <div className="flex flex-col gap-2">
       <input type="hidden" name={name} value={value ?? ''} />
-      <Input
+      <SearchInput
         aria-label="Search tasks"
-        placeholder="Search"
         value={text}
         onChange={(event) => setText(event.target.value)}
         autoFocus
