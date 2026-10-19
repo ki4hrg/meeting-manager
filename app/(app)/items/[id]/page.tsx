@@ -8,6 +8,7 @@ import { PartyOptions } from '@/components/items/PartyOptions'
 import { PartyRoles } from '@/components/items/PartyRoles'
 import { BackWhen, WaitingOnThis } from '@/components/items/WaitsOn'
 import { PartyPicker, type PartyOption } from '@/components/processing/PartyPicker'
+import { GranolaChip } from '@/components/GranolaChip'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs'
 import { Button } from '@/components/ui/Button'
@@ -26,6 +27,7 @@ import {
   type ItemKind,
 } from '@/components/ui/StatusBadge'
 import { iconButtonClasses } from '@/components/ui/IconButton'
+import { splitGranolaLinks } from '@/lib/connect/granola/links'
 import { itemTodoist, openTasks, rankTasks } from '@/lib/connect/todoist/match'
 import { formatDay, formatMoment } from '@/lib/core/dates'
 import { isUuid } from '@/lib/core/match'
@@ -44,7 +46,8 @@ import {
 } from '@/lib/items/items'
 import { COLLABORATOR, hasCollaborators, roleLabel } from '@/lib/items/roles'
 import { getProject, listProjectChoices } from '@/lib/projects/projects'
-import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
+import { getMeeting, listMeetings, type MeetingView } from '@/lib/meetings/meetings'
+import { findNoteByExternalId, listNotes } from '@/lib/notes/notes'
 import { listSeries } from '@/lib/meetings/series'
 import { viewer } from '@/lib/web/context'
 import {
@@ -215,6 +218,27 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
     ...projects.filter((project) => project.id !== item.project?.id && project.status !== 'done'),
   ]
   const origin = await lookUp(item.originMeetingId)
+  /* Its Granola notes: the origin meeting's, and any linked in the detail,
+     which then leaves the text shown. A note linked there that we hold names
+     the meeting it came from, when the item has no origin of its own. */
+  const linked = item.detail ? splitGranolaLinks(item.detail) : { text: '', ids: [] }
+  const detail = linked.ids.length > 0 ? linked.text : item.detail
+  const originNotes = origin
+    ? (await listNotes(db, origin.id)).flatMap((note) =>
+        note.source === 'granola' && note.externalId ? [note.externalId] : [],
+      )
+    : []
+  const granolaIds = [...new Set([...originNotes, ...linked.ids])]
+  let noteMeeting: MeetingView | null = null
+  for (const noteId of origin ? [] : linked.ids) {
+    const note = await findNoteByExternalId(db, 'granola', noteId)
+    const meeting = note?.meetingId ? await lookUp(note.meetingId) : null
+    if (meeting && meeting.contextId === item.contextId) {
+      noteMeeting = meeting
+      break
+    }
+  }
+  const from = origin ?? noteMeeting
   /* Later, until another item closes: what this one waits on, what waits on
      it, and the open items it could wait on. */
   const blocker = item.laterUntilItemId
@@ -311,8 +335,8 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               </span>
             </div>
 
-            {item.detail ? (
-              <Markdown source={item.detail} className="mt-2 text-sm text-gray-700 dark:text-gray-300" />
+            {detail ? (
+              <Markdown source={detail} className="mt-2 text-sm text-gray-700 dark:text-gray-300" />
             ) : null}
 
             {item.resolution ? (
@@ -361,7 +385,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               </PartyRoles>
             </div>
 
-            {raisable || target || origin || (open && item.parkedAt) ? (
+            {raisable || target || from || granolaIds.length > 0 || (open && item.parkedAt) ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {open && item.parkedAt && blocker ? (
                   <BackWhen
@@ -386,11 +410,14 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                     {item.laterOn ? formatDay(item.laterOn, today) : 'Later'}
                   </RemovableChip>
                 ) : null}
-                {origin ? (
-                  <Chip icon="undo" href={`/meetings/${origin.id}`}>
-                    <span className="text-gray-500 dark:text-gray-400">From</span> {origin.title}
+                {from ? (
+                  <Chip icon="undo" href={`/meetings/${from.id}`}>
+                    <span className="text-gray-500 dark:text-gray-400">From</span> {from.title}
                   </Chip>
                 ) : null}
+                {granolaIds.map((noteId) => (
+                  <GranolaChip key={noteId} noteId={noteId} />
+                ))}
                 {target && raisable ? (
                   <RemovableChip
                     icon="meeting"

@@ -1,4 +1,5 @@
 import { RollCall } from '@/components/meetings/RollCall'
+import { GranolaChip } from '@/components/GranolaChip'
 import { Roster } from '@/components/meetings/Roster'
 import { knownPeople } from '@/lib/connect/granola/ingest'
 import { attendanceLocked, rollCall, settleIfOver } from '@/lib/meetings/attendance'
@@ -155,6 +156,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                 <span className="shrink-0 text-xs tabular-nums text-gray-500 dark:text-gray-400">
                   {formatMoment(note.createdAt, user.timeZone)}
                 </span>
+                {note.source === 'granola' && note.externalId ? <GranolaChip noteId={note.externalId} compact /> : null}
                 {places.length > 0 ? (
                   <ActionSelect
                     key={note.meetingId}

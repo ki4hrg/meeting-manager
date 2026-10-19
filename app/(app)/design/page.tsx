@@ -1,6 +1,7 @@
 import { ActionSelect } from '@/components/ActionSelect'
 import { CopyButton } from '@/components/CopyButton'
 import { Export } from '@/components/Export'
+import { GranolaChip } from '@/components/GranolaChip'
 import { DocumentCard } from '@/components/documents/DocumentCard'
 import { EventCard } from '@/components/meetings/EventCard'
 import { MeetingCard } from '@/components/meetings/MeetingCard'
@@ -714,6 +715,8 @@ export default function DesignPage() {
               >
                 Retreat
               </RemovableChip>
+              <GranolaChip noteId="sample" />
+              <GranolaChip noteId="sample" compact />
               <FormModal
                 action={sampleAction}
                 title="Delete Staff meeting?"
