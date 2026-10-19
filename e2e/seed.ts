@@ -10,6 +10,7 @@ import { createContext } from '../lib/directory/contexts'
 import { createPerson, ensureSelf } from '../lib/directory/people'
 import { createItem } from '../lib/items/items'
 import { createMeeting } from '../lib/meetings/meetings'
+import { createSeries } from '../lib/meetings/series'
 import { addProposals } from '../lib/processing/proposals'
 import { createProject } from '../lib/projects/projects'
 import { ACCOUNT, WORLD } from './world'
@@ -44,6 +45,20 @@ export async function seed({ todoistToken }: { todoistToken?: string } = {}) {
     return moment
   }
   await createMeeting(db, actor, { contextId: conference.id, title: WORLD.meetings.checkIn, startsAt: at(1, 10), endsAt: at(1, 11), personIds: [adlene.id] })
+  /* Questions for the bishop, raised at worship planning: one to ask him, one
+     to mention when he is there. */
+  const bishop = await createPerson(db, { name: WORLD.people.bishop })
+  const planning = await createSeries(db, {
+    contextId: conference.id,
+    name: WORLD.meetings.planning,
+    blocks: { followUps: false, sinceLast: true, lookahead: false },
+  })
+  const lastPlanning = await createMeeting(db, actor, { contextId: conference.id, seriesId: planning.id, title: WORLD.meetings.planning, startsAt: at(-7, 9), endsAt: at(-7, 10), personIds: [sarah.id] })
+  await createMeeting(db, actor, { contextId: conference.id, seriesId: planning.id, title: WORLD.meetings.planning, startsAt: at(7, 9), endsAt: at(7, 10), personIds: [sarah.id] })
+  await createMeeting(db, actor, { contextId: conference.id, title: WORLD.meetings.bishop, startsAt: at(3, 14), endsAt: at(3, 15), personIds: [bishop.id] })
+  for (const text of [WORLD.items.scripture, WORLD.items.longForm]) {
+    await createItem(db, actor, { contextId: conference.id, kind: 'question', text, originMeetingId: lastPlanning.id, parties: [{ personId: bishop.id, role: 'owner' }] })
+  }
   // Two days back, so on any clock it is an earlier day's, reviewed under Review rather than Today.
   const finance = await createMeeting(db, actor, { contextId: church.id, title: WORLD.meetings.finance, startsAt: at(-2, 18), endsAt: at(-2, 19), personIds: [sarah.id] })
   await addProposals(db, { meetingId: finance.id }, [

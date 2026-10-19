@@ -5,7 +5,10 @@
  * The leak rule lives here. "Follow-ups due" and "Since last time" are drawn
  * only from items that were put on an agenda or came out of the meeting, never
  * from everything an attendee happens to owe: what someone owes John in private
- * must not surface in a room it was never raised in.
+ * must not surface in a room it was never raised in. What "Since last time"
+ * adds from between meetings is held to the same circle: items raised at its
+ * series', groups' or projects' meetings, aimed at them, or carrying the
+ * project or the group, as the agenda's suggestions are.
  */
 
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or } from 'drizzle-orm'
@@ -15,6 +18,9 @@ import { NotFoundError, type Executor } from '../core/types'
 import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 import {
   agendaLines,
+  itemEvents,
+  items,
+  meetingGroups,
   meetingProjects,
   meetings,
   milestones,
@@ -64,6 +70,9 @@ export async function computeBlocks(
       .limit(1)
     settings = row?.blocks ?? null
   }
+  /* A meeting of no series reports since last time on its group's or its
+     projects' meetings; it has none to report on without them. */
+  if (!settings && !meeting.seriesId) settings = { ...OFF, sinceLast: true }
   const on = { ...(settings ?? OFF), ...opts.force }
   const now = opts.now ?? new Date()
 
@@ -139,23 +148,91 @@ async function followUpsFor(
   return block.length > 0 ? block : null
 }
 
+/* A meeting's circle: its series, its groups and its projects, these read up
+   and down the project tree as the lookahead reads them. */
+type Circle = {
+  seriesId: string | null
+  groupIds: Set<string>
+  projectIds: Set<string>
+  /** Every meeting in the context that shares any of these. */
+  meetingIds: Set<string>
+}
+
+async function circleOf(exec: Executor, meeting: Meeting): Promise<Circle | null> {
+  const [ownProjects, ownGroups] = await Promise.all([
+    exec
+      .select({ id: meetingProjects.projectId })
+      .from(meetingProjects)
+      .where(eq(meetingProjects.meetingId, meeting.id)),
+    exec.select({ id: meetingGroups.groupId }).from(meetingGroups).where(eq(meetingGroups.meetingId, meeting.id)),
+  ])
+  const own = ownProjects.map((row) => row.id)
+  const tree = own.length > 0 ? await listProjects(exec, meeting.contextId, 'all') : []
+  const projectIds = new Set([...own, ...ancestorIds(tree, own), ...descendantIds(tree, own)])
+  const groupIds = new Set(ownGroups.map((row) => row.id))
+  if (!meeting.seriesId && projectIds.size === 0 && groupIds.size === 0) return null
+
+  const rows = await exec
+    .select({ id: meetings.id })
+    .from(meetings)
+    .where(
+      and(
+        eq(meetings.contextId, meeting.contextId),
+        onShelf(meetings),
+        or(
+          meeting.seriesId ? eq(meetings.seriesId, meeting.seriesId) : undefined,
+          projectIds.size > 0
+            ? inArray(
+                meetings.id,
+                exec
+                  .select({ id: meetingProjects.meetingId })
+                  .from(meetingProjects)
+                  .where(inArray(meetingProjects.projectId, [...projectIds])),
+              )
+            : undefined,
+          groupIds.size > 0
+            ? inArray(
+                meetings.id,
+                exec
+                  .select({ id: meetingGroups.meetingId })
+                  .from(meetingGroups)
+                  .where(inArray(meetingGroups.groupId, [...groupIds])),
+              )
+            : undefined,
+        ),
+      ),
+    )
+  return { seriesId: meeting.seriesId, groupIds, projectIds, meetingIds: new Set(rows.map((row) => row.id)) }
+}
+
+/*
+ * Since last time: what happened at the previous meeting of the circle (its
+ * decisions, what closed and what is still open), and what was settled since
+ * on anything the circle raised: questions answered and decisions recorded
+ * between that meeting and this one. An answer the circle already heard (given
+ * in one of its meetings) or that John has passed on himself is not repeated,
+ * and a decision stands in for the answer it was recorded from.
+ */
 async function sinceLastFor(
   exec: Executor,
   meeting: Meeting,
   now: Date,
 ): Promise<SinceLastBlock | null> {
-  if (!meeting.seriesId) return null
+  const circle = await circleOf(exec, meeting)
+  if (!circle) return null
+  const before = meeting.startsAt ?? now
 
   const [previous] = await exec
     .select()
     .from(meetings)
     .where(
       and(
-        eq(meetings.seriesId, meeting.seriesId),
-        eq(meetings.contextId, meeting.contextId),
-        onShelf(meetings),
+        inArray(meetings.id, [...circle.meetingIds, meeting.id]),
         ne(meetings.id, meeting.id),
-        lt(meetings.startsAt, meeting.startsAt ?? now),
+        // Not its own sessions, nor the meeting it is a session of.
+        or(isNull(meetings.parentMeetingId), ne(meetings.parentMeetingId, meeting.id)),
+        meeting.parentMeetingId ? ne(meetings.id, meeting.parentMeetingId) : undefined,
+        lt(meetings.startsAt, before),
       ),
     )
     .orderBy(desc(meetings.startsAt))
@@ -165,13 +242,82 @@ async function sinceLastFor(
   const then = await itemsOf(exec, previous)
   const thenIds = new Set(then.map((item) => item.id))
   // A decision recorded afterwards on something raised there belongs to it too.
-  const settled = (await listItems(exec, { contextId: meeting.contextId, kinds: ['decision'] })).filter(
+  const decisionsInContext = await listItems(exec, { contextId: meeting.contextId, kinds: ['decision'] })
+  const settled = decisionsInContext.filter(
     (item) => item.parentItemId !== null && thenIds.has(item.parentItemId) && !thenIds.has(item.id),
   )
 
-  const decisions = [...then.filter((item) => item.kind === 'decision'), ...settled]
+  /* Settled since, on anything the circle raised. */
+  const windowStart = previous.startsAt!
+  const inWindow = (at: Date) => at >= windowStart && at < before
+  const answeredRows = await exec
+    .select({ itemId: itemEvents.itemId, data: itemEvents.data, createdAt: itemEvents.createdAt })
+    .from(itemEvents)
+    .innerJoin(items, eq(items.id, itemEvents.itemId))
+    .where(
+      and(
+        eq(items.contextId, meeting.contextId),
+        eq(itemEvents.type, 'answered'),
+        gte(itemEvents.createdAt, windowStart),
+        lt(itemEvents.createdAt, before),
+      ),
+    )
+  const heard = new Set(
+    answeredRows
+      .filter((row) => {
+        const data = row.data as { meetingId?: string; told?: boolean }
+        return data.told === true || (data.meetingId !== undefined && circle.meetingIds.has(data.meetingId))
+      })
+      .map((row) => row.itemId),
+  )
+  const answeredSince = (
+    await listItems(exec, {
+      contextId: meeting.contextId,
+      ids: [...new Set(answeredRows.map((row) => row.itemId))],
+    })
+  ).filter((item) => !isOpen(item) && !heard.has(item.id))
+  const decidedSince = decisionsInContext.filter((item) => inWindow(item.createdAt))
+
+  const placedRows =
+    circle.meetingIds.size === 0
+      ? []
+      : await exec
+          .select({ itemId: agendaLines.itemId })
+          .from(agendaLines)
+          .where(and(inArray(agendaLines.meetingId, [...circle.meetingIds]), isNotNull(agendaLines.itemId)))
+  const placed = new Set(placedRows.map((row) => row.itemId!))
+  const byId = new Map<string, ItemView>()
+  const belongs = async (item: ItemView, depth = 0): Promise<boolean> => {
+    if (
+      (item.originMeetingId !== null && circle.meetingIds.has(item.originMeetingId)) ||
+      placed.has(item.id) ||
+      (circle.seriesId !== null && item.targetSeriesId === circle.seriesId) ||
+      (item.targetProjectId !== null && circle.projectIds.has(item.targetProjectId)) ||
+      (item.project !== null && circle.projectIds.has(item.project.id)) ||
+      item.parties.some((party) => party.type === 'group' && circle.groupIds.has(party.id))
+    ) {
+      return true
+    }
+    if (!item.parentItemId || depth > 20) return false
+    const parent =
+      byId.get(item.parentItemId) ??
+      (await listItems(exec, { contextId: meeting.contextId, ids: [item.parentItemId] }))[0]
+    if (!parent) return false
+    byId.set(parent.id, parent)
+    return belongs(parent, depth + 1)
+  }
+  const sinceAnswers: ItemView[] = []
+  for (const item of answeredSince) if (!thenIds.has(item.id) && (await belongs(item))) sinceAnswers.push(item)
+  const sinceDecisions: ItemView[] = []
+  for (const item of decidedSince) if (!thenIds.has(item.id) && (await belongs(item))) sinceDecisions.push(item)
+
+  const decisions = unique([...then.filter((item) => item.kind === 'decision'), ...settled, ...sinceDecisions])
+  // A decision recorded from an answer is what is reported, in its own words.
+  const decidedFrom = new Set(decisions.flatMap((item) => (item.parentItemId ? [item.parentItemId] : [])))
   const rest = then.filter((item) => item.kind !== 'decision')
-  const closed = rest.filter((item) => !isOpen(item))
+  const closed = unique([...rest.filter((item) => !isOpen(item)), ...sinceAnswers]).filter(
+    (item) => !decidedFrom.has(item.id),
+  )
   const stillOpen = rest.filter(isOpen)
   if (decisions.length + closed.length + stillOpen.length === 0) return null
 
@@ -186,6 +332,11 @@ async function sinceLastFor(
     })),
     stillOpen: stillOpen.map((item) => ({ itemId: item.id, kind: item.kind, text: item.text })),
   }
+}
+
+function unique(list: ItemView[]): ItemView[] {
+  const seen = new Set<string>()
+  return list.filter((item) => (seen.has(item.id) ? false : (seen.add(item.id), true)))
 }
 
 async function lookaheadFor(

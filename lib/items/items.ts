@@ -28,6 +28,7 @@ import {
   itemEvents,
   itemParties,
   items,
+  meetingPeople,
   meetings,
   people,
   projects,
@@ -763,6 +764,66 @@ export async function unparkItem(exec: Executor, actor: ActorContext, id: string
   })
 }
 
+export type AskInput = {
+  /** An open action to go with others already waiting on it, instead of a new one. */
+  join?: string | null
+  text?: string | null
+  /** Who John asks: the person it is asked of, by default. */
+  with?: PartyRef | null
+  dueOn?: string | null
+  /** The ask itself waits in Later until this day. */
+  laterOn?: string | null
+}
+
+/**
+ * Ask a question someone else owes (docs/SPEC.md, "Asking a question someone else owes"): John's action to
+ * put it to them, which the question waits on. Each question gets its own ask
+ * unless it joins one already open (two questions in one email). Done, the ask
+ * brings the question back as Waiting on.
+ */
+export async function askItem(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  input: AskInput = {},
+): Promise<{ question: ItemView; ask: ItemView }> {
+  return inTransaction(exec, async (tx) => {
+    const question = await getItem(tx, id)
+    if (question.kind !== 'question' || !isOpen(question)) {
+      throw new ValidationError('Only an open question is asked.')
+    }
+    const owner = question.parties.find((party) => party.role === 'owner' && !party.isSelf)
+    if (!owner) throw new ValidationError('Say who it is asked of first.')
+
+    let ask: ItemView
+    if (input.join) {
+      ask = await getItem(tx, input.join)
+      if (ask.contextId !== question.contextId) throw new ValidationError('That item belongs to another context.')
+      if (ask.kind !== 'action' || !isOpen(ask)) throw new ValidationError('A question joins an open action.')
+    } else {
+      const [self] = await tx.select({ id: people.id }).from(people).where(eq(people.isSelf, true)).limit(1)
+      if (!self) throw new ValidationError('Set up your own person first.')
+      const to: PartyRef = input.with ?? (owner.type === 'person' ? { personId: owner.id } : { groupId: owner.id })
+      ask = await createItem(tx, actor, {
+        contextId: question.contextId,
+        kind: 'action',
+        text: blankToNull(input.text) ?? `Ask ${owner.name}: ${question.text}`,
+        projectId: question.project?.id ?? null,
+        dueOn: input.dueOn ?? null,
+        parentItemId: question.id,
+        parties: [
+          { personId: self.id, role: 'owner' },
+          ...((to.personId ?? to.groupId) === self.id ? [] : [{ ...to, role: 'with' as const }]),
+        ],
+      })
+      if (blankToNull(input.laterOn)) await parkItem(tx, actor, ask.id, { until: input.laterOn })
+    }
+
+    await parkItem(tx, actor, question.id, { untilItem: ask.id })
+    return { question: await getItem(tx, question.id), ask: await getItem(tx, ask.id) }
+  })
+}
+
 /** Raised in a meeting but not finished: the item stays open and the history says so. */
 export async function markDiscussed(
   exec: Executor,
@@ -780,6 +841,53 @@ export async function markDiscussed(
       .where(eq(items.id, id))
     await logEvent(tx, actor, id, 'discussed', { meetingId })
   })
+}
+
+/**
+ * A question waiting to be asked was raised with them in person: it is
+ * Waiting on now, and an ask made for it alone is done. Discussed from the
+ * meeting page; processing records the discussion only, so its undo stays
+ * exact.
+ */
+export async function markAsked(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  meetingId: string,
+): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const item = await getItem(tx, id)
+    if (item.kind !== 'question' || !isOpen(item) || !item.laterUntilItemId) return
+    const owners = item.parties.filter((party) => party.role === 'owner' && party.type === 'person')
+    if (owners.length === 0) return
+    const [present] = await tx
+      .select({ personId: meetingPeople.personId })
+      .from(meetingPeople)
+      .where(
+        and(
+          eq(meetingPeople.meetingId, meetingId),
+          inArray(meetingPeople.personId, owners.map((owner) => owner.id)),
+        ),
+      )
+      .limit(1)
+    // Raised where they were not: it has not been put to them.
+    if (!present) return
+    const ask = await getItem(tx, item.laterUntilItemId)
+    await unparkItem(tx, actor, id)
+    if (ask.kind === 'action' && isOpen(ask) && ask.parentItemId === id && !(await holdsOpen(tx, ask.id))) {
+      await completeItem(tx, actor, ask.id)
+    }
+  })
+}
+
+/* Anything open still waits on this item. */
+async function holdsOpen(exec: Executor, id: string): Promise<boolean> {
+  const [row] = await exec
+    .select({ id: items.id })
+    .from(items)
+    .where(and(eq(items.laterUntilItemId, id), inArray(items.status, OPEN_STATUSES), notDeleted(items)))
+    .limit(1)
+  return row !== undefined
 }
 
 export async function setItemParties(
@@ -961,8 +1069,8 @@ export async function answerItem(
   exec: Executor,
   actor: ActorContext,
   id: string,
-  input: { answer: string; reportTo?: PartyRef | null },
-): Promise<{ item: ItemView; report: ItemView | null }> {
+  input: AnswerInput,
+): Promise<{ item: ItemView; report: ItemView | null; decision: ItemView | null }> {
   const answer = input.answer.trim()
   if (answer === '') throw new ValidationError('Enter the answer.')
 
@@ -970,16 +1078,72 @@ export async function answerItem(
     const item = await getItem(tx, id)
     if (item.kind !== 'question') throw new ValidationError('Only a question takes an answer.')
     if (!isOpen(item)) throw new ValidationError('This question is already closed.')
+    if (input.meetingId) await assertMeetingIn(tx, input.meetingId, item.contextId)
 
     await tx
       .update(items)
       .set({ status: 'done', resolution: answer, closedAt: new Date(), updatedAt: new Date(), ...NOT_PARKED })
       .where(eq(items.id, id))
-    await logEvent(tx, actor, id, 'answered', { answer, ...(await release(tx, actor, item)) })
+    await logEvent(tx, actor, id, 'answered', {
+      answer,
+      ...(input.meetingId ? { meetingId: input.meetingId } : {}),
+      ...(input.toldThem ? { told: true } : {}),
+      ...(await release(tx, actor, item)),
+    })
 
+    /* Answered before it was asked: the ask it waited on is done with. */
+    if (input.closeAsk && item.laterUntilItemId) {
+      const ask = await getItem(tx, item.laterUntilItemId)
+      if (ask.kind === 'action' && isOpen(ask)) await completeItem(tx, actor, ask.id)
+    }
+
+    const decisionText = blankToNull(input.decision?.text)
+    const decision = decisionText
+      ? (await recordDecision(tx, actor, { fromItemId: id, text: decisionText, detail: input.decision?.detail }))
+          .item
+      : null
     const report = input.reportTo ? await reportBack(tx, actor, item, input.reportTo, answer) : null
-    return { item: await getItem(tx, id), report }
+    return { item: await getItem(tx, id), report, decision }
   })
+}
+
+export type AnswerInput = {
+  answer: string
+  reportTo?: PartyRef | null
+  /** The meeting it was answered in: the people there heard it. */
+  meetingId?: string | null
+  /** John has already passed the answer on: nothing more to report. */
+  toldThem?: boolean
+  /** Close the ask it was waiting on. */
+  closeAsk?: boolean
+  /** Record a decision from the answer, in the same step. */
+  decision?: { text: string; detail?: string | null } | null
+}
+
+/** The ask an open question waits on, and whether anything else waits on it too. */
+export async function askOf(
+  exec: Executor,
+  question: ItemView,
+): Promise<{ ask: ItemView; shared: boolean } | null> {
+  if (question.kind !== 'question' || !question.laterUntilItemId) return null
+  const ask = await getItem(exec, question.laterUntilItemId).catch((err) => {
+    if (err instanceof NotFoundError) return null
+    throw err
+  })
+  if (!ask || ask.kind !== 'action' || !isOpen(ask)) return null
+  const [other] = await exec
+    .select({ id: items.id })
+    .from(items)
+    .where(
+      and(
+        eq(items.laterUntilItemId, ask.id),
+        inArray(items.status, OPEN_STATUSES),
+        notDeleted(items),
+        sql`${items.id} <> ${question.id}`,
+      ),
+    )
+    .limit(1)
+  return { ask, shared: other !== undefined }
 }
 
 /**

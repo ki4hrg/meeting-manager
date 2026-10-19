@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { Card, Section } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
 import { RemovableChip } from '@/components/ui/RemovableChip'
-import { Field, Input, Select, Textarea } from '@/components/ui/Field'
+import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Markdown } from '@/components/ui/Markdown'
 import { Icon, type IconName } from '@/components/ui/icons'
 import {
@@ -33,6 +33,7 @@ import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
 import {
+  askOf,
   canDeleteItem,
   getItem,
   getThread,
@@ -49,6 +50,7 @@ import {
   addNoteAction,
   addPartyAction,
   answerItemAction,
+  askItemAction,
   convertItemAction,
   deleteItemAction,
   itemStatusAction,
@@ -222,6 +224,16 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
           .filter((one) => one.id !== item.id)
           .map((one) => ({ id: one.id, text: one.text, kind: one.kind }))
       : []
+  /* Asking a question someone else owes: the ask it waits on, if any, and
+     the open actions it could go with instead of an ask of its own. */
+  const askedOf =
+    open && item.kind === 'question' ? item.parties.find((one) => one.role === 'owner' && !one.isSelf) : undefined
+  const ask = open ? await askOf(db, item) : null
+  const joinable: ItemOption[] = askedOf
+    ? (await listItems(db, { contextId: item.contextId, open: true, kinds: ['action'] }))
+        .filter((one) => one.id !== ask?.ask.id)
+        .map((one) => ({ id: one.id, text: one.text, kind: one.kind }))
+    : []
   const events = thread.events.filter((event) => event.itemId === id)
   /* Its Todoist task, or a way to give it one. */
   const todoist = await itemTodoist(db, item.id)
@@ -454,7 +466,47 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                   <Field label="Answer" required>
                     <Textarea name="answer" rows={3} required />
                   </Field>
+                  <Field label="Decision">
+                    <Textarea name="decision" rows={2} />
+                  </Field>
+                  <Checkbox name="told" label="Told them" />
+                  {ask ? (
+                    <Checkbox name="closeAsk" label={`Close: ${ask.ask.text}`} defaultChecked={!ask.shared} />
+                  ) : null}
                   {reportTo}
+                </FormModal>
+              ) : null}
+              {askedOf ? (
+                <FormModal
+                  action={askItemAction}
+                  title="Ask"
+                  label="Ask"
+                  icon="mail"
+                  variant="secondary"
+                  size="sm"
+                  submit="Ask"
+                >
+                  <input type="hidden" name="id" value={item.id} />
+                  <Field label="Ask">
+                    <Input name="text" defaultValue={`Ask ${askedOf.name}: ${item.text}`} />
+                  </Field>
+                  <Field label="With">
+                    <Select
+                      name="with"
+                      defaultValue={askedOf.type === 'person' ? `person:${askedOf.id}` : `group:${askedOf.id}`}
+                    >
+                      <PartyOptions people={people} groups={groups} />
+                    </Select>
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Due">
+                      <Input name="dueOn" type="date" defaultValue={item.dueOn ?? ''} />
+                    </Field>
+                    <Field label="Back on">
+                      <Input name="laterOn" type="date" />
+                    </Field>
+                  </div>
+                  {joinable.length > 0 ? <ItemPicker label="Or with" name="join" options={joinable} /> : null}
                 </FormModal>
               ) : null}
               {open && !decision && item.kind !== 'question' ? (

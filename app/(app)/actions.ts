@@ -22,6 +22,7 @@ import {
   addItemParty,
   addNote,
   answerItem,
+  askItem,
   completeItem,
   convertItem,
   deleteItem,
@@ -212,6 +213,21 @@ export async function answerItemAction(formData: FormData): Promise<ActionResult
     await answerItem(db, actor, field(formData, 'id'), {
       answer: field(formData, 'answer'),
       reportTo: partyRef(field(formData, 'reportTo')),
+      toldThem: formData.get('told') === 'on',
+      closeAsk: formData.get('closeAsk') === 'on',
+      decision: { text: field(formData, 'decision') },
+    })
+  })
+}
+
+export async function askItemAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await askItem(db, actor, field(formData, 'id'), {
+      join: field(formData, 'join') || null,
+      text: field(formData, 'text'),
+      with: partyRef(field(formData, 'with')),
+      dueOn: field(formData, 'dueOn') || null,
+      laterOn: field(formData, 'laterOn') || null,
     })
   })
 }

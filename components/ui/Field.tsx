@@ -77,6 +77,20 @@ export function Select({
   return <select className={`${CONTROL} ${className}`} {...props} />
 }
 
+/** One yes-or-no in a form: a box and its label, submitted as `on` when ticked. */
+export function Checkbox({ label, ...props }: { label: React.ReactNode } & React.ComponentProps<'input'>) {
+  return (
+    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+      <input
+        type="checkbox"
+        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+        {...props}
+      />
+      <span className="min-w-0">{label}</span>
+    </label>
+  )
+}
+
 export function FormError({ children }: { children?: React.ReactNode }) {
   if (!children) return null
   return (

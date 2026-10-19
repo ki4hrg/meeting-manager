@@ -6,6 +6,7 @@ import {
   rejectProposalAction,
   undoProposalAction,
 } from '@/app/(app)/meetings/processing-actions'
+import { askItemAction } from '@/app/(app)/actions'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
 import { Card } from '@/components/ui/Card'
@@ -29,6 +30,19 @@ const CHANGE: Record<keyof typeof CHANGES, { tone: Tone; icon: IconName }> = {
 }
 
 const LINK = 'hover:underline focus:outline-none focus-visible:underline'
+
+function askable(proposal: ProposalView): boolean {
+  const item = proposal.made?.item
+  return (
+    proposal.status === 'accepted' &&
+    item !== null &&
+    item !== undefined &&
+    item.kind === 'question' &&
+    item.status === 'open' &&
+    item.laterUntilItemId === null &&
+    item.parties.some((party) => party.role === 'owner' && !party.isSelf)
+  )
+}
 
 /* The mark on the left: an item's kind, or what else the proposal would make. */
 function Mark({ proposal }: { proposal: ProposalView }) {
@@ -323,7 +337,13 @@ export function ProposalCard({
               )}
             </>
           ) : (
-            <IconAction action={undoProposalAction} fields={{ id: proposal.id }} icon="undo" label="Undo" />
+            <>
+              {/* A question it made for someone else to answer, not yet put to them. */}
+              {askable(proposal) ? (
+                <IconAction action={askItemAction} fields={{ id: proposal.made!.item!.id }} icon="mail" label="Ask" />
+              ) : null}
+              <IconAction action={undoProposalAction} fields={{ id: proposal.id }} icon="undo" label="Undo" />
+            </>
           )}
         </span>
       </div>

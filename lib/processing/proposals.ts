@@ -870,7 +870,7 @@ async function acceptItem(
   })
 
   if (resolution && payload.kind === 'question') {
-    await answerItem(exec, actor, item.id, { answer: resolution })
+    await answerItem(exec, actor, item.id, { answer: resolution, meetingId: meeting.id })
   } else if (resolution && payload.kind !== 'decision') {
     await completeItem(exec, actor, item.id, { resolution })
   }
@@ -909,7 +909,9 @@ async function acceptUpdate(
     case 'answer':
       /* What closes an item follows from its kind, not from the word the model
          chose: a question takes an answer, anything else is done. */
-      if (item.kind === 'question') await answerItem(exec, actor, item.id, { answer: text ?? '' })
+      if (item.kind === 'question') {
+        await answerItem(exec, actor, item.id, { answer: text ?? '', meetingId: meeting.id })
+      }
       else await completeItem(exec, actor, item.id, { resolution: text })
       break
     case 'drop':

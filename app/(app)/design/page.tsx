@@ -24,7 +24,7 @@ import { Card, CardGrid, CardHeader, CollapsedSection, LinkCard, Section, Tile, 
 import { CheckList } from '@/components/ui/CheckList'
 import { Chip, FilterChip } from '@/components/ui/Chip'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Field, Input, Select, Textarea } from '@/components/ui/Field'
+import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { RemovableChip } from '@/components/ui/RemovableChip'
@@ -564,6 +564,7 @@ export default function DesignPage() {
               <Field label="Text">
                 <Input name="text" defaultValue="Budget review" />
               </Field>
+              <Checkbox name="told" label="Told them" />
             </FormModal>
             <IconAction action={sampleAction} fields={{}} icon="close" label="Remove" />
             <FormModal action={sampleAction} title="Delete" icon="trash" compact submit="Delete" danger>

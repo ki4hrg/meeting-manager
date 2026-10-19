@@ -208,9 +208,16 @@ async function loadViews(
     parentMeetingId: m.parentMeetingId,
     calendarId: m.calendarId,
     calendarEventId: m.calendarEventId,
-    /* effective: meeting.blocks ?? series.blocks ?? all false */
-    blocks:
-      m.blocks ?? seriesBlocks ?? { followUps: false, sinceLast: false, lookahead: false },
+    /* effective: meeting.blocks ?? series.blocks ?? since last time alone, for
+       a group's or a project's meeting of no series (lib/agenda/generated.ts) */
+    blocks: m.blocks ??
+      seriesBlocks ?? {
+        followUps: false,
+        sinceLast:
+          !m.seriesId &&
+          ((byMeetingGroups.get(m.id) ?? []).length > 0 || (byMeetingProjects.get(m.id) ?? []).length > 0),
+        lookahead: false,
+      },
     people: (byMeetingPeople.get(m.id) ?? []).map(({ id, name }) => ({ id, name })),
     attendees: attendeesOf(m.id, m.attendanceAt !== null),
     attendanceAt: m.attendanceAt,

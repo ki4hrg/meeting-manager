@@ -10,6 +10,7 @@ import { inferContext, resolveParty, resolveProject, resolveSeries } from '../..
 import {
   addNote,
   answerItem,
+  askItem,
   completeItem,
   convertItem,
   createItem,
@@ -248,7 +249,13 @@ export const updateItemTool = defineTool({
     'or dropped), or with later_on until whichever comes first; null stops it waiting on one. ' +
     'Pass null to clear project, due_on, detail or the target. todoist links an open action or ' +
     'question John owns to a Todoist task he already has (its id or link), "new" sends it as a ' +
-    'new task, and "skip" keeps it out of Todoist.',
+    'new task, and "skip" keeps it out of Todoist. ask, on an open question someone else owes, makes ' +
+    'John an action to put it to them (text, with and due_on of its own; with defaults to whoever ' +
+    'it is asked of) and parks the question until that action is done; ask.join instead puts it ' +
+    'with an open action already made, for questions going in one message. With answer: ' +
+    'answered_in names the meeting it was answered in, told_them says John has passed the ' +
+    'answer on already (neither is reported in since last time), close_ask closes the ask it ' +
+    'waited on, and decision records a decision from it in its own words.',
   scope: 'meetings:write',
   input: z.object({
     id: z.uuid(),
@@ -263,6 +270,19 @@ export const updateItemTool = defineTool({
     answer: z.string().optional().describe('Closes a question with this answer.'),
     resolution: z.string().optional().describe('How a topic or action ended, with status done.'),
     report_to: z.string().optional().describe('Person or group to report the answer to.'),
+    answered_in: z.uuid().optional().describe('Meeting id the answer was given in.'),
+    told_them: z.boolean().optional().describe('The answer has been passed on already.'),
+    close_ask: z.boolean().optional().describe('Close the ask the question waited on.'),
+    decision: z.string().min(1).optional().describe('A decision recorded from the answer.'),
+    ask: z
+      .object({
+        join: z.uuid().optional().describe('An open action to go with, instead of a new one.'),
+        text: z.string().min(1).optional(),
+        with: z.string().min(1).optional().describe('Person or group to ask; default: who owes it.'),
+        due_on: z.string().optional(),
+      })
+      .optional()
+      .describe('Ask an open question someone else owes.'),
     target_meeting: z.uuid().nullable().optional().describe('Meeting id to raise this at.'),
     target_series: z
       .string()
@@ -347,12 +367,40 @@ export const updateItemTool = defineTool({
         await parkItem(tx, actor, input.id, { until: before.laterOn, untilItem: null })
       }
 
+      let ask = null
+      if (input.ask) {
+        ask = (
+          await askItem(tx, actor, input.id, {
+            join: input.ask.join,
+            text: input.ask.text,
+            with: input.ask.with ? await refOf(tx, contextId, input.ask.with) : null,
+            dueOn: input.ask.due_on,
+          })
+        ).ask
+      }
+
       let report = null
+      let decision = null
       if (input.answer !== undefined) {
         const reportTo = input.report_to ? await refOf(tx, contextId, input.report_to) : null
-        report = (await answerItem(tx, actor, input.id, { answer: input.answer, reportTo })).report
-      } else if (input.report_to) {
-        throw new ValidationError('report_to goes with answer.')
+        const answered = await answerItem(tx, actor, input.id, {
+          answer: input.answer,
+          reportTo,
+          meetingId: input.answered_in,
+          toldThem: input.told_them,
+          closeAsk: input.close_ask,
+          decision: input.decision ? { text: input.decision } : null,
+        })
+        report = answered.report
+        decision = answered.decision
+      } else if (
+        input.report_to ||
+        input.answered_in ||
+        input.told_them !== undefined ||
+        input.close_ask !== undefined ||
+        input.decision
+      ) {
+        throw new ValidationError('report_to, answered_in, told_them, close_ask and decision go with answer.')
       } else if (input.status === 'done') {
         await completeItem(tx, actor, input.id, { resolution: input.resolution })
       } else if (input.status === 'dropped') {
@@ -367,7 +415,9 @@ export const updateItemTool = defineTool({
 
       return {
         item: itemOut(await getItem(tx, input.id)),
+        ...(ask ? { ask: itemOut(ask) } : {}),
         ...(report ? { report: itemOut(report) } : {}),
+        ...(decision ? { decision: itemOut(decision) } : {}),
       }
     }),
 })
