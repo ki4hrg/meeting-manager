@@ -360,3 +360,16 @@ describe('ongoing over MCP', () => {
     expect(off.ongoing).toBeUndefined()
   })
 })
+
+describe('item tool descriptions', () => {
+  it('keep note links and provenance out of text and detail', async () => {
+    const { tools } = await connection.client.listTools()
+    for (const name of ['capture_item', 'update_item']) {
+      const tool = tools.find((one) => one.name === name)
+      expect(tool?.description).toMatch(/no link to (the|a) meeting note/)
+      expect(tool?.description).toContain('no "From the <meeting>" line')
+      const detail = (tool?.inputSchema.properties as Record<string, { description?: string }>).detail
+      expect(detail?.description).toContain('No link to the meeting note')
+    }
+  })
+})

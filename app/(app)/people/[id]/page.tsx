@@ -15,10 +15,12 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { groupsOf } from '@/lib/directory/groups'
 import { getPerson } from '@/lib/directory/people'
+import { isOwed, owes } from '@/lib/items/horizon'
 import { listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { pendingOnCards } from '@/lib/processing/proposals'
 import { requireContext, viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addPersonEmailAction,
   primaryEmailAction,
@@ -32,7 +34,13 @@ const has = (item: ItemView, personId: string, role: 'owner' | 'with') =>
 
 /* The person hub. People are global, but what is listed here is only what
    involves them in the selected context. */
-export default async function PersonPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PersonPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string | string[] }>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -51,10 +59,14 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     limit: 6,
   })
 
+  const crumbs = (await crumbsFrom(db, (await searchParams).from, context.id)) ?? [
+    { href: '/people', label: 'People' },
+  ]
+
   const header = (
     <PageHeader
       title={person.name}
-      crumbs={[{ href: '/people', label: 'People' }]}
+      crumbs={crumbs}
       actions={
         /* One click: a stub with everything saved up for them already on its agenda. */
         person.isSelf || person.archivedAt ? null : (
@@ -115,9 +127,10 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   )
 
   if (person.isSelf) {
-    // An ongoing question is pursued, not owed: it waits on its project.
-    const owe = open.filter((item) => has(item, id, 'owner') && !item.ongoing)
-    const owed = open.filter((item) => has(item, id, 'with'))
+    /* Only what is owed (`owersOf`): not an ongoing question, which waits on
+       its project, nor a topic I raise or am a collaborator on. */
+    const owe = open.filter((item) => owes(item, id))
+    const owed = open.filter((item) => has(item, id, 'with') && isOwed(item) && !owes(item, id))
     return (
       <>
         {header}
@@ -142,9 +155,13 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const pending = await pendingOnCards(db, context.id)
   const groups = await groupsOf(db, context.id, id)
   const archived = !!person.archivedAt
-  const theyOwe = open.filter((item) => has(item, id, 'owner'))
-  const iOwe = open.filter((item) => has(item, id, 'with') && has(item, self.id, 'owner'))
-  const raise = open.filter((item) => has(item, id, 'with') && !has(item, self.id, 'owner'))
+  /* Who owes what (`owersOf`): a topic only by its raiser, never by a
+     collaborator. Everything else that involves them is to raise: what I
+     bring them, a topic they take part in, an ongoing question. */
+  const theyOwe = open.filter((item) => owes(item, id))
+  const iOwe = open.filter((item) => has(item, id, 'with') && owes(item, self.id))
+  const listed = new Set([...theyOwe, ...iOwe])
+  const raise = open.filter((item) => !listed.has(item))
 
   return (
     <>

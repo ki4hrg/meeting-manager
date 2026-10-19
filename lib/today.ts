@@ -1,8 +1,9 @@
 /*
  * Home: what needs attention today, whichever context it lives in (docs/SPEC.md,
- * build order 6). The one deliberate exception to "nothing is listed across
- * contexts": it only reads, every row keeps its context, and opening a row
- * selects that context first. Archived contexts are left out.
+ * build order 6), and the Inbox's reads across contexts. The two deliberate
+ * exceptions to "nothing is listed across contexts": they only read, every row
+ * keeps its context, and opening a row selects that context first. Archived
+ * contexts are left out.
  */
 
 import { inArray } from 'drizzle-orm'
@@ -10,8 +11,8 @@ import type { Executor } from './core/types'
 import { addDays, fromLocalInput, todayIn } from './core/dates'
 import { notes } from './db/schema'
 import type { Context } from './directory/contexts'
-import { isWaitingOn, splitLater } from './items/horizon'
-import { listItems, type ItemView } from './items/items'
+import { iOwe, isWaitingOn, splitLater } from './items/horizon'
+import { inboxCount, listItems, type ItemView } from './items/items'
 import type { CalendarEvent } from './calendar/feed'
 import { getMeeting, isOver } from './meetings/meetings'
 import { listUpcoming, type UpcomingEntry } from './meetings/prep'
@@ -29,15 +30,18 @@ export type Owed = {
 
 /* What I owe, and what I am waiting on, in one context. */
 async function owedIn(exec: Executor, contextId: string, selfId: string) {
-  // An ongoing question is pursued, not owed.
+  /* Only what I owe (`owersOf`): not an ongoing question, a topic I raise, or
+     one I am a collaborator on. */
   const mine = (
     await listItems(exec, {
       contextId,
       open: true,
       party: { personId: selfId, role: 'owner' },
     })
-  ).filter((item) => !item.ongoing)
-  const waiting = (await listItems(exec, { contextId, open: true, kinds: ['question', 'action'] })).filter(isWaitingOn)
+  ).filter(iOwe)
+  const waiting = (
+    await listItems(exec, { contextId, open: true, kinds: ['question', 'action', 'topic'] })
+  ).filter(isWaitingOn)
   return { mine, waiting }
 }
 
@@ -173,4 +177,22 @@ export async function reviewEverywhere(
     }
   }
   return found
+}
+
+/** The Inbox's items in every context given: open, with no party and no project. Each keeps its `contextId`. */
+export async function inboxEverywhere(exec: Executor, contexts: Pick<Context, 'id'>[]): Promise<ItemView[]> {
+  const lists = await Promise.all(contexts.map((context) => listItems(exec, { contextId: context.id, inbox: true })))
+  // As one context's list is ordered: by due day, undated last, then newest first.
+  return lists
+    .flat()
+    .sort(
+      (a, b) =>
+        (a.dueOn ?? '￿').localeCompare(b.dueOn ?? '￿') || b.createdAt.getTime() - a.createdAt.getTime(),
+    )
+}
+
+/** How many items wait in the Inbox across every context given. */
+export async function inboxCountEverywhere(exec: Executor, contexts: Pick<Context, 'id'>[]): Promise<number> {
+  const counts = await Promise.all(contexts.map((context) => inboxCount(exec, context.id)))
+  return counts.reduce((sum, n) => sum + n, 0)
 }

@@ -12,9 +12,14 @@ import { MeetingCard } from './MeetingCard'
 export async function ReviewSection({
   pending,
   timeZone,
+  href,
+  context,
 }: {
   pending: Map<string, number>
   timeZone: string | null
+  /** Where each opens, and its context's name, where meetings from several contexts are listed. */
+  href?: (meetingId: string) => string
+  context?: (meetingId: string) => string | undefined
 }) {
   const read = await Promise.all([...pending.keys()].map((id) => getMeeting(db, id)))
   /* A session reads as its meeting's: "Annual Conference · Day one". */
@@ -41,6 +46,8 @@ export async function ReviewSection({
             when={meeting.startsAt ? formatMoment(meeting.startsAt, timeZone) : null}
             pending={pending.get(meeting.id)}
             to="review"
+            href={href?.(meeting.id)}
+            context={context?.(meeting.id)}
           />
         ))}
       </CardGrid>

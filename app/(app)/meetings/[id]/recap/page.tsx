@@ -25,6 +25,7 @@ import { settleIfOver } from '@/lib/meetings/attendance'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { pendingOnCards } from '@/lib/processing/proposals'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import { editRecapAction, openMeetingAction, resetRecapAction } from '../../actions'
 
 /* The recap as it will paste, drawn with the page's own type: the renderer
@@ -72,7 +73,13 @@ function Snippet({ text }: { text: string }) {
   )
 }
 
-export default async function RecapPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function RecapPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string | string[] }>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -117,11 +124,13 @@ export default async function RecapPage({ params }: { params: Promise<{ id: stri
     <>
       <PageHeader
         title="Recap"
-        crumbs={[
-          { href: '/meetings', label: 'Meetings' },
-          ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
-          { href: `/meetings/${meeting.id}`, label: meeting.title },
-        ]}
+        crumbs={
+          (await crumbsFrom(db, (await searchParams).from, meeting.contextId)) ?? [
+            { href: '/meetings', label: 'Meetings' },
+            ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
+            { href: `/meetings/${meeting.id}`, label: meeting.title },
+          ]
+        }
         tools={
           <>
             <FormModal action={editRecapAction} title="Edit" icon="pencil" compact iconSize="md" wide>

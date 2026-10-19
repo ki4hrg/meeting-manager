@@ -17,8 +17,10 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { getGroup, listGroupEmails, listMembers } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
-import { answered, listItems, type ItemView } from '@/lib/items/items'
+import { owes } from '@/lib/items/horizon'
+import { answered, listItems } from '@/lib/items/items'
 import { viewer } from '@/lib/web/context'
+import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addGroupEmailAction,
   addMemberAction,
@@ -27,9 +29,6 @@ import {
   renameGroupAction,
 } from '../../actions'
 import { prepWithGroupAction } from '../../meetings/actions'
-
-const has = (item: ItemView, groupId: string, role: 'owner' | 'with') =>
-  item.parties.some((party) => party.id === groupId && party.role === role)
 
 export default async function GroupPage({
   params,
@@ -53,8 +52,9 @@ export default async function GroupPage({
 
   const all = await listItems(db, { contextId: group.contextId, party: { groupId: id } })
   const open = all.filter((item) => item.status === 'open' || item.status === 'needs_answer')
-  const owes = open.filter((item) => has(item, id, 'owner'))
-  const waiting = open.filter((item) => has(item, id, 'with'))
+  // What the group owes (`owersOf`); the rest of what involves it waits to be raised.
+  const owing = open.filter((item) => owes(item, id))
+  const waiting = open.filter((item) => !owing.includes(item))
   const decisions = all.filter((item) => item.kind === 'decision')
   const answers = answered(all)
 
@@ -65,7 +65,9 @@ export default async function GroupPage({
     <>
       <PageHeader
         title={group.name}
-        crumbs={[{ href: '/groups', label: 'Groups' }]}
+        crumbs={
+          (await crumbsFrom(db, (await searchParams).from, group.contextId)) ?? [{ href: '/groups', label: 'Groups' }]
+        }
         actions={
           archived ? null : (
             <ActionButton action={prepWithGroupAction} fields={{ groupId: group.id }}>
@@ -120,12 +122,12 @@ export default async function GroupPage({
 
               <Section
                 title="Owes"
-                count={owes.length}
+                count={owing.length}
                 action={
                   <QuickAdd presets={{ kind: 'action', parties: [{ groupId: id, role: 'owner' }] }} />
                 }
               >
-                <ItemGrid items={owes} today={today} empty="action" />
+                <ItemGrid items={owing} today={today} empty="action" />
               </Section>
 
               <Section

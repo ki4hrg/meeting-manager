@@ -28,7 +28,8 @@ import { meetings, notes, personEmails, processingRuns, type RecapEdits } from '
 import { onShelf } from '../db/shelf'
 import { getMeeting } from '../meetings/meetings'
 import { isOpen, listItems, type ItemKind, type ItemStatus, type ItemView } from '../items/items'
-import { lookaheadParts, markdownLeaf, rows } from './brief'
+import { isOwed, owersOf } from '../items/horizon'
+import { lookaheadParts, markdownLeaf, reportBack, rows } from './brief'
 import {
   only,
   pick,
@@ -54,6 +55,7 @@ export type RecapItem = {
   text: string
   dueOn: string | null
   overdue: boolean
+  /** Who owes it: on a topic, only its raiser. */
   owners: RecapParty[]
   /** Who it is raised with; on an item John owns, who it is owed to. */
   with: RecapParty[]
@@ -74,7 +76,8 @@ export type Recap = {
   /** Agenda lines the notes said something about, with the line's public description. */
   lines: { lineId: string; text: string; description: string | null; summary: string }[]
   decisions: { itemId: string; text: string }[]
-  /** Open questions and actions by owner; an item with several owners is under each.
+  /** What is owed, by who owes it (`owersOf`: a topic's raiser, never its collaborators);
+      an item with several owners is under each.
       A null party holds what nobody owns yet. */
   owed: { party: RecapParty | null; items: RecapItem[] }[]
   closed: {
@@ -166,7 +169,8 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
   const decisions = inOrder([...made.values()].filter((item) => item.status === 'decided'))
 
   const owedItems = [...mine.values()]
-    .filter((item) => isOpen(item) && (item.kind === 'question' || item.kind === 'action'))
+    // What someone owes (`isOwed`): a topic only when someone other than John raises it.
+    .filter((item) => isOpen(item) && isOwed(item))
     // Deadlines first, soonest first; then in the order they were raised.
     .sort(
       (a, b) =>
@@ -181,7 +185,7 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
       text: item.text,
       dueOn: item.dueOn,
       overdue: item.dueOn !== null && item.dueOn < opts.today,
-      owners: item.parties.filter((p) => p.role === 'owner').map((p) => partyOf(p, opts.selfId)),
+      owners: owersOf(item).map((p) => partyOf(p, opts.selfId)),
       with: item.parties.filter((p) => p.role === 'with').map((p) => partyOf(p, opts.selfId)),
     }
     for (const party of entry.owners.length > 0 ? entry.owners : [null]) {
@@ -418,7 +422,11 @@ function prose(text: string): Part[] {
 }
 
 function owedText(item: RecapItem, today: string): string {
-  const bits: string[] = [item.kind]
+  const bits: string[] = [
+    item.kind === 'topic'
+      ? reportBack(item.with.filter((party) => !party.isSelf).map((party) => party.name))
+      : item.kind,
+  ]
   if (item.dueOn) bits.push(`due ${formatDay(item.dueOn, today)}`)
   if (item.overdue) bits.push('overdue')
   return `${item.text} [${bits.join(', ')}]`

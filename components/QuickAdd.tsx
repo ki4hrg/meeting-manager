@@ -18,6 +18,14 @@ const PREFIX: Record<ItemKind, string> = { topic: 'T', question: 'Q', action: 'A
 const KINDS = Object.keys(PREFIX) as ItemKind[]
 const KIND_OF_PREFIX = /^([tqad]):\s*/i
 
+/* A whole line of each kind, so the box shows what goes in it, not only the @. */
+const EXAMPLE: Record<ItemKind, string> = {
+  topic: 'Hall booking for May @name',
+  question: 'Who has the hall key? @name',
+  action: 'Send the draft @name',
+  decision: 'Book the hall for May #project',
+}
+
 /* The @, # or > token the caret is at the end of, if any. */
 const ACTIVE_TOKEN = /(?:^|\s)([@#>])([\p{L}\p{N}_/-]*)$/u
 
@@ -64,10 +72,13 @@ export function QuickAdd({
   presets,
   variant = 'button',
   label = 'Add',
+  title = 'Add',
   primary = false,
   context,
 }: {
   presets?: CapturePresets
+  /** The modal's title, where the button's label alone would not say what it makes. */
+  title?: string
   /** The selected context's name, shown where several exist: it is where the line goes. */
   context?: string
   /** `bar` is the icon in the top bar, which also answers to the N key. */
@@ -282,7 +293,7 @@ export function QuickAdd({
         </Button>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Add" size="lg">
+      <Modal open={open} onClose={() => setOpen(false)} title={title} size="lg">
         <form
           onSubmit={(event) => {
             event.preventDefault()
@@ -310,7 +321,7 @@ export function QuickAdd({
               data-bwignore
               data-form-type="other"
               aria-label="New item"
-              placeholder="@name"
+              placeholder={EXAMPLE[kind]}
               className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </div>

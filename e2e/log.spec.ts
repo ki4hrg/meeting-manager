@@ -29,7 +29,8 @@ test('a name nobody matches is settled from the edit form, as a new person', asy
   }).toPass({ timeout: 45_000 })
 
   await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
-  await dialog(page).getByRole('listbox', { name: 'Who is Priya?' }).getByRole('option', { name: 'Priya' }).click()
+  await dialog(page).getByRole('listbox', { name: 'Who is Priya?' }).getByRole('option', { name: 'New person Priya' }).click()
+  await dialog(page).getByLabel("New person's name").fill('Priya Patel')
   await expect(dialog(page).getByRole('listbox', { name: 'Who is Priya?' })).toBeHidden()
   await dialog(page).getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible()

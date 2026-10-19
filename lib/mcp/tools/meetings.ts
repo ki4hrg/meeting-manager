@@ -247,8 +247,14 @@ function candidateOut(item: ItemView) {
   return { id: item.id, kind: item.kind, text: item.text, due_on: item.dueOn }
 }
 
+/* Under a person or a group, each item says where it stands between them and me. */
 function groupsOut(groups: CandidateGroup[]) {
-  return groups.map((group) => ({ by: group.by, items: group.items.map(candidateOut) }))
+  return groups.map((group) => ({
+    by: group.by,
+    items: (group.bands ?? [{ stance: undefined, items: group.items }]).flatMap((band) =>
+      band.items.map((item) => ({ ...candidateOut(item), ...(band.stance ? { stance: band.stance } : {}) })),
+    ),
+  }))
 }
 
 function candidatesOut(candidates: Candidates) {
@@ -497,7 +503,10 @@ export const getMeetingTool = defineTool({
     'minutes, its computed start on the account clock and my private note. candidates are open ' +
     'items not on the agenda: to_place (aimed here, placed by prep), suggested (through a ' +
     'project, the group or the other person in a 1:1; never placed on their own), more (matched by an attendee alone in a larger meeting; ' +
-    'never raise these unasked) and dismissed (aimed here but taken off the agenda).',
+    'never raise these unasked) and dismissed (aimed here but taken off the agenda). Under a ' +
+    'person or group, each candidate has a stance, in this order: theirs (they owe it to me), ' +
+    'mine (mine to bring them), elsewhere (they owe it to someone else and report back), ' +
+    'together (we are both on it, or it is to talk over).',
   scope: 'meetings:read',
   input: z.object({ id: meetingId }),
   annotations: { readOnlyHint: true },

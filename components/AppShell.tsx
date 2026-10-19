@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import ThemeToggle from '@/components/ThemeToggle'
-import { Icon } from '@/components/ui/icons'
+import { Icon, type IconName } from '@/components/ui/icons'
 import { Badge, type Tone } from '@/components/ui/StatusBadge'
 
 export type NavSection = { href: string; label: string; count?: number; tone?: Tone }
@@ -13,6 +13,14 @@ const ICON_BUTTON =
   'flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700 ' +
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ' +
   'dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+
+const MENU_ITEM =
+  'flex w-full items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+
+const ACCOUNT_LINKS: Array<{ href: string; label: string; icon: IconName }> = [
+  { href: '/contexts', label: 'Contexts', icon: 'context' },
+  { href: '/settings', label: 'Settings', icon: 'cog' },
+]
 
 /** A section's count, hidden at zero. */
 function NavCount({ section }: { section: NavSection }) {
@@ -139,23 +147,20 @@ export function AppShell({
                     <p className="truncate border-b border-gray-100 px-4 py-2 text-sm text-gray-900 dark:border-gray-700 dark:text-gray-100">
                       {email}
                     </p>
-                    {/* Here as well as in the context switcher: the switcher
-                        is not shown until there is a context. */}
-                    <Link
-                      href="/settings"
-                      role="menuitem"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex w-full items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
-                    >
-                      <Icon name="cog" className="mr-3 h-4 w-4 shrink-0" />
-                      Settings
-                    </Link>
-                    <form action={signOut}>
-                      <button
-                        type="submit"
+                    {ACCOUNT_LINKS.map((link) => (
+                      <Link
+                        key={link.href}
+                        href={link.href}
                         role="menuitem"
-                        className="flex w-full items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                        onClick={() => setMenuOpen(false)}
+                        className={MENU_ITEM}
                       >
+                        <Icon name={link.icon} className="mr-3 h-4 w-4 shrink-0" />
+                        {link.label}
+                      </Link>
+                    ))}
+                    <form action={signOut}>
+                      <button type="submit" role="menuitem" className={MENU_ITEM}>
                         <Icon name="signOut" className="mr-3 h-4 w-4 shrink-0" />
                         Sign out
                       </button>

@@ -19,7 +19,8 @@ test('an item waits in Later until another is done, and each end shows the other
   await expect(waitsOn).toBeVisible()
   await waitsOn.click()
   await expect(page.getByRole('heading', { name: WORLD.items.overdue })).toBeVisible()
-  await expect(page.getByRole('img', { name: 'Holds up' })).toBeVisible()
+  await expect(page.getByText('Waiting on this')).toBeVisible()
+  await expect(page.getByRole('link').filter({ hasText: WORLD.items.accountability })).toBeVisible()
 
   // Back where it was, for the other journeys.
   await page.getByRole('link', { name: WORLD.items.accountability }).click()

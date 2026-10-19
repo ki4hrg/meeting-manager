@@ -1,4 +1,5 @@
 import { RollCall } from '@/components/meetings/RollCall'
+import { GranolaChip } from '@/components/GranolaChip'
 import { Roster } from '@/components/meetings/Roster'
 import { knownPeople } from '@/lib/connect/granola/ingest'
 import { attendanceLocked, rollCall, settleIfOver } from '@/lib/meetings/attendance'
@@ -8,6 +9,7 @@ import { FormModal } from '@/components/forms'
 import { LivesIn } from '@/components/meetings/Move'
 import { ApproveAll } from '@/components/processing/ApproveAll'
 import { ProposalCard } from '@/components/processing/ProposalCard'
+import { PartyPicker } from '@/components/processing/PartyPicker'
 import { RunState } from '@/components/processing/RunState'
 import { UnknownAttendee } from '@/components/processing/UnknownAttendee'
 import { ButtonLink } from '@/components/ui/Button'
@@ -30,7 +32,8 @@ import { listProposals, type ProposalView } from '@/lib/processing/proposals'
 import { latestRun } from '@/lib/processing/run'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
-import { openMeetingAction, settleAttendanceAction } from '../../actions'
+import { crumbsFrom } from '@/lib/web/crumbs'
+import { addAttendeesAction, openMeetingAction, settleAttendanceAction } from '../../actions'
 import { addNoteAction, moveNoteAction } from '../../processing-actions'
 
 const SUMMARY =
@@ -40,7 +43,13 @@ const SUMMARY =
 const firstLine = (note: { title: string | null; body: string }) =>
   note.title ?? note.body.split('\n').find((line) => line.trim() !== '')?.trim() ?? '—'
 
-export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ReviewPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string | string[] }>
+}) {
   const { id } = await params
   if (!isUuid(id)) notFound()
 
@@ -155,6 +164,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                 <span className="shrink-0 text-xs tabular-nums text-gray-500 dark:text-gray-400">
                   {formatMoment(note.createdAt, user.timeZone)}
                 </span>
+                {note.source === 'granola' && note.externalId ? <GranolaChip noteId={note.externalId} compact /> : null}
                 {places.length > 0 ? (
                   <ActionSelect
                     key={note.meetingId}
@@ -184,11 +194,13 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     <>
       <PageHeader
         title="Review"
-        crumbs={[
-          { href: '/meetings', label: 'Meetings' },
-          ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
-          { href: `/meetings/${meeting.id}`, label: meeting.title },
-        ]}
+        crumbs={
+          (await crumbsFrom(db, (await searchParams).from, meeting.contextId)) ?? [
+            { href: '/meetings', label: 'Meetings' },
+            ...(parent ? [{ href: `/meetings/${parent.id}`, label: parent.title }] : []),
+            { href: `/meetings/${meeting.id}`, label: meeting.title },
+          ]
+        }
         count={pending.length}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -209,10 +221,36 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
       {/* Who was there comes before what was said: a name settled here is one
           the proposals below can be given to. */}
-      <Section title="Attendance">
+      <Section
+        title="Attendance"
+        action={
+          locked ? (
+            // Nobody can be marked out any more, but someone who was there can still be added.
+            <FormModal
+              action={addAttendeesAction}
+              title="Add"
+              label="Add"
+              icon="plus"
+              variant="secondary"
+              size="sm"
+              submit="Add"
+            >
+              <input type="hidden" name="meetingId" value={meeting.id} />
+              <PartyPicker
+                label="Also here"
+                name="personIds"
+                options={people
+                  .filter((person) => !person.isSelf && !meeting.attendees.some((one) => one.id === person.id))
+                  .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
+                allowNew
+              />
+            </FormModal>
+          ) : null
+        }
+      >
         <Card>
           {locked ? (
-            // Settled for good once something from the notes was accepted.
+            // Settled for good once something from the notes was accepted, but for who is added.
             <div className="flex flex-wrap items-center gap-2">
               <Icon name="lock" className="h-4 w-4 text-gray-400 dark:text-gray-500" label="Settled" />
               <Roster selfId={self.id} groups={meeting.groups} attendees={meeting.attendees} />

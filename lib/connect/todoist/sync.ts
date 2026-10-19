@@ -59,6 +59,7 @@ import {
   todoistProjectFor,
   withTodoist,
 } from './connection'
+import { cacheComments, readLinkedComments } from './comments'
 import { mergeLink, type Base, type ItemOp, type TaskCommand, type UnlinkReason } from './merge'
 
 export function todoistActor(): ActorContext {
@@ -175,7 +176,7 @@ export async function cacheTasks(exec: Executor, connectionId: string, tasks: To
   }
 }
 
-/** Read Todoist's change feed into the cache. Returns how many tasks it named. */
+/** Read Todoist's change feed (tasks, and comments on linked ones) into the cache. Returns how many tasks it named. */
 async function pull(exec: Executor, connection: Connection): Promise<number> {
   const response: SyncResponse = await withTodoist(exec, connection.id, (token) =>
     todoistSync(token, { syncToken: connection.cursor ?? '*' }),
@@ -220,6 +221,7 @@ async function pull(exec: Executor, connection: Connection): Promise<number> {
         await cacheTasks(tx, connection.id, [task])
       }
     }
+    await cacheComments(tx, connection.id, response.notes ?? [])
     await tx
       .update(connections)
       .set({ cursor: response.sync_token })
@@ -480,7 +482,8 @@ async function settle(
       await tx
         .update(itemTodoistLinks)
         .set({
-          ...(taskId ? { taskId, state: 'linked' } : {}),
+          /* A task just made has no comments yet; the feed brings any later. */
+          ...(taskId ? { taskId, state: 'linked', commentsReadAt: new Date() } : {}),
           ...(plan.unlink ? { state: 'unlinked', unlinkedReason: plan.unlink } : {}),
           baseText: plan.base.text,
           baseDueOn: plan.base.dueOn,
@@ -551,6 +554,8 @@ export async function syncTodoist(exec: Executor, now: Date = new Date()): Promi
   if (!connection) return null
 
   const pulled = await pull(exec, connection)
+  /* Comments already on a task when it was linked, which the feed will not send. */
+  await readLinkedComments(exec, connection.id)
   const self = await findSelf(exec)
   const selfId = self?.id ?? null
 

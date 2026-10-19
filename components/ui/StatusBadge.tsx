@@ -101,6 +101,32 @@ export function KindIcon({
   )
 }
 
+// ─── where a step came from ──────────────────────────────────────────────────
+
+/* What made a step in an item's history (`ActorContext.source`). The app is
+   the default and carries no mark. */
+export type EventSource = 'web' | 'mcp' | 'todoist' | 'job' | 'webhook' | 'system'
+
+export const SOURCE: Record<EventSource, { label: string; icon: IconName } | null> = {
+  web: null,
+  mcp: { label: 'Claude', icon: 'sparkles' },
+  todoist: { label: 'Todoist', icon: 'todoist' },
+  job: { label: 'Scheduled', icon: 'clock' },
+  webhook: { label: 'Webhook', icon: 'download' },
+  system: { label: 'System', icon: 'cog' },
+}
+
+/** A small muted mark for where a step came from, its name as the tooltip. Nothing for the app itself. */
+export function SourceMark({ source, className = 'h-3.5 w-3.5' }: { source: string; className?: string }) {
+  const mark = SOURCE[source as EventSource]
+  if (!mark) return null
+  return (
+    <span title={mark.label} className="inline-flex shrink-0 align-middle text-gray-400 dark:text-gray-500">
+      <Icon name={mark.icon} className={className} label={mark.label} />
+    </span>
+  )
+}
+
 // ─── item status ─────────────────────────────────────────────────────────────
 
 export type ItemStatus = 'open' | 'needs_answer' | 'done' | 'dropped' | 'decided' | 'superseded'

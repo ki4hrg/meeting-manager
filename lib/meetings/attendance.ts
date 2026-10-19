@@ -10,7 +10,9 @@
  * It is settled by the roll call, taken on the meeting's page while it is
  * under way. If no one takes it, the first look at the meeting after its end
  * (opening it, its review or recap, or processing its notes) settles it as it
- * stands. The review can still correct it until a proposal is accepted.
+ * stands. The review can still correct it until a proposal is accepted;
+ * after that, someone who was there can still be added (`addAttendees`), but
+ * no one is marked out.
  */
 
 import { and, eq, inArray } from 'drizzle-orm'
@@ -151,7 +153,7 @@ export async function settleIfOver(exec: Executor, meetingId: string, now: Date 
   return true
 }
 
-/** Whether who was there can no longer change: a proposal from its notes was accepted. */
+/** Whether no one can be marked out any more: a proposal from its notes was accepted. Adding is still open. */
 export async function attendanceLocked(exec: Executor, meetingId: string): Promise<boolean> {
   const [accepted] = await exec
     .select({ id: proposals.id })

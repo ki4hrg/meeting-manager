@@ -3,13 +3,12 @@ import { ContextSwitcher } from '@/components/ContextSwitcher'
 import { DirectoryProvider, type Directory } from '@/components/Directory'
 import { QuickAdd } from '@/components/QuickAdd'
 import { countUnfiledNotes } from '@/lib/connect/granola/unfiled'
-import { pendingByMeeting } from '@/lib/processing/proposals'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
-import { inboxCount } from '@/lib/items/items'
 import { listPeople } from '@/lib/directory/people'
 import { listSeries } from '@/lib/meetings/series'
 import { listProjects } from '@/lib/projects/projects'
+import { inboxCountEverywhere, reviewEverywhere } from '@/lib/today'
 import { allContexts, currentContext, viewer } from '@/lib/web/context'
 import { logoutAction } from '../(auth)/actions'
 
@@ -41,11 +40,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }
     : { people: [], groups: [], projects: [], series: [] }
 
-  // The Inbox's count: open items with nowhere to go, unfiled notes, and meetings to review.
+  // The Inbox's count, in every context as the Inbox lists them: open items
+  // with nowhere to go, unfiled notes, and meetings to review.
   const waiting = context
-    ? (await inboxCount(db, context.id)) +
+    ? (await inboxCountEverywhere(db, contexts)) +
       (await countUnfiledNotes(db)) +
-      (await pendingByMeeting(db, context.id)).size
+      (await reviewEverywhere(db, contexts)).size
     : 0
   const sections = SECTIONS.map((section) =>
     section.href === '/inbox' ? { ...section, count: waiting } : section,

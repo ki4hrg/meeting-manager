@@ -83,6 +83,7 @@ export const captureItemTool = defineTool({
     'decision, owners are who decides. Several owners of an action are doing it together. "me" names the account holder. target_meeting, target_series or target_project aims it at ' +
     'one meeting, or at the next occurrence of a series, where prep places it on the agenda. ' +
     'from_meeting records the meeting it came out of: it is listed there and in its recap. ' +
+    'Keep text and detail to the matter itself: no link to the meeting note it came from (a Granola URL, say) and no "From the <meeting>" line; from_meeting records that. ' +
     'The context is inferred from the project, the meetings, the target or a group when there is more than one. ' +
     'A name that matches nothing is refused by name: make it with create_person, create_group, ' +
     'create_project or create_series, then capture again. ongoing marks a question worked ' +
@@ -92,7 +93,10 @@ export const captureItemTool = defineTool({
   input: z.object({
     text: z.string().min(1).describe('One line, in the wording to keep.'),
     kind: kind.optional().describe('Defaults to topic.'),
-    detail: z.string().optional(),
+    detail: z
+      .string()
+      .optional()
+      .describe('Context for the text. No link to the meeting note and no "From the <meeting>".'),
     context: z.string().optional().describe('Context name or id.'),
     project: z.string().optional().describe('Project name or id.'),
     owners: z.array(z.string()).optional().describe('People or groups, by name or id.'),
@@ -253,6 +257,8 @@ export const updateItemTool = defineTool({
     'brought back with later false); a deadline within two weeks brings it back regardless. ' +
     'later_until_item parks it until that open item in the same context closes (done, answered ' +
     'or dropped), or with later_on until whichever comes first; null stops it waiting on one. ' +
+    'text and detail hold the matter itself: no link to a meeting note (a Granola URL, say) and ' +
+    'no "From the <meeting>" line. ' +
     'Pass null to clear project, due_on, detail or the target. todoist links an open action or ' +
     'question John owns to a Todoist task he already has (its id or link), "new" sends it as a ' +
     'new task, and "skip" keeps it out of Todoist. ask, on an open question someone else owes, makes ' +
@@ -268,7 +274,11 @@ export const updateItemTool = defineTool({
   input: z.object({
     id: z.uuid(),
     text: z.string().min(1).optional(),
-    detail: z.string().nullable().optional(),
+    detail: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('Context for the text. No link to the meeting note and no "From the <meeting>".'),
     project: z.string().nullable().optional(),
     due_on: z.string().nullable().optional(),
     owners: z.array(z.string()).optional(),

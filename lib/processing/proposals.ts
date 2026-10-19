@@ -657,6 +657,37 @@ export async function listProposals(exec: Executor, meetingId: string): Promise<
   return toViews(exec, rows)
 }
 
+/** The meeting whose review an item's step was accepted from. */
+export type AcceptedFrom = { meetingId: string; title: string }
+
+/**
+ * Which of an item's steps came from accepting a proposal, and from which
+ * meeting's review: its creation (an item proposal) and each update's event.
+ */
+export async function acceptedSteps(
+  exec: Executor,
+  itemId: string,
+): Promise<{ created: AcceptedFrom | null; events: Map<string, AcceptedFrom> }> {
+  const rows = await exec
+    .select({
+      meetingId: proposals.meetingId,
+      title: meetings.title,
+      type: sql<string>`${proposals.payload}->>'type'`,
+      eventId: sql<string | null>`${proposals.result}->>'eventId'`,
+    })
+    .from(proposals)
+    .innerJoin(meetings, eq(meetings.id, proposals.meetingId))
+    .where(and(eq(proposals.status, 'accepted'), sql`${proposals.result}->>'itemId' = ${itemId}`))
+  let created: AcceptedFrom | null = null
+  const events = new Map<string, AcceptedFrom>()
+  for (const row of rows) {
+    const from = { meetingId: row.meetingId, title: row.title }
+    if (row.type === 'item') created = from
+    else if (row.eventId) events.set(row.eventId, from)
+  }
+  return { created, events }
+}
+
 /** Meetings of a context with pending proposals, and how many each has. */
 export async function pendingByMeeting(exec: Executor, contextId: string): Promise<Map<string, number>> {
   const rows = await exec
