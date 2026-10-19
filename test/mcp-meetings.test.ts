@@ -931,7 +931,7 @@ describe('get_briefing', () => {
       suggested: CandidateGroup[]
     }
 
-    // The blocks are off on a meeting with no series.
+    // A meeting with no series has only since last time, and nothing came before it.
     const plain = await call('get_briefing', { id })
     const off = dataOf<Brief>(plain)
     expect(off.blocks).toEqual({ follow_ups: null, since_last: null, lookahead: null })
@@ -970,9 +970,9 @@ describe('get_briefing', () => {
     expect(textOf(forced)).not.toContain('petty cash')
     expect(JSON.stringify(forced.structuredContent)).not.toContain('petty cash')
 
-    // The override was for that render only.
+    // The override was for that render only. A project's meeting of no series has since last time.
     const after = await ok<View>('get_meeting', { id })
-    expect(after.meeting.blocks).toEqual({ follow_ups: false, since_last: false, lookahead: false })
+    expect(after.meeting.blocks).toEqual({ follow_ups: false, since_last: true, lookahead: false })
   })
 })
 

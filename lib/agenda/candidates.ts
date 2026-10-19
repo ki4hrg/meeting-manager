@@ -24,6 +24,9 @@
  *   - What came out of a meeting is not a candidate for that same meeting.
  *   - What waits in Later until another item closes is not offered anywhere,
  *     aimed or not, until that item closes or its own deadline comes close.
+ *     Except a question waiting on its ask: at a meeting the person it is
+ *     asked of attends, it is offered as any of theirs would be, and the ask
+ *     is not.
  *
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
  */
@@ -229,6 +232,17 @@ export async function getCandidates(
           .map((one) => one.id),
   )
 
+  /* A question waiting on its ask is offered where the person it is asked of
+     is present: meeting them is asking them. Its ask then stays off this
+     agenda, since the question itself stands for it. */
+  const askedHere = (item: ItemView) =>
+    item.kind === 'question' &&
+    item.laterUntilItemId !== null &&
+    item.parties.some(
+      (party) => party.role === 'owner' && party.type === 'person' && !party.isSelf && attendeeIds.has(party.id),
+    )
+  const standIns = new Set(open.filter(askedHere).map((item) => item.laterUntilItemId!))
+
   // One user; a deadline coming close is judged on their clock.
   const [owner] = await exec.select({ timeZone: users.timeZone }).from(users).limit(1)
   const today = todayIn(owner?.timeZone, now)
@@ -242,8 +256,9 @@ export async function getCandidates(
     if (item.kind === 'decision' || placedIds.has(item.id)) continue
     // What came out of this meeting is its outcome, not something to raise at it.
     if (item.originMeetingId === meeting.id) continue
-    // Waiting on another item: not ready to raise.
-    if (item.laterUntilItemId && isLater(item, today)) continue
+    // Waiting on another item: not ready to raise, unless it waits to be asked here.
+    if (item.laterUntilItemId && isLater(item, today) && !askedHere(item)) continue
+    if (item.kind === 'action' && standIns.has(item.id)) continue
 
     const attendee = item.parties.find(
       (party) => party.type === 'person' && !party.isSelf && attendeeIds.has(party.id),

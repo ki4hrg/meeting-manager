@@ -20,7 +20,18 @@ import { getRecap, renderPersonSnippet, renderRecap, renderRecapHtml } from '../
 import { agendaLines, items } from '../lib/db/schema'
 import { createPerson } from '../lib/directory/people'
 import { addMember } from '../lib/directory/groups'
-import { completeItem, createItem, getItem, markDiscussed, parkItem, recordDecision } from '../lib/items/items'
+import {
+  answerItem,
+  askItem,
+  completeItem,
+  createItem,
+  getItem,
+  listItems,
+  markAsked,
+  markDiscussed,
+  parkItem,
+  recordDecision,
+} from '../lib/items/items'
 import { createMeeting, getMeeting, setMeetingPeople, updateMeeting } from '../lib/meetings/meetings'
 import type { CalendarEvent } from '../lib/calendar/feed'
 import { prepFromEvent, prepMeeting, prepWithPerson } from '../lib/meetings/prep'
@@ -1336,5 +1347,226 @@ describe('a group’s list address', () => {
       attendees: [{ email: 'staff-list@example.test', name: 'Staff list' }],
     })
     expect(await unknownAttendees(db, planning.id)).toEqual([])
+  })
+})
+
+describe('asking', () => {
+  /* The bishop owes five questions, each asked its own way: two through his
+     assistant, two by email with someone copied, one to mention in passing. */
+  async function bishopWorld() {
+    const w = await makeWorld()
+    const assistant = await createPerson(db, { name: 'Ruth Assistant' })
+    const owed = (text: string) =>
+      createItem(db, actor, {
+        contextId: w.parish.id,
+        kind: 'question',
+        text,
+        projectId: w.retreat.id,
+        parties: [{ personId: w.bishop.id, role: 'owner' }],
+      })
+    const calendar = [await owed('Which Sunday in May?'), await owed('Free for the June dinner?')]
+    const emailed = [await owed('Closing scripture?'), await owed('Who preaches on Saturday?')]
+    const inPassing = await owed('Does he want the long form?')
+
+    for (const question of calendar) {
+      await askItem(db, actor, question.id, { with: { personId: assistant.id } })
+    }
+    const { ask: email } = await askItem(db, actor, emailed[0]!.id, { text: 'Email the bishop' })
+    await askItem(db, actor, emailed[1]!.id, { join: email.id })
+    return { w, assistant, calendar, emailed, inPassing, email }
+  }
+
+  it('offers every question he owes at a 1:1 with him, asked or not, and none of the asks', async () => {
+    const { w, calendar, emailed, inPassing } = await bishopWorld()
+    const oneToOne = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'With the bishop',
+      personIds: [w.bishop.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    const c = await getCandidates(db, oneToOne.id, NOW)
+    expect(offered(c)).toEqual(ids([...calendar, ...emailed, inPassing]))
+    expect(c.suggested.map((group) => group.by.id)).toEqual([w.bishop.id])
+  })
+
+  it('keeps an asked question off a meeting he is not at, where its ask is not offered either', async () => {
+    const { w, inPassing } = await bishopWorld()
+    const retreat = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Retreat planning',
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    // The asks carry the project too; they are John's to do, raised nowhere until done.
+    const c = await getCandidates(db, retreat.id, NOW)
+    const asks = (await listItems(db, { contextId: w.parish.id, open: true, kinds: ['action'] })).filter(
+      (item) => item.parentItemId !== null,
+    )
+    expect(offered(c)).toEqual(ids([inPassing, ...asks]))
+  })
+
+  it('discussed with him at a meeting, it is Waiting on and an ask of its own is done', async () => {
+    const { w, calendar, emailed, email } = await bishopWorld()
+    const oneToOne = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'With the bishop',
+      personIds: [w.bishop.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+    })
+    const own = await getItem(db, (await getItem(db, calendar[0]!.id)).laterUntilItemId!)
+    await markAsked(db, actor, calendar[0]!.id, oneToOne.id)
+    expect((await getItem(db, calendar[0]!.id)).parkedAt).toBeNull()
+    expect((await getItem(db, own.id)).status).toBe('done')
+
+    // A shared ask stays open for the other question in it.
+    await markAsked(db, actor, emailed[0]!.id, oneToOne.id)
+    expect((await getItem(db, email.id)).status).toBe('open')
+
+    // Raised where he was not, it has not been put to him.
+    const staff = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id] })
+    await markAsked(db, actor, calendar[1]!.id, staff.id)
+    expect((await getItem(db, calendar[1]!.id)).laterUntilItemId).not.toBeNull()
+  })
+})
+
+describe('since last time, between meetings', () => {
+  async function planning() {
+    const w = await makeWorld()
+    const series = await createSeries(db, { contextId: w.parish.id, name: 'Planning team' })
+    const at = (days: number) =>
+      createMeeting(db, actor, {
+        contextId: w.parish.id,
+        seriesId: series.id,
+        personIds: [w.sarah.id],
+        startsAt: fromNow(days),
+        blocks: ALL_ON,
+      })
+    return { w, series, at }
+  }
+  /* Answers are recorded at the real time, so the meetings sit around it. */
+  const fromNow = (days: number) => new Date(Date.now() + days * 86_400_000)
+  const sinceLast = async (meetingId: string) =>
+    (await computeBlocks(db, meetingId, { today: TODAY })).sinceLast
+
+  it('reports an answer given after the last meeting on a question raised two meetings back', async () => {
+    const { w, at } = await planning()
+    const first = await at(-60)
+    const question = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Closing scripture?',
+      originMeetingId: first.id,
+      parties: [{ personId: w.bishop.id, role: 'owner' }],
+    })
+    await at(-30)
+    const next = await at(30)
+    await answerItem(db, actor, question.id, { answer: 'Micah 6:8' })
+
+    const block = await sinceLast(next.id)
+    expect(block?.closed.map((entry) => [entry.itemId, entry.resolution])).toEqual([[question.id, 'Micah 6:8']])
+  })
+
+  it('leaves out an answer the circle heard, or one John passed on himself', async () => {
+    const { w, at } = await planning()
+    const first = await at(-60)
+    const raise = (text: string) =>
+      createItem(db, actor, {
+        contextId: w.parish.id,
+        kind: 'question',
+        text,
+        originMeetingId: first.id,
+        parties: [{ personId: w.bishop.id, role: 'owner' }],
+      })
+    const heard = await raise('Heard')
+    const told = await raise('Told')
+    const reported = await raise('Reported')
+    await at(-30)
+    const inBetween = await at(-1)
+    const next = await at(30)
+    // Answered at the planning meeting in between, by email and passed on, and by email.
+    await answerItem(db, actor, heard.id, { answer: 'a', meetingId: inBetween.id })
+    await answerItem(db, actor, told.id, { answer: 'b', toldThem: true })
+    await answerItem(db, actor, reported.id, { answer: 'c' })
+
+    const block = await sinceLast(next.id)
+    expect(block?.closed.map((entry) => entry.itemId)).toEqual([reported.id])
+  })
+
+  it('shows the decision in place of the answer it was recorded from', async () => {
+    const { w, at } = await planning()
+    const first = await at(-60)
+    const question = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Which Sunday?',
+      originMeetingId: first.id,
+      parties: [{ personId: w.bishop.id, role: 'owner' }],
+    })
+    await at(-30)
+    const next = await at(30)
+    const { decision } = await answerItem(db, actor, question.id, {
+      answer: 'The 17th',
+      decision: { text: 'Confirmation is on 17 May' },
+    })
+
+    const block = await sinceLast(next.id)
+    expect(block?.closed).toEqual([])
+    expect(block?.decisions.map((entry) => entry.itemId)).toEqual([decision!.id])
+  })
+
+  it('reads a group’s and a project’s meetings with no series, up and down the project tree', async () => {
+    const w = await makeWorld()
+    const worship = await createProject(db, { contextId: w.parish.id, name: 'Worship', parentId: w.retreat.id })
+    const before = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      projectIds: [w.retreat.id],
+      startsAt: fromNow(-60),
+    })
+    const now = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      projectIds: [worship.id],
+      startsAt: fromNow(30),
+    })
+    const tagged = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Hymn list?',
+      projectId: w.retreat.id,
+    })
+    const elsewhere = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Other matter',
+      projectId: w.campaign.id,
+    })
+    await answerItem(db, actor, tagged.id, { answer: 'Sent' })
+    await answerItem(db, actor, elsewhere.id, { answer: 'Not for here' })
+
+    // No series: since last time is on by default for a project's meeting.
+    const block = (await sinceLast(now.id))
+    expect(block?.meeting.id).toBe(before.id)
+    expect(block?.closed.map((entry) => entry.itemId)).toEqual([tagged.id])
+
+    const groupBefore = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      startsAt: fromNow(-59),
+    })
+    const groupNow = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      startsAt: fromNow(31),
+    })
+    const forStaff = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Rota?',
+      parties: [{ groupId: w.staff.id, role: 'with' }],
+    })
+    await answerItem(db, actor, forStaff.id, { answer: 'Done' })
+    const groupBlock = (await sinceLast(groupNow.id))
+    expect(groupBlock?.meeting.id).toBe(groupBefore.id)
+    expect(groupBlock?.closed.map((entry) => entry.itemId)).toEqual([forStaff.id])
   })
 })

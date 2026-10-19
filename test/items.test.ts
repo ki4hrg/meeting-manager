@@ -5,6 +5,8 @@ import {
   addNote,
   answerItem,
   answered,
+  askItem,
+  askOf,
   completeItem,
   convertItem,
   createItem,
@@ -552,5 +554,91 @@ describe('recording an answered question', () => {
       recordAnswered(db, actor, { contextId: parish.id, text: 'When?', answer: '  ', projectId: retreat.id }),
     ).rejects.toThrow('Enter the answer.')
     expect((await listItems(db, { contextId: parish.id })).map((i) => i.text)).toEqual(['Where do we stay?'])
+  })
+})
+
+describe('asking', () => {
+  async function owed() {
+    const w = await makeWorld()
+    const question = (text: string) =>
+      createItem(db, actor, {
+        contextId: w.parish.id,
+        kind: 'question',
+        text,
+        projectId: w.retreat.id,
+        parties: [{ personId: w.bishop.id, role: 'owner' }],
+      })
+    return { w, question }
+  }
+
+  it('makes John an action to ask, in the question’s thread, and parks the question on it', async () => {
+    const { w, question } = await owed()
+    const scripture = await question('Closing scripture?')
+    const { question: after, ask } = await askItem(db, actor, scripture.id, {
+      with: { personId: w.sarah.id },
+      dueOn: '2026-10-30',
+    })
+
+    expect(ask).toMatchObject({
+      kind: 'action',
+      text: 'Ask Bishop Wright: Closing scripture?',
+      parentItemId: scripture.id,
+      dueOn: '2026-10-30',
+      project: { id: w.retreat.id },
+    })
+    expect(ask.parties.map((party) => [party.name, party.role])).toEqual([
+      ['John', 'owner'],
+      ['Sarah Jones', 'with'],
+    ])
+    expect(after.laterUntilItemId).toBe(ask.id)
+    expect((await getThread(db, scripture.id)).entries.map((entry) => entry.item.id)).toContain(ask.id)
+  })
+
+  it('joins an open action, and ticking it brings every question back', async () => {
+    const { question } = await owed()
+    const first = await question('Which Sunday?')
+    const second = await question('Who preaches?')
+    const { ask } = await askItem(db, actor, first.id, { text: 'Email the bishop' })
+    await askItem(db, actor, second.id, { join: ask.id })
+    expect((await askOf(db, await getItem(db, first.id)))?.shared).toBe(true)
+
+    await completeItem(db, actor, ask.id)
+    expect((await getItem(db, first.id)).parkedAt).toBeNull()
+    expect((await getItem(db, second.id)).parkedAt).toBeNull()
+  })
+
+  it('refuses a question John owes, one with no one to ask, and a join onto a closed item', async () => {
+    const { w, question } = await owed()
+    const mine = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Mine',
+      parties: [{ personId: w.john.id, role: 'owner' }],
+    })
+    await expect(askItem(db, actor, mine.id)).rejects.toThrow('Say who it is asked of first.')
+    const closed = await createItem(db, actor, { contextId: w.parish.id, kind: 'action', text: 'Done' })
+    await completeItem(db, actor, closed.id)
+    const scripture = await question('Closing scripture?')
+    await expect(askItem(db, actor, scripture.id, { join: closed.id })).rejects.toThrow(
+      'A question joins an open action.',
+    )
+  })
+
+  it('answered before it was asked: closes the ask, and records a decision with it', async () => {
+    const { question } = await owed()
+    const sunday = await question('Which Sunday?')
+    const { ask } = await askItem(db, actor, sunday.id)
+    const { item, decision } = await answerItem(db, actor, sunday.id, {
+      answer: 'The 17th',
+      closeAsk: true,
+      toldThem: true,
+      decision: { text: 'Confirmation is on 17 May' },
+    })
+
+    expect(item.status).toBe('done')
+    expect((await getItem(db, ask.id)).status).toBe('done')
+    expect(decision).toMatchObject({ kind: 'decision', parentItemId: sunday.id, text: 'Confirmation is on 17 May' })
+    const [answered] = (await getThread(db, sunday.id)).events.filter((event) => event.type === 'answered')
+    expect(answered?.data).toMatchObject({ answer: 'The 17th', told: true })
   })
 })

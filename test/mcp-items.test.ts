@@ -308,3 +308,35 @@ describe('Todoist on items', () => {
     })
   })
 })
+
+describe('asking over update_item', () => {
+  it('asks a question, then answers it with the ask closed and a decision recorded', async () => {
+    const { item } = dataOf<{ item: Item }>(
+      await call('capture_item', { text: 'Closing scripture?', kind: 'question', owners: ['bishop'], project: 'retreat' }),
+    )
+    const asked = await call('update_item', { id: item.id, ask: { with: 'sarah', due_on: '2026-11-01' } })
+    expect(asked.isError).toBeFalsy()
+    const { ask } = dataOf<{ ask: Item }>(asked)
+    expect(ask).toMatchObject({
+      kind: 'action',
+      text: 'Ask Bishop Wright: Closing scripture?',
+      owners: [{ name: 'John', is_me: true }],
+      with: [{ name: 'Sarah Jones' }],
+      due_on: '2026-11-01',
+    })
+
+    const answered = await call('update_item', {
+      id: item.id,
+      answer: 'Micah 6:8',
+      close_ask: true,
+      decision: 'Closing with Micah 6:8',
+    })
+    expect(answered.isError).toBeFalsy()
+    expect(dataOf<{ decision: Item }>(answered).decision).toMatchObject({ kind: 'decision' })
+    const after = dataOf<{ item: Item }>(await call('get_item', { id: ask.id })).item
+    expect(after.status).toBe('done')
+
+    const refused = await call('update_item', { id: item.id, told_them: true })
+    expect(refused.isError).toBe(true)
+  })
+})

@@ -10,6 +10,7 @@ import { connections, integrationEvents, itemEvents, itemTodoistLinks } from '..
 import { createProject } from '../lib/projects/projects'
 import {
   answerItem,
+  askItem,
   completeItem,
   convertItem,
   createItem,
@@ -486,5 +487,30 @@ describe('the connection', () => {
     const { unsealCredentials } = await import('../lib/connect/connections')
     const [row] = await db.select().from(connections).where(eq(connections.id, connection.id))
     expect(unsealCredentials<{ refreshToken: string }>(row!.credentials)?.refreshToken).toBe('refresh-1')
+  })
+})
+
+describe('asking', () => {
+  it('sends the ask, not the question, and ticking it brings the question back as Waiting on', async () => {
+    const fake = fakeTodoist()
+    const w = await world()
+    await connect()
+    const question = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Closing scripture?',
+      parties: [{ personId: w.bishop.id, role: 'owner' }],
+    })
+    const { ask } = await askItem(db, actor, question.id)
+    await syncTodoist(db)
+
+    expect(fake.byContent('Closing scripture?')).toBeUndefined()
+    const taskId = (await link(ask.id))!.taskId!
+    expect(fake.tasks.get(taskId)?.content).toBe('Ask Bishop Wright: Closing scripture?')
+
+    fake.edit(taskId, { checked: true })
+    await syncTodoist(db)
+    expect((await getItem(db, ask.id)).status).toBe('done')
+    expect((await getItem(db, question.id)).parkedAt).toBeNull()
   })
 })

@@ -20,7 +20,7 @@ import { ValidationError, inTransaction } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listContexts } from '@/lib/directory/contexts'
 import type { BlockSettings } from '@/lib/db/schema'
-import { markDiscussed } from '@/lib/items/items'
+import { markAsked, markDiscussed } from '@/lib/items/items'
 import {
   getMeeting,
   setMeetingPeople,
@@ -383,7 +383,10 @@ export async function importOutlineAction(formData: FormData): Promise<ActionRes
 
 export async function markDiscussedAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
-    await markDiscussed(db, actor, field(formData, 'itemId'), field(formData, 'meetingId'))
+    await inTransaction(db, async (tx) => {
+      await markDiscussed(tx, actor, field(formData, 'itemId'), field(formData, 'meetingId'))
+      await markAsked(tx, actor, field(formData, 'itemId'), field(formData, 'meetingId'))
+    })
   })
 }
 

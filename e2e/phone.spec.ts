@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { watchErrors } from './helpers'
+import { dialog, watchErrors } from './helpers'
 import { WORLD } from './world'
 
 /* Signed out, so the page is not redirected past. */
@@ -56,6 +56,21 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(overflow, 'page scrolls sideways').toBeLessThanOrEqual(0)
       const widths = await title.evaluate((h1) => ({ title: h1.clientWidth, column: h1.parentElement!.clientWidth }))
       expect(widths.title, 'badges squeeze the title').toBeGreaterThanOrEqual(widths.column - 1)
+      expect(errors).toEqual([])
+    })
+    test('a question’s Ask and Answer fit the screen', async ({ page }) => {
+      const errors = watchErrors(page)
+      await page.goto('/items')
+      await page.getByRole('link').filter({ hasText: WORLD.items.longForm }).first().click()
+      await expect(page.getByRole('heading', { name: WORLD.items.longForm })).toBeVisible()
+      for (const button of ['Ask', 'Answer']) {
+        await page.getByRole('button', { name: button, exact: true }).click()
+        await expect(dialog(page)).toBeVisible()
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+        expect(overflow, `${button} scrolls sideways`).toBeLessThanOrEqual(0)
+        await dialog(page).getByRole('button', { name: 'Cancel' }).click()
+        await expect(dialog(page)).toHaveCount(0)
+      }
       expect(errors).toEqual([])
     })
     for (const hub of HUBS) {
