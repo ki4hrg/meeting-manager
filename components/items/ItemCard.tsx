@@ -2,6 +2,7 @@ import { CardGrid, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { Badge, ContextBadge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
+import { splitGranolaLinks } from '@/lib/connect/granola/links'
 import { formatDay } from '@/lib/core/dates'
 import { askedOfNoOne, isLater } from '@/lib/items/horizon'
 import { isOpen, type ItemKind, type ItemParty, type ItemView } from '@/lib/items/items'
@@ -120,6 +121,8 @@ export function ItemCard({
   context?: string
 }) {
   const open = isOpen(item)
+  // A link to its Granola note is a button on the item's page, not text here.
+  const said = item.resolution ?? (item.detail ? splitGranolaLinks(item.detail).text : null)
 
   return (
     <LinkCard href={href} plain={switches(href)}>
@@ -137,11 +140,7 @@ export function ItemCard({
           </p>
           {/* The answer if there is one; otherwise the detail, which on a
               reported-back topic is the answer being carried. */}
-          {(item.resolution ?? item.detail) ? (
-            <p className="mt-1 line-clamp-2 text-sm text-gray-600 dark:text-gray-300">
-              {item.resolution ?? item.detail}
-            </p>
-          ) : null}
+          {said ? <p className="mt-1 line-clamp-2 text-sm text-gray-600 dark:text-gray-300">{said}</p> : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
             <PartyLine parties={item.parties} kind={item.kind} noOne={open && askedOfNoOne(item)} />
             <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
@@ -158,7 +157,7 @@ export function ItemCard({
               {open && isLater(item, today) ? (
                 <Badge>
                   <Icon name="later" className="h-3 w-3" label="Later" />
-                  {item.laterUntilItemId ? <Icon name="link" className="h-3 w-3" label="Waits on an item" /> : null}
+                  {item.laterUntilItemId ? <Icon name="waitsOn" className="h-3 w-3" label="Waits on an item" /> : null}
                   {item.laterOn ? formatDay(item.laterOn, today) : null}
                 </Badge>
               ) : null}

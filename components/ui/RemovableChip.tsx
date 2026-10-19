@@ -6,13 +6,14 @@ import { Icon, type IconName } from './icons'
 /**
  * A `Chip` with a cross: something attached to what the page is about, and
  * the one click that takes it off. The name is a link when it has somewhere
- * to go.
+ * to go. With `edit`, a pencil before the cross changes it instead.
  */
 export function RemovableChip({
   icon,
   iconLabel,
   href,
   children,
+  edit,
   remove,
 }: {
   icon: IconName
@@ -20,6 +21,7 @@ export function RemovableChip({
   iconLabel?: string
   href?: string
   children: React.ReactNode
+  edit?: { label: string; onClick: () => void }
   remove: {
     action: (formData: FormData) => Promise<ActionResult>
     fields: Record<string, string>
@@ -36,6 +38,17 @@ export function RemovableChip({
       ) : (
         <span className="min-w-0 truncate">{children}</span>
       )}
+      {edit ? (
+        <button
+          type="button"
+          onClick={edit.onClick}
+          aria-label={edit.label}
+          title={edit.label}
+          className="flex shrink-0 items-center justify-center rounded-full p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-gray-200"
+        >
+          <Icon name="pencil" className="h-3 w-3" />
+        </button>
+      ) : null}
       <ActionButton
         action={remove.action}
         fields={remove.fields}

@@ -16,13 +16,13 @@ test('items open when Todoist was connected are matched to tasks John has, or sk
     page.locator('div.flex.items-start').filter({ has: page.getByRole('link').filter({ hasText: text }) }).last()
 
   // The likeliest task is offered first, and linking takes the item out of Match.
-  await row(WORLD.items.lunch).getByRole('button', { name: 'Link task' }).click()
+  await row(WORLD.items.lunch).getByRole('button', { name: 'Link to a Todoist task' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('radio', { name: EXISTING_TASKS[0] })).toBeChecked()
   await dialog.getByRole('button', { name: 'Link', exact: true }).click()
   await expect(page.getByRole('link').filter({ hasText: WORLD.items.lunch })).toHaveCount(0)
 
-  await row(WORLD.items.overdue).getByRole('button', { name: 'Skip' }).click()
+  await row(WORLD.items.overdue).getByRole('button', { name: "Don't send to Todoist" }).click()
   await expect(page.getByRole('link').filter({ hasText: WORLD.items.overdue })).toHaveCount(0)
   expect(errors).toEqual([])
 })

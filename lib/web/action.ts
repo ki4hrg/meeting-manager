@@ -13,7 +13,7 @@ import { requireUser, type AuthUser } from '../auth/guards'
 import { AppError, ValidationError, type ActorContext, type Executor } from '../core/types'
 import { createNamed } from '../directory/create'
 import { NoMatchError, resolveParty, resolvePerson } from '../directory/resolve'
-import type { PartyRef } from '../items/items'
+import type { PartyRef, ReportTo } from '../items/items'
 import { syncTodoistSoon } from '../jobs'
 import { webActor } from './context'
 
@@ -101,6 +101,9 @@ export async function pickedParties(
     if (fresh) {
       const kind = fresh[1] === 'group' ? 'group' : 'person'
       ;(kind === 'group' ? groups : people).push(await make(kind, fresh[2]!))
+    } else if (value.startsWith('series:')) {
+      // A series rides in a Report to picker; `pickedReportTo` reads it.
+      continue
     } else if (value.startsWith('group:')) {
       if (!contextId) throw noGroups()
       groups.push(value.slice(6))
@@ -134,4 +137,30 @@ const NEW_VALUE = /^new(?:-(person|group))?:(.*)$/s
 /** The people a picker that takes no groups submits under `name` (see `pickedParties`). */
 export async function pickedPeople(exec: Executor, formData: FormData, name: string): Promise<string[]> {
   return (await pickedParties(exec, formData, name, null)).people
+}
+
+/**
+ * The one a Report to picker names, in the item's context: a person or a
+ * group (a new one made now, as `pickedParties` does), or `series:<id>`,
+ * whose next meeting raises it.
+ */
+export async function pickedReportTo(
+  exec: Executor,
+  formData: FormData,
+  name: string,
+  contextId: string,
+): Promise<ReportTo | null> {
+  const series = formData
+    .getAll(name)
+    .map(String)
+    .filter((value) => value.startsWith('series:'))
+    .map((value) => ({ seriesId: value.slice(7) }))
+  const { people, groups } = await pickedParties(exec, formData, name, contextId)
+  const picked: ReportTo[] = [
+    ...people.map((personId) => ({ personId })),
+    ...groups.map((groupId) => ({ groupId })),
+    ...series,
+  ]
+  if (picked.length > 1) throw new ValidationError('Report to one at a time.')
+  return picked[0] ?? null
 }

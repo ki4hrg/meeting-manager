@@ -1,7 +1,7 @@
 'use client'
 
 import { useId, useRef, useState } from 'react'
-import { Input } from '@/components/ui/Field'
+import { SearchInput } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { KindIcon, type ItemKind } from '@/components/ui/StatusBadge'
 import { matchName } from '@/lib/core/match'
@@ -83,7 +83,7 @@ export function ItemPicker({
           </span>
         </div>
       ) : (
-        <Input
+        <SearchInput
           ref={inputRef}
           id={id}
           value={text}

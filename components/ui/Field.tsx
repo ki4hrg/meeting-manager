@@ -2,6 +2,7 @@
 
 import { useFormStatus } from 'react-dom'
 import { Button, type ButtonProps } from './Button'
+import { Icon } from './icons'
 
 const CONTROL =
   'mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm ' +
@@ -61,6 +62,19 @@ const NO_AUTOFILL = {
 export function Input({ className = '', ...props }: React.ComponentProps<'input'>) {
   const quiet = props.autoComplete === undefined ? NO_AUTOFILL : {}
   return <input className={`${CONTROL} ${className}`} {...quiet} {...props} />
+}
+
+/** A box that searches as it is typed in: the magnifier says so. */
+export function SearchInput({ className = '', ...props }: React.ComponentProps<'input'>) {
+  return (
+    <div className="relative mt-1">
+      <Icon
+        name="search"
+        className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+      />
+      <Input placeholder="Search" {...props} className={`!mt-0 !pl-8 ${className}`} />
+    </div>
+  )
 }
 
 export function Textarea({

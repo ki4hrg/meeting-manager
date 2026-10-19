@@ -172,7 +172,11 @@ async function Match() {
   )
 }
 
-/** Link, New task, Skip: on a Match card, and on an item page with no task. */
+/**
+ * What becomes of an item with no Todoist task: link it to one John has, send
+ * it as a new one, or keep it out. On a Match card and on an item page with no
+ * task, grouped under Todoist's name so the three read as its.
+ */
 export function MatchActions({
   itemId,
   choices,
@@ -183,15 +187,31 @@ export function MatchActions({
   skip?: boolean
 }) {
   return (
-    <span className="flex shrink-0 items-center gap-1">
+    <span
+      role="group"
+      aria-label="Todoist"
+      className="flex shrink-0 items-center gap-0.5 rounded-lg border border-gray-200 py-0.5 pl-2 pr-0.5 dark:border-gray-700"
+    >
+      <span aria-hidden className="pr-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+        Todoist
+      </span>
       {choices.length > 0 ? (
-        <FormModal action={linkTodoistAction} title="Link task" icon="link" compact tone="blue" submit="Link">
+        <FormModal
+          action={linkTodoistAction}
+          title="Link to a Todoist task"
+          icon="link"
+          compact
+          tone="blue"
+          submit="Link"
+        >
           <input type="hidden" name="itemId" value={itemId} />
           <TaskPicker name="task" options={choices} />
         </FormModal>
       ) : null}
-      <IconAction action={sendTodoistAction} fields={{ itemId }} icon="plus" label="New task" />
-      {skip ? <IconAction action={skipTodoistAction} fields={{ itemId }} icon="close" label="Skip" /> : null}
+      <IconAction action={sendTodoistAction} fields={{ itemId }} icon="plus" label="New Todoist task" />
+      {skip ? (
+        <IconAction action={skipTodoistAction} fields={{ itemId }} icon="close" label="Don't send to Todoist" />
+      ) : null}
     </span>
   )
 }

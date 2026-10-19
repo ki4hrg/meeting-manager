@@ -1,13 +1,15 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ActionSelect } from '@/components/ActionSelect'
 import { ActionButton, FormModal } from '@/components/forms'
 import { History } from '@/components/items/History'
 import { ItemCard } from '@/components/items/ItemCard'
 import { ItemPicker, type ItemOption } from '@/components/items/ItemPicker'
 import { PartyOptions } from '@/components/items/PartyOptions'
 import { PartyRoles } from '@/components/items/PartyRoles'
+import { RaiseAt } from '@/components/items/RaiseAt'
+import { BackWhen, WaitingOnThis } from '@/components/items/WaitsOn'
 import { PartyPicker, type PartyOption } from '@/components/processing/PartyPicker'
+import { GranolaChip } from '@/components/GranolaChip'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs'
 import { Card, Section } from '@/components/ui/Card'
@@ -25,9 +27,10 @@ import {
   type ItemKind,
 } from '@/components/ui/StatusBadge'
 import { iconButtonClasses } from '@/components/ui/IconButton'
+import { splitGranolaLinks } from '@/lib/connect/granola/links'
 import { itemComments } from '@/lib/connect/todoist/comments'
 import { itemTodoist, openTasks, rankTasks } from '@/lib/connect/todoist/match'
-import { formatDay, formatMoment } from '@/lib/core/dates'
+import { formatDay, formatMoment, todayIn } from '@/lib/core/dates'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
@@ -41,9 +44,9 @@ import {
   isOpen,
   listItems,
 } from '@/lib/items/items'
-import { roleLabel } from '@/lib/items/roles'
 import { getProject, listProjectChoices } from '@/lib/projects/projects'
-import { getMeeting, listMeetings } from '@/lib/meetings/meetings'
+import { getMeeting, listMeetings, type MeetingView } from '@/lib/meetings/meetings'
+import { findNoteByExternalId, listNotes } from '@/lib/notes/notes'
 import { listSeries } from '@/lib/meetings/series'
 import { acceptedSteps } from '@/lib/processing/proposals'
 import { viewer } from '@/lib/web/context'
@@ -100,7 +103,8 @@ export default async function ItemPage({
      whose next occurrence then takes it. What is on offer is what is still to
      come; a target already in the past stays listed so the select can show it. */
   const raisable = open && !decision
-  const series = raisable || item.targetSeriesId ? await listSeries(db, item.contextId) : []
+  // Also who a decision or an answer can be reported to.
+  const series = await listSeries(db, item.contextId)
   const meetings = raisable
     ? [
         ...(await listMeetings(db, { contextId: item.contextId, when: 'upcoming' })),
@@ -121,7 +125,12 @@ export default async function ItemPage({
   const targetSeries = series.find((one) => one.id === item.targetSeriesId)
   const targetProject = item.targetProjectId ? await getProject(db, item.targetProjectId) : null
   const target = targetMeeting
-    ? { name: targetMeeting.title, href: `/meetings/${targetMeeting.id}` }
+    ? {
+        name: targetMeeting.startsAt
+          ? `${targetMeeting.title} · ${formatDay(todayIn(user.timeZone, targetMeeting.startsAt), today)}`
+          : targetMeeting.title,
+        href: `/meetings/${targetMeeting.id}`,
+      }
     : targetSeries
       ? { name: targetSeries.name, href: `/series/${targetSeries.id}` }
       : targetProject
@@ -140,6 +149,27 @@ export default async function ItemPage({
     ...projects.filter((project) => project.id !== item.project?.id && project.status !== 'done'),
   ]
   const origin = await lookUp(item.originMeetingId)
+  /* Its Granola notes: the origin meeting's, and any linked in the detail,
+     which then leaves the text shown. A note linked there that we hold names
+     the meeting it came from, when the item has no origin of its own. */
+  const linked = item.detail ? splitGranolaLinks(item.detail) : { text: '', ids: [] }
+  const detail = linked.ids.length > 0 ? linked.text : item.detail
+  const originNotes = origin
+    ? (await listNotes(db, origin.id)).flatMap((note) =>
+        note.source === 'granola' && note.externalId ? [note.externalId] : [],
+      )
+    : []
+  const granolaIds = [...new Set([...originNotes, ...linked.ids])]
+  let noteMeeting: MeetingView | null = null
+  for (const noteId of origin ? [] : linked.ids) {
+    const note = await findNoteByExternalId(db, 'granola', noteId)
+    const meeting = note?.meetingId ? await lookUp(note.meetingId) : null
+    if (meeting && meeting.contextId === item.contextId) {
+      noteMeeting = meeting
+      break
+    }
+  }
+  const from = origin ?? noteMeeting
   /* Later, until another item closes: what this one waits on, what waits on
      it, and the open items it could wait on. */
   const blocker = item.laterUntilItemId
@@ -192,12 +222,22 @@ export default async function ItemPage({
           : [{ href: '/groups', label: 'Groups' }, { href: `/groups/${party.id}`, label: party.name }]
         : [{ href: '/inbox', label: 'Inbox' }])
 
+  const partyOptions: PartyOption[] = [
+    ...people.map((person): PartyOption => ({ value: `person:${person.id}`, name: person.name, icon: 'person' })),
+    ...groups.map((group): PartyOption => ({ value: `group:${group.id}`, name: group.name, icon: 'group' })),
+  ]
+  /* A person, a group, or a series, whose next meeting raises it. */
   const reportTo = (
-    <Field label="Report to">
-      <Select name="reportTo" defaultValue="">
-        <PartyOptions people={people} groups={groups} />
-      </Select>
-    </Field>
+    <PartyPicker
+      label="Report to"
+      name="reportTo"
+      options={[
+        ...partyOptions,
+        ...series.map((one): PartyOption => ({ value: `series:${one.id}`, name: one.name, icon: 'refresh' })),
+      ]}
+      allowNew
+      allowNewGroup
+    />
   )
 
   return (
@@ -230,8 +270,8 @@ export default async function ItemPage({
               </span>
             </div>
 
-            {item.detail ? (
-              <Markdown source={item.detail} className="mt-2 text-sm text-gray-700 dark:text-gray-300" />
+            {detail ? (
+              <Markdown source={detail} className="mt-2 text-sm text-gray-700 dark:text-gray-300" />
             ) : null}
 
             {item.resolution ? (
@@ -248,54 +288,41 @@ export default async function ItemPage({
                 parties={item.parties}
                 move={setPartyRoleAction}
                 remove={removePartyAction}
-              >
-                <FormModal
-                  action={addPartyAction}
-                  title="People"
-                  icon="plus"
-                  compact
-                  submit={roleLabel(item.kind, 'with')}
-                  also={{ label: roleLabel(item.kind, 'owner'), name: 'role', value: 'owner' }}
-                >
-                  <input type="hidden" name="id" value={item.id} />
-                  <PartyPicker
-                    label="Person or group"
-                    name="party"
-                    options={[
-                      ...people.map((person): PartyOption => ({
-                        value: `person:${person.id}`,
-                        name: person.name,
-                        icon: 'person',
-                      })),
-                      ...groups.map((group): PartyOption => ({
-                        value: `group:${group.id}`,
-                        name: group.name,
-                        icon: 'group',
-                      })),
-                    ]}
-                    required
-                    allowNew
-                    allowNewGroup
-                  />
-                </FormModal>
-              </PartyRoles>
+                add={(row) => (
+                  <FormModal
+                    action={addPartyAction}
+                    title={`${row.label}: add`}
+                    icon="plus"
+                    compact
+                    submit="Add"
+                  >
+                    <input type="hidden" name="id" value={item.id} />
+                    <input type="hidden" name="role" value={row.role} />
+                    <PartyPicker
+                      label="Person or group"
+                      name="party"
+                      options={partyOptions}
+                      required
+                      allowNew
+                      allowNewGroup
+                    />
+                  </FormModal>
+                )}
+              />
             </div>
 
-            {raisable || target || origin || (open && item.parkedAt) || holdsUp.length > 0 ? (
+            {raisable || target || from || granolaIds.length > 0 || (open && item.parkedAt) ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {open && item.parkedAt && blocker ? (
-                  <RemovableChip
-                    icon="link"
-                    iconLabel="Waits on"
-                    href={`/items/${blocker.id}`}
+                  <BackWhen
+                    item={blocker}
+                    on={item.laterOn ? formatDay(item.laterOn, today) : null}
                     remove={{
                       action: unparkItemAction,
                       fields: { id: item.id },
                       label: 'Bring back now',
                     }}
-                  >
-                    {item.laterOn ? `${blocker.text} · ${formatDay(item.laterOn, today)}` : blocker.text}
-                  </RemovableChip>
+                  />
                 ) : open && item.parkedAt ? (
                   <RemovableChip
                     icon="later"
@@ -309,88 +336,64 @@ export default async function ItemPage({
                     {item.laterOn ? formatDay(item.laterOn, today) : 'Later'}
                   </RemovableChip>
                 ) : null}
-                {holdsUp.length > 0 ? (
-                  <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-                      <Icon name="link" className="h-3.5 w-3.5" label="Holds up" />
-                      {holdsUp.length}
-                    </span>
-                    {holdsUp.map((one) => (
-                      <Chip key={one.id} icon={KIND[one.kind].icon} href={`/items/${one.id}`}>
-                        {one.text}
-                      </Chip>
-                    ))}
-                  </span>
-                ) : null}
-                {origin ? (
-                  <Chip icon="undo" href={`/meetings/${origin.id}`}>
-                    <span className="text-gray-500 dark:text-gray-400">From</span> {origin.title}
+                {from ? (
+                  <Chip icon="undo" href={`/meetings/${from.id}`}>
+                    <span className="text-gray-500 dark:text-gray-400">From</span> {from.title}
                   </Chip>
                 ) : null}
-                {target && raisable ? (
-                  <RemovableChip
-                    icon="meeting"
-                    iconLabel="Raise at"
-                    href={target.href}
-                    remove={{
-                      action: setItemTargetAction,
-                      fields: { id: item.id, target: '' },
-                      label: `Stop raising at ${target.name}`,
-                    }}
+                {granolaIds.map((noteId) => (
+                  <GranolaChip key={noteId} noteId={noteId} />
+                ))}
+                {raisable ? (
+                  <RaiseAt
+                    key={targetValue}
+                    itemId={item.id}
+                    action={setItemTargetAction}
+                    value={targetValue}
+                    target={target}
                   >
-                    {target.name}
-                  </RemovableChip>
+                    <option value="">Raise at…</option>
+                    {meetings.length > 0 ? (
+                      <optgroup label="Meetings">
+                        {meetings.map((meeting) => (
+                          <option key={meeting.id} value={`meeting:${meeting.id}`}>
+                            {meeting.startsAt
+                              ? `${meeting.title} · ${formatMoment(meeting.startsAt, user.timeZone)}`
+                              : meeting.title}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {series.length > 0 ? (
+                      <optgroup label="Series">
+                        {series.map((one) => (
+                          <option key={one.id} value={`series:${one.id}`}>
+                            {one.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {projectAims.length > 0 ? (
+                      <optgroup label="Next meeting for">
+                        {projectAims.map((one) => (
+                          <option key={one.id} value={`project:${one.id}`}>
+                            {one.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </RaiseAt>
                 ) : target ? (
                   <Chip icon="meeting" href={target.href}>
                     {target.name}
                   </Chip>
                 ) : null}
-                {raisable ? (
-                  <span className="flex items-center gap-1.5">
-                    {/* Decorative: the select carries the name. */}
-                    {target ? null : <Icon name="meeting" className="h-4 w-4 text-gray-400" />}
-                    <ActionSelect
-                      key={targetValue}
-                      action={setItemTargetAction}
-                      fields={{ id: item.id }}
-                      name="target"
-                      value={targetValue}
-                      label="Raise at"
-                      className="!w-auto max-w-[14rem] !py-1 !text-sm"
-                    >
-                      <option value="">Raise at…</option>
-                      {meetings.length > 0 ? (
-                        <optgroup label="Meetings">
-                          {meetings.map((meeting) => (
-                            <option key={meeting.id} value={`meeting:${meeting.id}`}>
-                              {meeting.startsAt
-                                ? `${meeting.title} · ${formatMoment(meeting.startsAt, user.timeZone)}`
-                                : meeting.title}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ) : null}
-                      {series.length > 0 ? (
-                        <optgroup label="Series">
-                          {series.map((one) => (
-                            <option key={one.id} value={`series:${one.id}`}>
-                              {one.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ) : null}
-                      {projectAims.length > 0 ? (
-                        <optgroup label="Next meeting for">
-                          {projectAims.map((one) => (
-                            <option key={one.id} value={`project:${one.id}`}>
-                              {one.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ) : null}
-                    </ActionSelect>
-                  </span>
-                ) : null}
+              </div>
+            ) : null}
+
+            {holdsUp.length > 0 ? (
+              <div className="mt-4">
+                <WaitingOnThis items={holdsUp} />
               </div>
             ) : null}
 
@@ -445,7 +448,12 @@ export default async function ItemPage({
                 </FormModal>
               ) : null}
               {open && !decision && item.kind !== 'question' ? (
-                <ActionButton action={itemStatusAction} fields={{ id: item.id, op: 'done' }} size="sm">
+                <ActionButton
+                  action={itemStatusAction}
+                  fields={{ id: item.id, op: 'done' }}
+                  size="sm"
+                  title={holdsUp.length > 0 ? `Brings back ${holdsUp.length}` : undefined}
+                >
                   <Icon name="check" className="h-4 w-4" />
                   Done
                 </ActionButton>
@@ -501,7 +509,11 @@ export default async function ItemPage({
                 </FormModal>
               )}
 
-              <QuickAdd label="Follow-up" presets={{ parentItemId: item.id, kind: 'action' }} />
+              <QuickAdd
+                label="Follow-up"
+                title="New follow-up action"
+                presets={{ parentItemId: item.id, kind: 'action' }}
+              />
 
 
               {open && !decision ? (
@@ -516,7 +528,7 @@ export default async function ItemPage({
                 >
                   <input type="hidden" name="id" value={item.id} />
                   <Field label="Back on">
-                    <Input name="until" type="date" defaultValue={item.laterOn ?? ''} />
+                    <Input name="until" type="date" />
                   </Field>
                   {waitable.length > 0 ? (
                     <ItemPicker
@@ -530,15 +542,19 @@ export default async function ItemPage({
               ) : null}
 
               {open ? (
-                <ActionButton
+                <FormModal
                   action={itemStatusAction}
-                  fields={{ id: item.id, op: 'drop' }}
+                  title="Drop item"
+                  label="Drop"
+                  icon="close"
                   variant="secondary"
                   size="sm"
+                  submit="Drop"
+                  danger
                 >
-                  <Icon name="close" className="h-4 w-4" />
-                  Drop
-                </ActionButton>
+                  <input type="hidden" name="id" value={item.id} />
+                  <input type="hidden" name="op" value="drop" />
+                </FormModal>
               ) : null}
 
               {/* Housekeeping, icon only, last: Todoist, its kind, Edit, Delete. */}

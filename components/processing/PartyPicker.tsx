@@ -13,8 +13,8 @@ export type PartyOption = {
    */
   value: string
   name: string
-  /** `alert` is a name nobody has been matched to yet. */
-  icon: 'person' | 'group' | 'alert'
+  /** `alert` is a name nobody has been matched to yet; `refresh` a series (Report to). */
+  icon: 'person' | 'group' | 'alert' | 'refresh'
 }
 
 type NewKind = 'person' | 'group'
