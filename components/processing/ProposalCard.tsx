@@ -233,6 +233,7 @@ export function ProposalCard({
                             name={party.name}
                             people={choices.people}
                             groups={payload.type === 'item' ? choices.groups : []}
+                            takesGroups={payload.type === 'item'}
                           />
                         ) : (
                           <Badge key={party.name} tone="amber">

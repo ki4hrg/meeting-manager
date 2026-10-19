@@ -345,6 +345,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                     ]}
                     required
                     allowNew
+                    allowNewGroup
                   />
                 </FormModal>
               </PartyRoles>

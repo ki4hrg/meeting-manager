@@ -809,7 +809,12 @@ export default function DesignPage() {
                     { value: 'person:tom', name: 'Tom Baker', icon: 'person' },
                     { value: 'group:staff', name: 'Staff', icon: 'group' },
                   ]}
-                  selected={[{ value: 'person:sarah', name: 'Sarah Jones', icon: 'person' }]}
+                  selected={[
+                    { value: 'person:sarah', name: 'Sarah Jones', icon: 'person' },
+                    { value: 'new-person:Neil', name: 'Neil Campbell', icon: 'person' },
+                  ]}
+                  allowNew
+                  allowNewGroup
                 />
                 <PartyPicker
                   label="Members"

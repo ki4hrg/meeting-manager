@@ -77,6 +77,7 @@ export function MeetingFields({
           ...(meeting?.people ?? []).map((person) => ({ value: person.id, name: person.name, icon: 'person' as const })),
         ]}
         allowNew
+        allowNewGroup
         me
       />
       <CheckList
