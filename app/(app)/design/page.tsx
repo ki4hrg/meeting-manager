@@ -712,9 +712,22 @@ export default function DesignPage() {
       <Section title="Picking and removing">
         <Card padding="md" className="max-w-xl">
           <div className="flex flex-col gap-4">
-            <PartyRoles itemId="sample" kind="action" parties={WHO[0]!.parties} move={sampleAction} remove={sampleAction}>
-              <IconButton icon="plus" label="People" />
-            </PartyRoles>
+            <PartyRoles
+              itemId="sample"
+              kind="action"
+              parties={WHO[0]!.parties}
+              move={sampleAction}
+              remove={sampleAction}
+              add={(row) => <IconButton icon="plus" label={`${row.label}: add`} />}
+            />
+            <PartyRoles
+              itemId="sample"
+              kind="question"
+              parties={[]}
+              move={sampleAction}
+              remove={sampleAction}
+              add={(row) => <IconButton icon="plus" label={`${row.label}: add`} />}
+            />
             <div className="flex flex-wrap items-center gap-2">
               <RemovableChip
                 icon="person"

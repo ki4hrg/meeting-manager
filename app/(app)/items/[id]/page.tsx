@@ -44,7 +44,6 @@ import {
   isOpen,
   listItems,
 } from '@/lib/items/items'
-import { roleLabel } from '@/lib/items/roles'
 import { getProject, listProjectChoices } from '@/lib/projects/projects'
 import { getMeeting, listMeetings, type MeetingView } from '@/lib/meetings/meetings'
 import { findNoteByExternalId, listNotes } from '@/lib/notes/notes'
@@ -279,37 +278,27 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 parties={item.parties}
                 move={setPartyRoleAction}
                 remove={removePartyAction}
-              >
-                <FormModal
-                  action={addPartyAction}
-                  title="People"
-                  icon="plus"
-                  compact
-                  submit={roleLabel(item.kind, 'with')}
-                  also={{ label: roleLabel(item.kind, 'owner'), name: 'role', value: 'owner' }}
-                >
-                  <input type="hidden" name="id" value={item.id} />
-                  <PartyPicker
-                    label="Person or group"
-                    name="party"
-                    options={[
-                      ...people.map((person): PartyOption => ({
-                        value: `person:${person.id}`,
-                        name: person.name,
-                        icon: 'person',
-                      })),
-                      ...groups.map((group): PartyOption => ({
-                        value: `group:${group.id}`,
-                        name: group.name,
-                        icon: 'group',
-                      })),
-                    ]}
-                    required
-                    allowNew
-                    allowNewGroup
-                  />
-                </FormModal>
-              </PartyRoles>
+                add={(row) => (
+                  <FormModal
+                    action={addPartyAction}
+                    title={`${row.label}: add`}
+                    icon="plus"
+                    compact
+                    submit="Add"
+                  >
+                    <input type="hidden" name="id" value={item.id} />
+                    <input type="hidden" name="role" value={row.role} />
+                    <PartyPicker
+                      label="Person or group"
+                      name="party"
+                      options={partyOptions}
+                      required
+                      allowNew
+                      allowNewGroup
+                    />
+                  </FormModal>
+                )}
+              />
             </div>
 
             {raisable || target || from || granolaIds.length > 0 || (open && item.parkedAt) ? (
