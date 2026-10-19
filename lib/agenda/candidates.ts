@@ -27,6 +27,8 @@
  *     Except a question waiting on its ask: at a meeting the person it is
  *     asked of attends, it is offered as any of theirs would be, and the ask
  *     is not.
+ *   - Under a person or a group, suggestions are ordered by where each stands
+ *     between John and them (`stanceOf`). That orders; it never admits.
  *
  * John is never a row in meeting_people: a 1:1 is a meeting with one row.
  */
@@ -45,11 +47,15 @@ import { agendaLines, meetingDismissals, meetingProjects, meetings, users } from
 import { todayIn } from '../core/dates'
 import { isLater } from '../items/horizon'
 import { getItem, isOpen, listItems, type ItemView } from '../items/items'
+import { byStance, type Stance } from '../items/roles'
 import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
 
 export type CandidateGroup = {
   by: { type: 'person' | 'group' | 'project'; id: string; name: string }
+  /** Under a person or a group, in stance order (`bands`). */
   items: ItemView[]
+  /** Under a person or a group, its items by where each stands between John and them. */
+  bands: { stance: Stance; items: ItemView[] }[] | null
 }
 
 export type Candidates = {
@@ -144,16 +150,24 @@ export async function nextForProject(
 
 const GROUP_ORDER = { project: 0, group: 1, person: 2 } as const
 
+/* Groups by kind and name; under a person or a group, its items by stance
+   (`stanceOf`). Ordering only: which items are candidates is settled. */
 function sorted(map: Map<string, CandidateGroup>): CandidateGroup[] {
-  return [...map.values()].sort(
-    (a, b) =>
-      GROUP_ORDER[a.by.type] - GROUP_ORDER[b.by.type] || a.by.name.localeCompare(b.by.name),
-  )
+  return [...map.values()]
+    .sort(
+      (a, b) =>
+        GROUP_ORDER[a.by.type] - GROUP_ORDER[b.by.type] || a.by.name.localeCompare(b.by.name),
+    )
+    .map((group) => {
+      if (group.by.type === 'project') return group
+      const bands = byStance(group.items, group.by.id)
+      return { ...group, items: bands.flatMap((band) => band.items), bands }
+    })
 }
 
 function push(map: Map<string, CandidateGroup>, by: CandidateGroup['by'], item: ItemView) {
   const key = `${by.type}:${by.id}`
-  const entry = map.get(key) ?? { by, items: [] }
+  const entry = map.get(key) ?? { by, items: [], bands: null }
   entry.items.push(item)
   map.set(key, entry)
 }

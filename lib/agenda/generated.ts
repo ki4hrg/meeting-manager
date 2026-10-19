@@ -28,7 +28,7 @@ import {
   series,
   type BlockSettings,
 } from '../db/schema'
-import { isOwed } from '../items/horizon'
+import { isOwed, owersOf } from '../items/horizon'
 import { isOpen, listItems, type ItemView } from '../items/items'
 import type {
   BlockParty,
@@ -130,7 +130,8 @@ async function followUpsFor(
   const byParty = new Map<string, FollowUpsBlock[number]>()
   // listItems orders by deadline, then newest: that order is kept within a party.
   for (const item of owed) {
-    for (const owner of item.parties.filter((party) => party.role === 'owner')) {
+    // Who owes it: a topic's raiser, never its collaborators.
+    for (const owner of owersOf(item)) {
       const key = `${owner.type}:${owner.id}`
       const party: BlockParty = { type: owner.type, id: owner.id, name: owner.name }
       const entry = byParty.get(key) ?? { party, items: [] }

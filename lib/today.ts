@@ -11,7 +11,7 @@ import type { Executor } from './core/types'
 import { addDays, fromLocalInput, todayIn } from './core/dates'
 import { notes } from './db/schema'
 import type { Context } from './directory/contexts'
-import { isWaitingOn, splitLater } from './items/horizon'
+import { iOwe, isWaitingOn, splitLater } from './items/horizon'
 import { inboxCount, listItems, type ItemView } from './items/items'
 import type { CalendarEvent } from './calendar/feed'
 import { getMeeting, isOver } from './meetings/meetings'
@@ -30,15 +30,18 @@ export type Owed = {
 
 /* What I owe, and what I am waiting on, in one context. */
 async function owedIn(exec: Executor, contextId: string, selfId: string) {
-  // An ongoing question is pursued, not owed.
+  /* Only what I owe (`owersOf`): not an ongoing question, a topic I raise, or
+     one I am a collaborator on. */
   const mine = (
     await listItems(exec, {
       contextId,
       open: true,
       party: { personId: selfId, role: 'owner' },
     })
-  ).filter((item) => !item.ongoing)
-  const waiting = (await listItems(exec, { contextId, open: true, kinds: ['question', 'action'] })).filter(isWaitingOn)
+  ).filter(iOwe)
+  const waiting = (
+    await listItems(exec, { contextId, open: true, kinds: ['question', 'action', 'topic'] })
+  ).filter(isWaitingOn)
   return { mine, waiting }
 }
 

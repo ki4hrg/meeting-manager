@@ -15,6 +15,7 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { groupsOf } from '@/lib/directory/groups'
 import { getPerson } from '@/lib/directory/people'
+import { isOwed, owes } from '@/lib/items/horizon'
 import { listItems, type ItemView } from '@/lib/items/items'
 import { listMeetings } from '@/lib/meetings/meetings'
 import { pendingOnCards } from '@/lib/processing/proposals'
@@ -126,9 +127,10 @@ export default async function PersonPage({
   )
 
   if (person.isSelf) {
-    // An ongoing question is pursued, not owed: it waits on its project.
-    const owe = open.filter((item) => has(item, id, 'owner') && !item.ongoing)
-    const owed = open.filter((item) => has(item, id, 'with'))
+    /* Only what is owed (`owersOf`): not an ongoing question, which waits on
+       its project, nor a topic I raise or am a collaborator on. */
+    const owe = open.filter((item) => owes(item, id))
+    const owed = open.filter((item) => has(item, id, 'with') && isOwed(item) && !owes(item, id))
     return (
       <>
         {header}
@@ -153,9 +155,13 @@ export default async function PersonPage({
   const pending = await pendingOnCards(db, context.id)
   const groups = await groupsOf(db, context.id, id)
   const archived = !!person.archivedAt
-  const theyOwe = open.filter((item) => has(item, id, 'owner'))
-  const iOwe = open.filter((item) => has(item, id, 'with') && has(item, self.id, 'owner'))
-  const raise = open.filter((item) => has(item, id, 'with') && !has(item, self.id, 'owner'))
+  /* Who owes what (`owersOf`): a topic only by its raiser, never by a
+     collaborator. Everything else that involves them is to raise: what I
+     bring them, a topic they take part in, an ongoing question. */
+  const theyOwe = open.filter((item) => owes(item, id))
+  const iOwe = open.filter((item) => has(item, id, 'with') && owes(item, self.id))
+  const listed = new Set([...theyOwe, ...iOwe])
+  const raise = open.filter((item) => !listed.has(item))
 
   return (
     <>

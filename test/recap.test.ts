@@ -313,8 +313,15 @@ describe('owed', () => {
     await make({ text: 'print the rota', dueOn: '2025-03-01', parties: [{ groupId: w.staff.id, role: 'owner' }] })
     await make({ text: 'call the plumber', parties: [{ personId: w.tom.id, role: 'owner' }] })
     await make({ text: 'nobody took this' })
-    // Not owed: a topic, a finished action, a dropped one.
-    await make({ kind: 'topic', text: 'a topic', parties: [{ personId: w.tom.id, role: 'owner' }] })
+    // Not owed: a topic John raises, with Tom collaborating; a finished action, a dropped one.
+    await make({
+      kind: 'topic',
+      text: 'a topic',
+      parties: [
+        { personId: w.john.id, role: 'owner' },
+        { personId: w.tom.id, role: 'owner' },
+      ],
+    })
     const done = await make({ text: 'done already', parties: [{ personId: w.tom.id, role: 'owner' }] })
     await completeItem(db, actor, done.id)
     const dropped = await make({ text: 'never mind', parties: [{ personId: w.tom.id, role: 'owner' }] })
@@ -335,6 +342,37 @@ describe('owed', () => {
     expect(text).toContain('**Staff**\n- print the rota [action, due Mar 1, overdue]')
     expect(text).toContain('**Unassigned**\n- nobody took this [action]')
     expect(text).toContain('## Closed\n- done already\n- never mind — dropped')
+  })
+
+  it('a topic is owed by its raiser alone, never a collaborator, and reads as raise and report back', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      startsAt: START,
+      personIds: [w.sarah.id, w.tom.id],
+    })
+    const topic = (text: string, parties: Parameters<typeof createItem>[2]['parties']) =>
+      createItem(db, actor, { contextId: w.parish.id, kind: 'topic', text, originMeetingId: meeting.id, parties })
+
+    // Sarah raises it with the bishop, Tom alongside her: hers to bring back.
+    await topic('cabinet agenda', [
+      { personId: w.sarah.id, role: 'owner' },
+      { personId: w.tom.id, role: 'owner' },
+      { personId: w.bishop.id, role: 'with' },
+      { personId: w.john.id, role: 'with' },
+    ])
+    // John raises these: his own to bring, owed by nobody.
+    await topic('my topic', [
+      { personId: w.john.id, role: 'owner' },
+      { personId: w.sarah.id, role: 'owner' },
+      { personId: w.bishop.id, role: 'with' },
+    ])
+    await topic('nobody raises it', [{ personId: w.tom.id, role: 'with' }])
+
+    const recap = await recapOf(w, meeting.id)
+    expect(owedShape(recap)).toEqual([['Sarah Jones', ['cabinet agenda']]])
+    expect(renderRecap(recap)).toContain('**Sarah Jones**\n- cabinet agenda [raise with Bishop Wright and report back]')
+    expect(renderPersonSnippet(recap, { type: 'person', id: w.tom.id })).toBe('')
   })
 
   it("the snippet is what one party owes, and what John owes them", async () => {

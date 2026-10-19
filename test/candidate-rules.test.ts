@@ -1604,3 +1604,108 @@ describe('an ongoing question', () => {
     expect(followUps?.flatMap((entry) => entry.items.map((item) => item.itemId))).toEqual([owed.id])
   })
 })
+
+describe('a topic and who owes it', () => {
+  it('a collaborator brings it up at their meetings; follow-ups list it under its raiser alone, and never one John raises', async () => {
+    const w = await makeWorld()
+    // Sarah raises it with the bishop, Tom alongside her.
+    const hers = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'topic',
+      text: 'cabinet agenda',
+      parties: [
+        { personId: w.sarah.id, role: 'owner' },
+        { personId: w.tom.id, role: 'owner' },
+        { personId: w.bishop.id, role: 'with' },
+      ],
+    })
+    // John raises it, together with Tom.
+    const mine = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'topic',
+      text: 'learn and lead',
+      parties: [
+        { personId: w.john.id, role: 'owner' },
+        { personId: w.tom.id, role: 'owner' },
+        { personId: w.bishop.id, role: 'with' },
+      ],
+    })
+
+    // A 1:1 with the collaborator offers both; one with the raiser offers hers.
+    const withTom = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.tom.id] })
+    expect(grouped((await getCandidates(db, withTom.id, NOW)).suggested)).toEqual(ids([hers, mine]))
+    const withSarah = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id] })
+    expect(grouped((await getCandidates(db, withSarah.id, NOW)).suggested)).toEqual(ids([hers]))
+
+    await placeItem(db, actor, withTom.id, hers.id)
+    await placeItem(db, actor, withTom.id, mine.id)
+    const blocks = await computeBlocks(db, withTom.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(blocks.followUps).toEqual([
+      {
+        party: { type: 'person', id: w.sarah.id, name: 'Sarah Jones' },
+        items: [{ itemId: hers.id, kind: 'topic', text: 'cabinet agenda', dueOn: null, overdue: false }],
+      },
+    ])
+  })
+})
+
+describe('suggestions by stance', () => {
+  it('under a person, what they owe me, what I bring them, what they report back on, what we share; the set is unchanged', async () => {
+    const w = await makeWorld()
+    const make = (
+      kind: 'topic' | 'action' | 'question',
+      text: string,
+      parties: Parameters<typeof createItem>[2]['parties'],
+    ) => createItem(db, actor, { contextId: w.parish.id, kind, text, parties })
+    const together = await make('topic', 'raise it together', [
+      { personId: w.john.id, role: 'owner' },
+      { personId: w.sarah.id, role: 'owner' },
+      { personId: w.bishop.id, role: 'with' },
+    ])
+    const elsewhere = await make('topic', 'to the cabinet', [
+      { personId: w.sarah.id, role: 'owner' },
+      { personId: w.bishop.id, role: 'with' },
+    ])
+    const mine = await make('action', 'send her the draft', [
+      { personId: w.john.id, role: 'owner' },
+      { personId: w.sarah.id, role: 'with' },
+    ])
+    const theirs = await make('question', 'which hall?', [{ personId: w.sarah.id, role: 'owner' }])
+    const raise = await make('topic', 'thank her', [{ personId: w.sarah.id, role: 'with' }])
+    const all = ids([together, elsewhere, mine, theirs, raise])
+
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id] })
+    const { suggested } = await getCandidates(db, meeting.id, NOW)
+    expect(grouped(suggested)).toEqual(all)
+    expect(suggested).toHaveLength(1)
+    expect(suggested[0]!.bands!.map((band) => [band.stance, ids(band.items)])).toEqual([
+      ['theirs', ids([theirs])],
+      ['mine', ids([mine, raise])],
+      ['elsewhere', ids([elsewhere])],
+      ['together', ids([together])],
+    ])
+    expect(suggested[0]!.items.map((item) => item.id)).toEqual(
+      suggested[0]!.bands!.flatMap((band) => band.items.map((item) => item.id)),
+    )
+
+    // Under "more" in a larger meeting, the same.
+    const larger = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.sarah.id, w.tom.id] })
+    const { more } = await getCandidates(db, larger.id, NOW)
+    expect(grouped(more)).toEqual(all)
+    expect(more[0]!.bands!.map((band) => band.stance)).toEqual(['theirs', 'mine', 'elsewhere', 'together'])
+  })
+
+  it('a project’s suggestions are not split by stance', async () => {
+    const w = await makeWorld()
+    await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'book the venue',
+      projectId: w.retreat.id,
+      parties: [{ personId: w.tom.id, role: 'owner' }],
+    })
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, projectIds: [w.retreat.id] })
+    const { suggested } = await getCandidates(db, meeting.id, NOW)
+    expect(suggested.map((group) => [group.by.type, group.bands])).toEqual([['project', null]])
+  })
+})

@@ -128,7 +128,8 @@ export default async function SeriesPage({
      aimed at the next one. */
   const all = await listItems(db, { contextId: context.id, seriesId: id })
   const open = all.filter(isOpen)
-  const topics = open.filter((item) => item.kind === 'topic')
+  // A topic someone else raises is owed, and listed there.
+  const topics = open.filter((item) => item.kind === 'topic' && !isOwed(item))
   const owed = open.filter(isOwed)
   const decisions = all.filter((item) => item.kind === 'decision')
   const answers = answered(all)

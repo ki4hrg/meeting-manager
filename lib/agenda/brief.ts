@@ -14,6 +14,7 @@
  */
 
 import { formatClock, formatDay, formatSpan, formatTime, todayIn } from '../core/dates'
+import { isOwed, owersOf } from '../items/horizon'
 import type { ItemView } from '../items/items'
 import type { Agenda, AgendaLine } from './lines'
 import {
@@ -63,13 +64,21 @@ export const rows = (text: string | null) =>
     .filter(Boolean)
 const at = (start: string | null) => (start ? `${formatClock(start)} · ` : '')
 
+/**
+ * How an owed topic reads: its raiser is to raise it with whoever it is for
+ * and bring back what came of it. John is left out of who it is raised with,
+ * since it comes back to him.
+ */
+export function reportBack(withNames: string[]): string {
+  return withNames.length > 0 ? `raise with ${withNames.join(', ')} and report back` : 'report back'
+}
+
 /* What an item line says beyond its text: its kind when something is owed, who owes it, and by when. */
 function tag(item: ItemView | null, today: string): string {
-  if (!item || item.kind === 'topic') return ''
-  const owners = item.parties
-    .filter((party) => party.role === 'owner')
-    .map((party) => (party.isSelf ? 'me' : party.name))
-  const bits = [item.kind, ...owners]
+  if (!item || !isOwed(item)) return ''
+  const owners = owersOf(item).map((party) => (party.isSelf ? 'me' : party.name))
+  const others = item.parties.filter((party) => party.role === 'with' && !party.isSelf).map((party) => party.name)
+  const bits = item.kind === 'topic' ? [...owners, reportBack(others)] : [item.kind, ...owners]
   if (item.dueOn) bits.push(`due ${formatDay(item.dueOn, today)}`)
   return ` [${bits.join(', ')}]`
 }

@@ -131,6 +131,27 @@ describe('Today', () => {
     expect([...owed.mine, ...owed.waiting, ...owed.later.mine, ...owed.later.waiting]).toEqual([])
   })
 
+  it('waits on a topic someone else raises; one I raise or collaborate on is owed by nobody', async () => {
+    const { parish, john, sarah, tom, bishop } = await makeWorld()
+    const topic = (text: string, owners: string[]) =>
+      createItem(db, actor, {
+        contextId: parish.id,
+        kind: 'topic',
+        text,
+        dueOn: '2026-10-08',
+        parties: [
+          ...owners.map((personId) => ({ personId, role: 'owner' as const })),
+          { personId: bishop.id, role: 'with' as const },
+        ],
+      })
+    await topic('Sarah raises it', [sarah.id, john.id])
+    await topic('I raise it', [john.id, tom.id])
+
+    const owed = await owedEverywhere(db, await listContexts(db), john.id, TODAY)
+    expect(owed.mine).toEqual([])
+    expect(owed.waiting.map((item) => item.text)).toEqual(['Sarah raises it'])
+  })
+
   it("lists today's meetings by the user's clock, apart from Next up", async () => {
     const { parish, diocese } = await makeWorld()
     // 10:00 in New York (UTC-4) on Oct 4.

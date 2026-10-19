@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { itemStatusAction, undropItemAction } from '@/app/(app)/actions'
 import { placeItemAction, placeItemsAction, restoreCandidateAction } from '@/app/(app)/meetings/actions'
 import { IconAction } from '@/components/forms'
+import { StanceLabel } from '@/components/items/Stance'
 import { Card } from '@/components/ui/Card'
 import { Icon } from '@/components/ui/icons'
 import { KindIcon } from '@/components/ui/StatusBadge'
@@ -28,7 +29,45 @@ function ItemRow({ item, children }: { item: ItemView; children: React.ReactNode
   )
 }
 
-/* Candidates under the person, group or project that brought them here. */
+function PlaceAll({ items, meetingId, label }: { items: ItemView[]; meetingId: string; label: string }) {
+  return (
+    <IconAction
+      action={placeItemsAction}
+      fields={{ meetingId, itemIds: items.map((item) => item.id).join(',') }}
+      icon="plus"
+      tone="blue"
+      label={label}
+    />
+  )
+}
+
+function Rows({ items, meetingId }: { items: ItemView[]; meetingId: string }) {
+  return (
+    <ul>
+      {items.map((item) => (
+        <ItemRow key={item.id} item={item}>
+          <IconAction
+            action={placeItemAction}
+            fields={{ meetingId, itemId: item.id }}
+            icon="plus"
+            label={`Place ${item.text}`}
+          />
+          <IconAction
+            action={itemStatusAction}
+            fields={{ id: item.id, op: 'drop' }}
+            icon="close"
+            label={`Drop ${item.text}`}
+            done="Dropped"
+            undo={{ action: undropItemAction, fields: { id: item.id } }}
+          />
+        </ItemRow>
+      ))}
+    </ul>
+  )
+}
+
+/* Candidates under the person, group or project that brought them here; under
+   a person or a group, by where each stands between John and them. */
 function Groups({ groups, meetingId }: { groups: CandidateGroup[]; meetingId: string }) {
   return (
     <div className="flex flex-col gap-4">
@@ -38,35 +77,25 @@ function Groups({ groups, meetingId }: { groups: CandidateGroup[]; meetingId: st
             <Icon name={group.by.type} className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{group.by.name}</span>
             {group.items.length > 1 ? (
-              <IconAction
-                action={placeItemsAction}
-                fields={{ meetingId, itemIds: group.items.map((item) => item.id).join(',') }}
-                icon="plus"
-                tone="blue"
-                label={`Place all from ${group.by.name}`}
-              />
+              <PlaceAll items={group.items} meetingId={meetingId} label={`Place all from ${group.by.name}`} />
             ) : null}
           </div>
-          <ul className="ml-1 border-l-2 border-gray-100 pl-3 dark:border-gray-700">
-            {group.items.map((item) => (
-              <ItemRow key={item.id} item={item}>
-                <IconAction
-                  action={placeItemAction}
-                  fields={{ meetingId, itemId: item.id }}
-                  icon="plus"
-                  label={`Place ${item.text}`}
-                />
-                <IconAction
-                  action={itemStatusAction}
-                  fields={{ id: item.id, op: 'drop' }}
-                  icon="close"
-                  label={`Drop ${item.text}`}
-                  done="Dropped"
-                  undo={{ action: undropItemAction, fields: { id: item.id } }}
-                />
-              </ItemRow>
-            ))}
-          </ul>
+          <div className="ml-1 flex flex-col gap-2 border-l-2 border-gray-100 pl-3 dark:border-gray-700">
+            {group.bands ? (
+              group.bands.map((band) => (
+                <div key={band.stance} className="pt-1.5">
+                  <StanceLabel stance={band.stance}>
+                    {band.items.length > 1 && band.items.length < group.items.length ? (
+                      <PlaceAll items={band.items} meetingId={meetingId} label={`Place these ${band.items.length}`} />
+                    ) : null}
+                  </StanceLabel>
+                  <Rows items={band.items} meetingId={meetingId} />
+                </div>
+              ))
+            ) : (
+              <Rows items={group.items} meetingId={meetingId} />
+            )}
+          </div>
         </div>
       ))}
     </div>
