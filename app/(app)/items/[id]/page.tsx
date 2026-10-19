@@ -6,6 +6,7 @@ import { ItemCard } from '@/components/items/ItemCard'
 import { ItemPicker, type ItemOption } from '@/components/items/ItemPicker'
 import { PartyOptions } from '@/components/items/PartyOptions'
 import { PartyRoles } from '@/components/items/PartyRoles'
+import { BackWhen, WaitingOnThis } from '@/components/items/WaitsOn'
 import { PartyPicker, type PartyOption } from '@/components/processing/PartyPicker'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs'
@@ -360,21 +361,18 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               </PartyRoles>
             </div>
 
-            {raisable || target || origin || (open && item.parkedAt) || holdsUp.length > 0 ? (
+            {raisable || target || origin || (open && item.parkedAt) ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {open && item.parkedAt && blocker ? (
-                  <RemovableChip
-                    icon="link"
-                    iconLabel="Waits on"
-                    href={`/items/${blocker.id}`}
+                  <BackWhen
+                    item={blocker}
+                    on={item.laterOn ? formatDay(item.laterOn, today) : null}
                     remove={{
                       action: unparkItemAction,
                       fields: { id: item.id },
                       label: 'Bring back now',
                     }}
-                  >
-                    {item.laterOn ? `${blocker.text} · ${formatDay(item.laterOn, today)}` : blocker.text}
-                  </RemovableChip>
+                  />
                 ) : open && item.parkedAt ? (
                   <RemovableChip
                     icon="later"
@@ -387,19 +385,6 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                   >
                     {item.laterOn ? formatDay(item.laterOn, today) : 'Later'}
                   </RemovableChip>
-                ) : null}
-                {holdsUp.length > 0 ? (
-                  <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-                      <Icon name="link" className="h-3.5 w-3.5" label="Holds up" />
-                      {holdsUp.length}
-                    </span>
-                    {holdsUp.map((one) => (
-                      <Chip key={one.id} icon={KIND[one.kind].icon} href={`/items/${one.id}`}>
-                        {one.text}
-                      </Chip>
-                    ))}
-                  </span>
                 ) : null}
                 {origin ? (
                   <Chip icon="undo" href={`/meetings/${origin.id}`}>
@@ -473,6 +458,12 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
               </div>
             ) : null}
 
+            {holdsUp.length > 0 ? (
+              <div className="mt-4">
+                <WaitingOnThis items={holdsUp} />
+              </div>
+            ) : null}
+
             <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 dark:border-gray-700">
               {open && item.kind === 'question' ? (
                 <FormModal action={answerItemAction} title="Answer" label="Answer" icon="check" size="sm">
@@ -524,7 +515,12 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 </FormModal>
               ) : null}
               {open && !decision && item.kind !== 'question' ? (
-                <ActionButton action={itemStatusAction} fields={{ id: item.id, op: 'done' }} size="sm">
+                <ActionButton
+                  action={itemStatusAction}
+                  fields={{ id: item.id, op: 'done' }}
+                  size="sm"
+                  title={holdsUp.length > 0 ? `Brings back ${holdsUp.length}` : undefined}
+                >
                   <Icon name="check" className="h-4 w-4" />
                   Done
                 </ActionButton>

@@ -15,6 +15,7 @@ import { PartyLine } from '@/components/items/ItemCard'
 import { ProjectTree, type ProjectTreeNode } from '@/components/projects/ProjectTree'
 import { MentionSuggestions, NewNames } from '@/components/QuickAdd'
 import { ItemPicker } from '@/components/items/ItemPicker'
+import { BackWhen, WaitingOnThis } from '@/components/items/WaitsOn'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
@@ -723,6 +724,19 @@ export default function DesignPage() {
                 danger
               />
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <BackWhen
+                item={{ id: 'sample', text: 'Book the venue' }}
+                on="Oct 22"
+                remove={{ action: sampleAction, fields: {}, label: 'Bring back now' }}
+              />
+            </div>
+            <WaitingOnThis
+              items={[
+                { id: 'a', text: 'Send the invitations', kind: 'action', ongoing: false, parties: WHO[0]!.parties },
+                { id: 'b', text: 'Which caterer?', kind: 'question', ongoing: false, parties: WHO[1]!.parties },
+              ]}
+            />
             <div className="flex">
               <MatchActions itemId="sample" choices={[{ id: 'sample', content: 'Send the budget', deadline: null }]} />
             </div>
