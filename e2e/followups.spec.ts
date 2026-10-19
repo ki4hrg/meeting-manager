@@ -35,13 +35,13 @@ test('a new group is made from the name picked for an item', async ({ page }) =>
   await page.getByRole('link').filter({ hasText: WORLD.items.overdue }).first().click()
   await expect(page.getByRole('heading', { name: WORLD.items.overdue })).toBeVisible()
 
-  await page.getByRole('button', { name: 'With: add', exact: true }).click()
+  await page.getByRole('button', { name: 'Together with: add', exact: true }).click()
   await dialog(page).getByLabel('Person or group').fill('Wardens')
   await dialog(page).getByRole('option', { name: 'New group Wardens' }).click()
   await dialog(page).getByRole('button', { name: 'Add', exact: true }).click()
   await expect(dialog(page)).toHaveCount(0)
 
-  await expect(page.getByTitle('With').filter({ hasText: 'Wardens' })).toBeVisible()
+  await expect(page.getByTitle('Together with').filter({ hasText: 'Wardens' })).toBeVisible()
 })
 
 test("a recap's prose is reworded by hand, and the edit can be undone", async ({ page }) => {

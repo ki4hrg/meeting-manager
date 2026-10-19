@@ -10,7 +10,7 @@ test("breadcrumbs lead back the way you came: a person's project action goes bac
   await page.goto('/people')
   await page.getByRole('link').filter({ hasText: WORLD.people.adlene }).first().click()
   await expect(page.getByRole('heading', { name: WORLD.people.adlene, exact: true })).toBeVisible()
-  const person = page.url()
+  const person = new URL(page.url()).pathname
 
   await page.getByRole('link').filter({ hasText: WORLD.items.venue }).first().click()
   await expect(page.getByRole('heading', { name: WORLD.items.venue })).toBeVisible()
@@ -21,7 +21,7 @@ test("breadcrumbs lead back the way you came: a person's project action goes bac
   await expect(crumbs(page).getByRole('link')).toHaveText(['People', WORLD.people.adlene])
 
   await crumbs(page).getByRole('link', { name: WORLD.people.adlene }).click()
-  await expect(page).toHaveURL(person)
+  await expect(page).toHaveURL((url) => url.pathname === person)
   await expect(page.getByRole('heading', { name: WORLD.people.adlene, exact: true })).toBeVisible()
   expect(errors).toEqual([])
 })
