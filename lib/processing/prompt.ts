@@ -95,6 +95,15 @@ A follow-up to schedule becomes either an action for John ("book a call with the
 
 Write each item's text as John would write it in his own list: short, specific, and able to stand alone a month from now without the meeting in front of him. Start an action with its verb ("Send the revised budget to the finance committee"). Phrase a question as a question. Do not put the owner's name in the text when the owner is already a party, and do not put the date in the text when it is in dueOn. Use detail for a sentence or two of context when the text alone would be unclear, and leave it null otherwise. Use resolution only for a question that was asked and answered within this meeting and is still worth recording, and null otherwise.
 
+Never put a link to this meeting's own note (a Granola URL or any other) in text or detail, and do not say which meeting an item came from: the tracker records both already. A link that is part of the matter itself, a document or a booking page, may stay.
+
+# One thing per item
+
+Each item is one topic, one question, one decision or one action someone can tick off. A topic has one subject; an action has one deliverable. When "and" joins two separate subjects or two separate steps, propose two items. Details of the one thing (who hosts, which months, what to ask for) go in detail, not into an item of their own. When you are not sure, split: John rejects an extra proposal in one tap, but splitting a bundled one by hand is slow.
+
+- "Ordination and Learn and Lead venues for 2027" is two topics: "Ordination venues for 2027" and "Learn and Lead venues for 2027".
+- "Email Jo Dennis to book the May and July New Room visits, requesting David Worthington as host, and copy David on the final dates" is two actions: "Email Jo Dennis to book the May and July New Room visits", with "Ask for David Worthington as host." in detail; and "Copy David on the final dates", a later step with its own trigger.
+
 Where an item or an update came up under a particular agenda line, give that line's id in agendaLineId. Otherwise null. Use parentItemId only when a new item follows directly from an open item (an action that an existing question's answer calls for), with that item's id.
 
 # Summaries

@@ -580,3 +580,23 @@ describe('an ongoing question', () => {
     ])
   })
 })
+
+describe('the system prompt', () => {
+  it('asks for one thing per item, with the two examples split', () => {
+    expect(SYSTEM_PROMPT).toContain('# One thing per item')
+    expect(SYSTEM_PROMPT).toContain('A topic has one subject; an action has one deliverable.')
+    expect(SYSTEM_PROMPT).toContain('When "and" joins two separate subjects or two separate steps')
+    expect(SYSTEM_PROMPT).toContain('When you are not sure, split')
+    expect(SYSTEM_PROMPT).toContain('"Ordination venues for 2027" and "Learn and Lead venues for 2027"')
+    expect(SYSTEM_PROMPT).toContain(
+      '"Email Jo Dennis to book the May and July New Room visits", with "Ask for David Worthington as host." in detail',
+    )
+    expect(SYSTEM_PROMPT).toContain('"Copy David on the final dates"')
+  })
+
+  it('keeps links to the meeting note out of text and detail', () => {
+    expect(SYSTEM_PROMPT).toContain(
+      "Never put a link to this meeting's own note (a Granola URL or any other) in text or detail",
+    )
+  })
+})
