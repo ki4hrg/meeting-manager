@@ -449,6 +449,7 @@ export default function DesignPage() {
                 {KINDS.map((kind) => (
                   <KindIcon key={kind} kind={kind} />
                 ))}
+                <KindIcon kind="question" ongoing />
               </div>
             </div>
             <div>

@@ -23,6 +23,7 @@ import {
   addNote,
   answerItem,
   askItem,
+  setOngoing,
   completeItem,
   convertItem,
   deleteItem,
@@ -217,6 +218,12 @@ export async function answerItemAction(formData: FormData): Promise<ActionResult
       closeAsk: formData.get('closeAsk') === 'on',
       decision: { text: field(formData, 'decision') },
     })
+  })
+}
+
+export async function setOngoingAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await setOngoing(db, actor, field(formData, 'id'), field(formData, 'ongoing') === 'on')
   })
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Field, Input, Select, Textarea } from '@/components/ui/Field'
+import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { KIND, type ItemKind } from '@/components/ui/StatusBadge'
 import { roleLabel, roleOrder, type PartyRole } from '@/lib/items/roles'
 import { PartyPicker, type PartyOption } from './PartyPicker'
@@ -45,6 +45,7 @@ export function ItemFields({
   raiseAt,
   detail,
   resolution,
+  ongoing,
 }: {
   kind: ItemKind
   /** Off: the kind is fixed and submitted as it is. */
@@ -61,6 +62,8 @@ export function ItemFields({
   raiseAt?: React.ReactNode
   detail?: React.ReactNode
   resolution?: { value: string | null }
+  /** Whether a question is ongoing; leave out for no such box. */
+  ongoing?: { value: boolean }
 }) {
   const [kind, setKind] = useState(initial)
   const [chosen, setChosen] = useState<Record<PartyRole, PartyOption[]>>({
@@ -143,6 +146,11 @@ export function ItemFields({
           <Field label={shows.resolution ?? 'Resolution'}>
             <Textarea name="resolution" rows={2} defaultValue={resolution.value ?? ''} />
           </Field>
+        </Shown>
+      ) : null}
+      {ongoing ? (
+        <Shown when={kind === 'question'}>
+          <Checkbox name="ongoing" label="Ongoing" defaultChecked={ongoing.value} />
         </Shown>
       ) : null}
     </>

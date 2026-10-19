@@ -89,6 +89,7 @@ const Wire = z.object({
         dueOn: z.string().nullable().describe('YYYY-MM-DD, only when a deadline was stated.'),
         parentItemId: z.string().nullable().describe('The id of the open item this follows from.'),
         agendaLineId: z.string().nullable(),
+        ongoing: z.boolean().describe('Only for a question to be worked through several conversations.'),
       }),
     )
     .describe('New items. Fewer, well-formed proposals beat many.'),
@@ -343,6 +344,7 @@ export function toOutput(wire: WireOutput, input: ExtractionInput): ExtractionOu
       projectId: projectId(item.project),
       dueOn: dueOn && ISO_DAY.test(dueOn) ? dueOn : null,
       parentItemId: item.parentItemId && itemIds.has(item.parentItemId) ? item.parentItemId : null,
+      ...(item.kind === 'question' && item.ongoing && !clean(item.resolution) ? { ongoing: true } : {}),
     }
     drafts.push({
       payload,

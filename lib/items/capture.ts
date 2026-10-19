@@ -123,6 +123,8 @@ export type CapturePresets = {
   originMeetingId?: string
   /** Captured on a series' page: raised at its next occurrence. */
   targetSeriesId?: string
+  /** A question captured as ongoing; anything else the line makes ignores it. */
+  ongoing?: boolean
 }
 
 /*
@@ -245,6 +247,7 @@ export async function captureLine(
       projectId,
       parties,
       parentItemId: presets.parentItemId ?? null,
+      ongoing: presets.ongoing === true,
       /* A series named says where it is raised, over the meeting it was
          captured on. Otherwise something to raise is aimed at that meeting; a decision
          is not raised, it was made there. An outcome came out of its meeting

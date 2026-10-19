@@ -34,6 +34,7 @@ const ROLES = [
   { value: 'owe', label: 'I owe' },
   { value: 'waiting', label: 'Waiting on' },
   { value: 'raised', label: 'I raised' },
+  { value: 'ongoing', label: 'Ongoing' },
 ] as const
 const DATES = [
   { value: 'none', label: 'No date', icon: 'clock' },
@@ -112,12 +113,14 @@ export default async function ItemsPage({ searchParams }: { searchParams: Search
       : isOpen(item) && (filters.status === 'later') === isLater(item, today)
   const byRole = (item: ItemView) =>
     filters.role === 'owe'
-      ? item.parties.some((party) => party.role === 'owner' && party.isSelf)
+      ? !item.ongoing && item.parties.some((party) => party.role === 'owner' && party.isSelf)
       : filters.role === 'waiting'
         ? isWaitingOn(item)
         : filters.role === 'raised'
           ? item.parties.some((party) => party.role === 'with' && party.isSelf)
-          : true
+          : filters.role === 'ongoing'
+            ? item.ongoing
+            : true
   const byDate = (item: ItemView) =>
     filters.date === 'none'
       ? item.dueOn === null

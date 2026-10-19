@@ -47,8 +47,10 @@ function askable(proposal: ProposalView): boolean {
 /* The mark on the left: an item's kind, or what else the proposal would make. */
 function Mark({ proposal }: { proposal: ProposalView }) {
   const { payload } = proposal
-  if (payload.type === 'item') return <KindIcon kind={payload.kind} />
-  if (payload.type === 'update' && proposal.item) return <KindIcon kind={proposal.item.kind} />
+  if (payload.type === 'item') return <KindIcon kind={payload.kind} ongoing={payload.ongoing} />
+  if (payload.type === 'update' && proposal.item) {
+    return <KindIcon kind={proposal.item.kind} ongoing={proposal.item.ongoing} />
+  }
   const [icon, label] =
     payload.type === 'document'
       ? (['document', 'Document'] as const)

@@ -341,6 +341,7 @@ export async function cleanPayload(
       dueOn,
       parentItemId,
       seriesId,
+      ...(kind === 'question' && input.ongoing === true ? { ongoing: true } : {}),
     }
     return { payload, problems }
   }
@@ -865,6 +866,7 @@ async function acceptItem(
     dueOn: payload.dueOn ?? null,
     parties,
     parentItemId: payload.parentItemId ?? null,
+    ongoing: payload.ongoing === true,
     originMeetingId: meeting.id,
     ...(payload.seriesId ? { target: { seriesId: payload.seriesId } } : {}),
   })

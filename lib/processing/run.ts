@@ -265,6 +265,7 @@ export async function buildExtractionInput(exec: Executor, noteId: string): Prom
       with: names(item, 'with'),
       project: item.project?.name ?? null,
       dueOn: item.dueOn,
+      ...(item.ongoing ? { ongoing: true } : {}),
     })),
     directory: { people: allPeople, groups: contextGroups, projects: contextProjects },
     verbatim: parseVerbatim(note.body),

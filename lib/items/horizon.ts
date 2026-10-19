@@ -56,6 +56,11 @@ export function splitLater<T extends Dated>(items: T[], today: string): { now: T
   return { now: byHorizon(items.filter(isNow), today), later }
 }
 
+/** Something somebody owes: an action, or a question that is not ongoing. */
+export function isOwed(item: Pick<ItemView, 'kind' | 'ongoing'>): boolean {
+  return item.kind === 'action' || (item.kind === 'question' && !item.ongoing)
+}
+
 /**
  * A question I asked that nobody in particular is to answer: no owner, and I
  * am its `with` or it has no parties at all (an announcement still to come).
@@ -75,7 +80,7 @@ export function askedOfNoOne(item: Pick<ItemView, 'kind' | 'parties'>): boolean 
  * me, or an open question asked of no one in particular.
  */
 export function isWaitingOn(item: ItemView): boolean {
-  if (!isOpen(item) || (item.kind !== 'question' && item.kind !== 'action')) return false
+  if (!isOpen(item) || !isOwed(item)) return false
   const owners = item.parties.filter((party) => party.role === 'owner')
   if (owners.length > 0) return !owners.some((party) => party.isSelf)
   return askedOfNoOne(item)

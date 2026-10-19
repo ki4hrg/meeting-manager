@@ -150,6 +150,7 @@ export function ProposalFields({
           </Field>
         }
         resolution={{ value: payload.resolution ?? null }}
+        ongoing={{ value: payload.ongoing === true }}
       />
     )
   }

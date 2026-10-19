@@ -95,6 +95,7 @@ function item(over: Record<string, unknown> = {}) {
     dueOn: null,
     parentItemId: null,
     agendaLineId: null,
+    ongoing: false,
     ...over,
   }
 }
@@ -555,5 +556,27 @@ describe('the eval fixtures', () => {
     const bad = await claudeExtractor({ client: fakeClient({ text: JSON.stringify(wrong) }).client })(fixture.input)
     expect(fixture.expect.filter((expectation) => !check(bad, expectation).pass).length).toBeGreaterThanOrEqual(2)
     expect(matches(draft(bad, 0), { kind: ['action'], text: 'menu' })).toBe(true)
+  })
+})
+
+describe('an ongoing question', () => {
+  it('is proposed ongoing only as an open question', async () => {
+    const { output } = await run(
+      wire({
+        items: [
+          item({ kind: 'question', text: '2028 pilgrimage dates?', ongoing: true }),
+          item({ kind: 'question', text: 'Already settled?', resolution: 'Yes', ongoing: true }),
+          item({ kind: 'action', text: 'Book the hall', ongoing: true }),
+        ],
+      }),
+    )
+    const ongoing = output.drafts.flatMap((draft) =>
+      draft.payload.type === 'item' ? [[draft.payload.text, draft.payload.ongoing === true]] : [],
+    )
+    expect(ongoing).toEqual([
+      ['2028 pilgrimage dates?', true],
+      ['Already settled?', false],
+      ['Book the hall', false],
+    ])
   })
 })
