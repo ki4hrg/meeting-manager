@@ -17,6 +17,7 @@ import { ProjectTree, type ProjectTreeNode } from '@/components/projects/Project
 import { MentionSuggestions, NewNames } from '@/components/QuickAdd'
 import { ItemPicker } from '@/components/items/ItemPicker'
 import { BackWhen, WaitingOnThis } from '@/components/items/WaitsOn'
+import { RaiseAt } from '@/components/items/RaiseAt'
 import { PartyPicker } from '@/components/processing/PartyPicker'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ProposalCard } from '@/components/processing/ProposalCard'
@@ -728,6 +729,19 @@ export default function DesignPage() {
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <RaiseAt
+                itemId="sample"
+                action={sampleAction}
+                value="meeting:sample"
+                target={{ name: 'Finley Center Site Visit · Oct 22', href: '/design' }}
+              >
+                <option value="">Raise at…</option>
+                <option value="meeting:sample">Finley Center Site Visit · Oct 22, 9:00 AM</option>
+              </RaiseAt>
+              <RaiseAt itemId="sample" action={sampleAction} value="" target={null}>
+                <option value="">Raise at…</option>
+                <option value="meeting:sample">Finley Center Site Visit · Oct 22, 9:00 AM</option>
+              </RaiseAt>
               <BackWhen
                 item={{ id: 'sample', text: 'Book the venue' }}
                 on="Oct 22"

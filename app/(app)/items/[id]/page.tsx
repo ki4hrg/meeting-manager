@@ -1,11 +1,11 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ActionSelect } from '@/components/ActionSelect'
 import { ActionButton, ActionForm, FormModal } from '@/components/forms'
 import { ItemCard } from '@/components/items/ItemCard'
 import { ItemPicker, type ItemOption } from '@/components/items/ItemPicker'
 import { PartyOptions } from '@/components/items/PartyOptions'
 import { PartyRoles } from '@/components/items/PartyRoles'
+import { RaiseAt } from '@/components/items/RaiseAt'
 import { BackWhen, WaitingOnThis } from '@/components/items/WaitsOn'
 import { PartyPicker, type PartyOption } from '@/components/processing/PartyPicker'
 import { GranolaChip } from '@/components/GranolaChip'
@@ -29,7 +29,7 @@ import {
 import { iconButtonClasses } from '@/components/ui/IconButton'
 import { splitGranolaLinks } from '@/lib/connect/granola/links'
 import { itemTodoist, openTasks, rankTasks } from '@/lib/connect/todoist/match'
-import { formatDay, formatMoment } from '@/lib/core/dates'
+import { formatDay, formatMoment, todayIn } from '@/lib/core/dates'
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
@@ -199,7 +199,12 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
   const targetSeries = series.find((one) => one.id === item.targetSeriesId)
   const targetProject = item.targetProjectId ? await getProject(db, item.targetProjectId) : null
   const target = targetMeeting
-    ? { name: targetMeeting.title, href: `/meetings/${targetMeeting.id}` }
+    ? {
+        name: targetMeeting.startsAt
+          ? `${targetMeeting.title} · ${formatDay(todayIn(user.timeZone, targetMeeting.startsAt), today)}`
+          : targetMeeting.title,
+        href: `/meetings/${targetMeeting.id}`,
+      }
     : targetSeries
       ? { name: targetSeries.name, href: `/series/${targetSeries.id}` }
       : targetProject
@@ -418,69 +423,49 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
                 {granolaIds.map((noteId) => (
                   <GranolaChip key={noteId} noteId={noteId} />
                 ))}
-                {target && raisable ? (
-                  <RemovableChip
-                    icon="meeting"
-                    iconLabel="Raise at"
-                    href={target.href}
-                    remove={{
-                      action: setItemTargetAction,
-                      fields: { id: item.id, target: '' },
-                      label: `Stop raising at ${target.name}`,
-                    }}
+                {raisable ? (
+                  <RaiseAt
+                    key={targetValue}
+                    itemId={item.id}
+                    action={setItemTargetAction}
+                    value={targetValue}
+                    target={target}
                   >
-                    {target.name}
-                  </RemovableChip>
+                    <option value="">Raise at…</option>
+                    {meetings.length > 0 ? (
+                      <optgroup label="Meetings">
+                        {meetings.map((meeting) => (
+                          <option key={meeting.id} value={`meeting:${meeting.id}`}>
+                            {meeting.startsAt
+                              ? `${meeting.title} · ${formatMoment(meeting.startsAt, user.timeZone)}`
+                              : meeting.title}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {series.length > 0 ? (
+                      <optgroup label="Series">
+                        {series.map((one) => (
+                          <option key={one.id} value={`series:${one.id}`}>
+                            {one.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {projectAims.length > 0 ? (
+                      <optgroup label="Next meeting for">
+                        {projectAims.map((one) => (
+                          <option key={one.id} value={`project:${one.id}`}>
+                            {one.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </RaiseAt>
                 ) : target ? (
                   <Chip icon="meeting" href={target.href}>
                     {target.name}
                   </Chip>
-                ) : null}
-                {raisable ? (
-                  <span className="flex items-center gap-1.5">
-                    {/* Decorative: the select carries the name. */}
-                    {target ? null : <Icon name="meeting" className="h-4 w-4 text-gray-400" />}
-                    <ActionSelect
-                      key={targetValue}
-                      action={setItemTargetAction}
-                      fields={{ id: item.id }}
-                      name="target"
-                      value={targetValue}
-                      label="Raise at"
-                      className="!w-auto max-w-[14rem] !py-1 !text-sm"
-                    >
-                      <option value="">Raise at…</option>
-                      {meetings.length > 0 ? (
-                        <optgroup label="Meetings">
-                          {meetings.map((meeting) => (
-                            <option key={meeting.id} value={`meeting:${meeting.id}`}>
-                              {meeting.startsAt
-                                ? `${meeting.title} · ${formatMoment(meeting.startsAt, user.timeZone)}`
-                                : meeting.title}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ) : null}
-                      {series.length > 0 ? (
-                        <optgroup label="Series">
-                          {series.map((one) => (
-                            <option key={one.id} value={`series:${one.id}`}>
-                              {one.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ) : null}
-                      {projectAims.length > 0 ? (
-                        <optgroup label="Next meeting for">
-                          {projectAims.map((one) => (
-                            <option key={one.id} value={`project:${one.id}`}>
-                              {one.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ) : null}
-                    </ActionSelect>
-                  </span>
                 ) : null}
               </div>
             ) : null}
