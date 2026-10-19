@@ -313,6 +313,7 @@ export default async function SeriesPage({
                           .map((group) => ({ value: `group:${group.id}`, name: group.name, icon: 'group' as const })),
                       ]}
                       allowNew
+                      allowNewGroup
                       me
                     />
                   </FormModal>

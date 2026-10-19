@@ -87,6 +87,7 @@ export function AcceptFields({
           name="owners"
           options={parties}
           allowNew
+          allowNewGroup
         />
       ) : null}
       {missing.includes('project') || missing.includes('due') ? (

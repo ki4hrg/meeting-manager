@@ -41,7 +41,7 @@ import {
 } from '@/lib/meetings/prep'
 import { addAttendees, settleAttendance } from '@/lib/meetings/attendance'
 import { addToRoster } from '@/lib/meetings/series'
-import { act, field, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { act, field, pickedParties, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { clearAbsences, joinRoster, recordAbsences } from '@/lib/meetings/roster'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
@@ -113,11 +113,11 @@ export async function createMeetingAction(formData: FormData): Promise<ActionRes
   let id = ''
   return thenOpen(
     async (actor, user) => {
-      const people = await pickedPeople(db, formData, 'personIds')
-      const groups = pickedGroups(formData, 'personIds')
+      const context = await contextId()
+      const { people, groups } = await pickedParties(db, formData, 'personIds', context)
       const projects = ids(formData, 'projectIds')
       const meeting = await prepMeeting(db, actor, {
-        contextId: await contextId(),
+        contextId: context,
         title: field(formData, 'title') || null,
         ...timesFrom(formData, user.timeZone),
         seriesId: field(formData, 'seriesId') || undefined,
@@ -161,18 +161,18 @@ export async function updateMeetingAction(formData: FormData): Promise<ActionRes
     await inTransaction(db, async (tx) => {
       const before = await getMeeting(tx, id)
       const seriesId = field(formData, 'seriesId') || null
+      const { people, groups } = await pickedParties(tx, formData, 'personIds', before.contextId)
       await updateMeeting(tx, actor, id, {
         title: field(formData, 'title'),
         ...timesFrom(formData, user.timeZone),
         seriesId,
-        groupIds: pickedGroups(formData, 'personIds'),
+        groupIds: groups,
       })
-      const people = await pickedPeople(tx, formData, 'personIds')
       await setMeetingPeople(tx, actor, id, people)
       await setMeetingProjects(tx, actor, id, ids(formData, 'projectIds'))
       // Who was added here joins the series' roster too, when asked.
       if (seriesId && seriesId === (before.series?.id ?? null) && formData.has('toSeries')) {
-        await addToRoster(tx, seriesId, people, pickedGroups(formData, 'personIds'))
+        await addToRoster(tx, seriesId, people, groups)
       }
       /* Within its series, whoever on the roster was taken off is left off
          this meeting alone. Newly in a series, it takes the roster. */

@@ -9,7 +9,7 @@ import { AppError, ValidationError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import type { ProposalPayload, ProposedParty } from '@/lib/db/schema'
 import { dismissHeldNote, fileHeldNote, undismissHeldNote } from '@/lib/connect/granola/unfiled'
-import { createPerson } from '@/lib/directory/people'
+import { createNamed } from '@/lib/directory/create'
 import { resolveParty, resolvePerson } from '@/lib/directory/resolve'
 import { ITEM_KINDS } from '@/lib/items/items'
 import { PROCESS_NOTES, kick } from '@/lib/jobs'
@@ -28,7 +28,7 @@ import {
   type ProposalView,
 } from '@/lib/processing/proposals'
 import { queueRun, reprocessMeeting } from '@/lib/processing/run'
-import { act, field, type ActionResult } from '@/lib/web/action'
+import { act, field, pickedParties, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 
 /*
@@ -237,8 +237,9 @@ export async function approveAllAction(formData: FormData): Promise<ApproveAllRe
 
 /*
  * The parties a picker submits under `name`: `person:<id>`, `group:<id>`,
- * `name:<text>` for one that is still only a name, or `new:<name>` for someone
- * to add to the directory now. Whatever was typed and not
+ * `name:<text>` for one that is still only a name, or `new-person:<name>` /
+ * `new-group:<name>` (`new:` is the older spelling of a person) for one to add
+ * to the directory now, refused when the name is taken. Whatever was typed and not
  * picked is looked up; a name that finds nobody (or several) stays a name, and
  * the card asks who it is.
  */
@@ -256,9 +257,12 @@ async function partiesFrom(
     if (type === 'person') parties.push({ role, name: '', personId: rest })
     else if (type === 'group') parties.push({ role, name: '', groupId: rest })
     else if (type === 'name' && rest.trim()) parties.push({ role, name: rest.trim() })
-    else if (type === 'new' && rest.trim()) {
-      const person = await createPerson(db, { name: rest })
+    else if ((type === 'new' || type === 'new-person') && rest.trim()) {
+      const person = await createNamed(db, context, 'person', rest)
       parties.push({ role, name: person.name, personId: person.id })
+    } else if (type === 'new-group' && rest.trim()) {
+      const group = await createNamed(db, context, 'group', rest)
+      parties.push({ role, name: group.name, groupId: group.id })
     }
     else throw new ValidationError('Pick a person or a group.')
   }
@@ -357,9 +361,9 @@ export async function acceptWithAction(formData: FormData): Promise<ActionResult
 }
 
 /**
- * Say who a name is: someone in the directory, a group of this context, or a
- * new person by that name. Every party of the proposal still carrying only
- * that name is settled at once.
+ * Say who a name is, from a picker: someone in the directory, a group of this
+ * context, or a new person or group by the name as completed. Every party of
+ * the proposal still carrying only that name is settled at once.
  */
 export async function resolvePartyAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
@@ -368,16 +372,22 @@ export async function resolvePartyAction(formData: FormData): Promise<ActionResu
     const name = field(formData, 'name')
     const same = (other: string) => normalise(other) === normalise(name)
 
-    let who: { type: 'person' | 'group'; id: string; name: string }
-    if (formData.get('create')) {
-      const person = await createPerson(db, { name })
-      who = { type: 'person', id: person.id, name: person.name }
-    } else {
-      const [, id] = field(formData, 'party').split(':')
-      if (!id) throw new ValidationError('Pick who this is.')
-      // Looked up by id, in this context: a group from elsewhere finds nothing.
-      who = await resolveParty(db, context, id)
+    // The name itself rides in the picker as its unsettled chip; it says nobody.
+    const picked = new FormData()
+    for (const value of values(formData, 'party')) if (!value.startsWith('name:')) picked.append('party', value)
+    for (const extra of ['partyText', 'partyNew']) {
+      const value = formData.get(extra)
+      if (value !== null) picked.set(extra, value)
     }
+    const takesGroups = proposal.payload.type === 'item'
+    // One answer, counted before anything new is made for it.
+    const answers = picked.getAll('party').length + typed(formData, 'partyText').length
+    if (answers === 0) throw new ValidationError(`Pick who ${name} is.`)
+    if (answers > 1) throw new ValidationError(`Pick one for ${name}.`)
+    const { people, groups } = await pickedParties(db, picked, 'party', takesGroups ? context : null)
+    const ids = [...people, ...groups]
+    // Looked up by id, in this context: a group from elsewhere finds nothing.
+    const who = await resolveParty(db, context, ids[0]!)
 
     const was = proposal.payload
     let payload: ProposalPayload

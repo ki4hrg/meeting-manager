@@ -56,7 +56,7 @@ import {
 } from '@/lib/projects/projects'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { getSeries } from '@/lib/meetings/series'
-import { act, field, partyRef, pickedGroups, pickedPeople, type ActionResult } from '@/lib/web/action'
+import { act, field, partyRef, pickedParties, pickedPeople, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 import { switchTarget } from '@/lib/web/switch'
 
@@ -277,8 +277,8 @@ export async function addPartyAction(formData: FormData): Promise<ActionResult> 
     const role = field(formData, 'role') === 'owner' ? 'owner' : 'with'
     const id = field(formData, 'id')
     await inTransaction(db, async (tx) => {
-      const people = await pickedPeople(tx, formData, 'party')
-      const groups = pickedGroups(formData, 'party')
+      const item = await getItem(tx, id)
+      const { people, groups } = await pickedParties(tx, formData, 'party', item.contextId)
       if (people.length + groups.length === 0) throw new ValidationError('Pick a person or a group.')
       for (const personId of people) await addItemParty(tx, actor, id, { personId, role })
       for (const groupId of groups) await addItemParty(tx, actor, id, { groupId, role })
