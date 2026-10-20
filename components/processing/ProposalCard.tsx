@@ -47,6 +47,14 @@ function askable(proposal: ProposalView): boolean {
 /* The mark on the left: an item's kind, or what else the proposal would make. */
 function Mark({ proposal }: { proposal: ProposalView }) {
   const { payload } = proposal
+  // Accepted as a project of its own: that is what it is now.
+  if (proposal.made?.project) {
+    return (
+      <span className="inline-flex shrink-0 text-gray-400 dark:text-gray-500">
+        <Icon name="project" label="Project" />
+      </span>
+    )
+  }
   if (payload.type === 'item') return <KindIcon kind={payload.kind} ongoing={payload.ongoing} />
   if (payload.type === 'update' && proposal.item) {
     return <KindIcon kind={proposal.item.kind} ongoing={proposal.item.ongoing} />
@@ -76,7 +84,9 @@ function Title({ proposal }: { proposal: ProposalView }) {
   const href =
     payload.type === 'update' && proposal.item
       ? `/items/${proposal.item.id}`
-      : made?.item
+      : made?.project
+        ? `/projects/${made.project.id}`
+        : made?.item
         ? `/items/${made.item.id}`
         : made?.meeting
           ? `/meetings/${made.meeting.id}`
@@ -139,7 +149,6 @@ export function ProposalCard({
   /* A meeting to prep reads like an action: who it is with is where it points. */
   const kind: ItemKind = payload.type === 'item' ? payload.kind : 'action'
   const body = payload.type === 'item' ? payload.detail : payload.type === 'update' ? payload.text : null
-
   return (
     <Card className={`flex flex-col ${pending ? '' : 'opacity-80'}`}>
       <div className="mb-3 flex items-start gap-3">

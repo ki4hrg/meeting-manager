@@ -69,6 +69,7 @@ import {
 } from '../items/items'
 import { deleteMeeting } from '../meetings/meetings'
 import { prepMeeting } from '../meetings/prep'
+import { createProject, deleteEmptyProject, type ProjectStatus } from '../projects/projects'
 
 export type Proposal = typeof proposals.$inferSelect
 export type ProposalStatus = Proposal['status']
@@ -122,6 +123,7 @@ export type ProposalView = {
     item: ItemView | null
     document: { id: string; title: string } | null
     meeting: { id: string; title: string } | null
+    project: { id: string; name: string } | null
   } | null
   result: ProposalResult | null
   resolvedAt: Date | null
@@ -464,6 +466,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
       if (payload.seriesId) seriesIds.add(payload.seriesId)
       wantItem(row, payload.parentItemId)
       wantItem(row, row.result?.itemId)
+      if (row.result?.projectId) projectIds.add(row.result.projectId)
     } else if (payload.type === 'update') {
       wantItem(row, payload.itemId)
     } else if (payload.type === 'document') {
@@ -630,6 +633,7 @@ async function toViews(exec: Executor, rows: Proposal[]): Promise<ProposalView[]
                   : null,
               document: result.documentId ? (documentRows.get(result.documentId) ?? null) : null,
               meeting: result.meetingId ? (meetingRows.get(result.meetingId) ?? null) : null,
+              project: result.projectId ? (projectRows.get(result.projectId) ?? null) : null,
             }
           : null,
       result: result ?? null,
@@ -854,6 +858,47 @@ export async function acceptEdited(
   return inTransaction(exec, async (tx) => {
     await editProposal(tx, actor, id, payload)
     return acceptProposal(tx, actor, id)
+  })
+}
+
+/**
+ * Accept an item proposal as a project of its own, as edited: named, within a
+ * project, and with a status (proposed unless said otherwise), its detail as
+ * the description. With `keepTopic`, a topic is made on the new project too,
+ * from the proposal's text and people, as the next thing to raise about it.
+ * The proposal is kept as the item it was, so Undo puts it back to review.
+ */
+export async function acceptAsProject(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  payload: ItemPayload,
+  project: { name: string; parentId?: string | null; status?: ProjectStatus; keepTopic?: boolean },
+): Promise<ProposalView> {
+  return inTransaction(exec, async (tx) => {
+    // Kept as a topic: what it was raised as, and what a kept topic becomes.
+    const kept: ItemPayload = { ...payload, kind: 'topic', resolution: null, ongoing: false }
+    await editProposal(tx, actor, id, kept)
+    const row = await lockProposal(tx, id)
+    if (row.status !== 'pending') throw new ValidationError('This proposal has already been handled.')
+    const meeting = { id: row.meetingId, contextId: await contextOf(tx, row.meetingId) }
+
+    const made = await createProject(tx, {
+      contextId: meeting.contextId,
+      name: project.name.trim() || kept.text,
+      description: kept.detail ?? null,
+      parentId: project.parentId || null,
+      status: project.status ?? 'proposed',
+    })
+    const result: ProposalResult = project.keepTopic
+      ? { ...(await acceptItem(tx, actor, meeting, { ...kept, projectId: made.id })), projectId: made.id }
+      : { projectId: made.id }
+
+    await tx
+      .update(proposals)
+      .set({ status: 'accepted', ownerGuessed: false, result, resolvedAt: new Date(), updatedAt: new Date() })
+      .where(eq(proposals.id, id))
+    return getProposal(tx, id)
   })
 }
 
@@ -1164,8 +1209,9 @@ export async function undoProposal(
     if (row.status === 'accepted') {
       const { payload } = row
       const result = row.result ?? {}
-      if (payload.type === 'item' && result.itemId) {
-        await takeBackItem(tx, result.itemId, madeEvents(payload))
+      if (payload.type === 'item' && (result.itemId || result.projectId)) {
+        if (result.itemId) await takeBackItem(tx, result.itemId, madeEvents(payload))
+        if (result.projectId) await deleteEmptyProject(tx, result.projectId)
       } else if (payload.type === 'update') {
         await undoUpdate(tx, actor, payload, result)
       } else if (payload.type === 'document' && result.documentId) {

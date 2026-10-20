@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { dialog, selectedContext } from './helpers'
+import { dialog, selectContext, selectedContext } from './helpers'
 import { WORLD } from './world'
 
 test('a proposal waiting in another context is reviewed from home and accepted', async ({ page }) => {
@@ -53,4 +53,28 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Next up' })).toBeVisible()
   await expect(page.getByRole('link').filter({ hasText: WORLD.meetings.finance })).toHaveCount(0)
+})
+
+test('a proposal accepted as a project from its kind, with a topic kept on it, and undone', async ({ page }) => {
+  await selectContext(page, WORLD.contexts.conference)
+  const review = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Review/ }) })
+  await review.getByRole('link').filter({ hasText: WORLD.meetings.camps }).click()
+  await expect(page).toHaveURL(/\/review$/)
+  await expect(page.getByText(WORLD.projectProposal)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  await dialog(page).getByLabel('Kind').selectOption('project')
+  await expect(dialog(page).getByLabel('Status')).toHaveValue('proposed')
+  // The people are the kept topic's, so they show only with it.
+  await expect(dialog(page).getByText('Raise with')).toBeHidden()
+  await dialog(page).getByLabel('Keep a topic for it').check()
+  await expect(dialog(page).getByText('Raise with')).toBeVisible()
+  await dialog(page).getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog(page)).toHaveCount(0)
+
+  await expect(page.getByRole('link', { name: WORLD.projectProposal })).toHaveAttribute('href', /\/projects\//)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Accept', exact: true })).toBeVisible()
+  await page.goto('/projects')
+  await expect(page.getByRole('link').filter({ hasText: WORLD.projectProposal })).toHaveCount(0)
 })

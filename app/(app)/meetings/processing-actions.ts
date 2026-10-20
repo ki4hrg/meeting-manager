@@ -18,7 +18,9 @@ import { getMeeting } from '@/lib/meetings/meetings'
 import { findEvent } from '@/lib/meetings/prep'
 import { attendeeIsGroup, dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
 import { getNote, meetingOf, moveNote, saveNote } from '@/lib/notes/notes'
+import { PROJECT_STATUSES, type ProjectStatus } from '@/lib/projects/projects'
 import {
+  acceptAsProject,
   acceptEdited,
   acceptProposal,
   approveAll,
@@ -299,6 +301,31 @@ export async function editProposalAction(formData: FormData): Promise<ActionResu
     const context = await contextId()
     const was = proposal.payload
     let payload: ProposalPayload
+
+    if (was.type === 'item' && field(formData, 'kind') === 'project') {
+      // A project of its own: the people count only for the topic kept on it.
+      const status = field(formData, 'status') as ProjectStatus
+      if (!PROJECT_STATUSES.includes(status)) throw new ValidationError('Pick a status.')
+      const keepTopic = formData.has('keepTopic')
+      await acceptAsProject(
+        db,
+        actor,
+        proposal.id,
+        {
+          ...was,
+          text: field(formData, 'text'),
+          detail: field(formData, 'detail') || null,
+          parties: keepTopic
+            ? [
+                ...(await partiesFrom(formData, 'owners', 'owner', context)),
+                ...(await partiesFrom(formData, 'withs', 'with', context)),
+              ]
+            : was.parties,
+        },
+        { name: field(formData, 'text'), parentId: field(formData, 'projectId') || null, status, keepTopic },
+      )
+      return
+    }
 
     if (was.type === 'item') {
       const kind = ITEM_KINDS.find((known) => known === field(formData, 'kind'))

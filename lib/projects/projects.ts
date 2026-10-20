@@ -1,9 +1,18 @@
 /* Projects, with their milestones and links. Each belongs to one context. */
 
-import { and, asc, eq, gte, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, or, sql } from 'drizzle-orm'
 import { parseDay } from '../core/dates'
 import { NotFoundError, ValidationError, inTransaction, type Executor } from '../core/types'
-import { milestones, projectLinks, projects } from '../db/schema'
+import {
+  bindings,
+  documents,
+  items,
+  meetingProjects,
+  milestones,
+  projectLinks,
+  projects,
+  seriesProjects,
+} from '../db/schema'
 import { notDeleted, onShelf, shelvedNote, type Shelf } from '../db/shelf'
 import { getContext } from '../directory/contexts'
 
@@ -219,6 +228,28 @@ export function ancestorIds(all: Pick<Project, 'id' | 'parentId'>[], ids: Iterab
     }
   }
   return found
+}
+
+/**
+ * Remove a project for good, but only while nothing has been put on it: no
+ * item, milestone, link, document, meeting, series, sub-project or binding.
+ * Undoing what made it uses this; once it holds anything, it is archived instead.
+ */
+export async function deleteEmptyProject(exec: Executor, id: string): Promise<void> {
+  const holds = await Promise.all([
+    exec.select({ id: items.id }).from(items).where(or(eq(items.projectId, id), eq(items.targetProjectId, id))).limit(1),
+    exec.select({ id: milestones.id }).from(milestones).where(eq(milestones.projectId, id)).limit(1),
+    exec.select({ id: projectLinks.id }).from(projectLinks).where(eq(projectLinks.projectId, id)).limit(1),
+    exec.select({ id: documents.id }).from(documents).where(eq(documents.projectId, id)).limit(1),
+    exec.select({ id: meetingProjects.meetingId }).from(meetingProjects).where(eq(meetingProjects.projectId, id)).limit(1),
+    exec.select({ id: seriesProjects.seriesId }).from(seriesProjects).where(eq(seriesProjects.projectId, id)).limit(1),
+    exec.select({ id: projects.id }).from(projects).where(eq(projects.parentId, id)).limit(1),
+    exec.select({ id: bindings.id }).from(bindings).where(eq(bindings.projectId, id)).limit(1),
+  ])
+  if (holds.some((rows) => rows.length > 0)) {
+    throw new ValidationError('The project has things on it now. Archive it instead.')
+  }
+  await exec.delete(projects).where(eq(projects.id, id))
 }
 
 /** A context's projects in tree order, each with how deep it sits: for pickers that show the tree indented. */
