@@ -377,7 +377,9 @@ async function planCreates(
     const projectId = link.lastError ? null : await todoistProjectFor(exec, connectionId, item)
     const args: Record<string, unknown> = {
       content: link.baseText ?? item.text,
-      description: `[Meeting Manager](${absoluteUrl(`/items/${item.id}`)})`,
+      description: [item.detail?.trim(), `[Meeting Manager](${absoluteUrl(`/items/${item.id}`)})`]
+        .filter(Boolean)
+        .join('\n\n'),
       ...(projectId ? { project_id: projectId } : {}),
       ...(link.baseDueOn ? { deadline: { date: link.baseDueOn } } : {}),
     }
