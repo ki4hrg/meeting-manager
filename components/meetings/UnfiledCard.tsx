@@ -3,6 +3,7 @@ import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { Card } from '@/components/ui/Card'
 import { Field, Select } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
+import type { CalendarEvent } from '@/lib/calendar/feed'
 import type { UnfiledNote } from '@/lib/connect/granola/unfiled'
 import { formatMoment } from '@/lib/core/dates'
 import type { MeetingView } from '@/lib/meetings/meetings'
@@ -12,11 +13,14 @@ type Option = { id: string; name: string }
 
 type Choice = Pick<MeetingView, 'id' | 'title' | 'startsAt' | 'sessions'>
 
+type EventChoice = Pick<CalendarEvent, 'eventId' | 'title' | 'startsAt'>
+
 /**
  * A Granola note no folder filed: when it was and who was there, filed into a
  * context with one click (the selected one) or waved away. With several
  * contexts, File asks which, starting from the selected one. The footer shows
- * where File would put it in the selected context; Link picks the meeting.
+ * where File would put it in the selected context; Link picks the meeting, or
+ * a calendar event with none yet, which is prepped for it.
  */
 export function UnfiledCard({
   note,
@@ -25,6 +29,7 @@ export function UnfiledCard({
   timeZone,
   match,
   choices,
+  events,
 }: {
   note: UnfiledNote
   contexts: Option[]
@@ -34,9 +39,14 @@ export function UnfiledCard({
   match: Choice | null
   /** The selected context's meetings nearest the note. */
   choices: Choice[]
+  /** The selected context's calendar events near the note with no meeting yet, its own first. */
+  events: EventChoice[]
 }) {
   const people = note.attendees.map((attendee) => ({ name: attendee.name ?? attendee.email }))
   const when = (at: Date | null) => (at ? ` · ${formatMoment(at, timeZone)}` : '')
+  /* Its own event, when nothing in the context holds it yet, is the likeliest pick after a match. */
+  const own = events.find((event) => event.eventId === note.calendarEventId)
+  const picked = match?.id ?? (own ? `event:${own.eventId}` : '')
   return (
     <Card>
       <div className="flex items-start gap-3">
@@ -64,12 +74,12 @@ export function UnfiledCard({
           done="Dismissed"
           undo={{ action: undismissNoteAction, fields: { noteId: note.id } }}
         />
-        {choices.length > 0 ? (
+        {choices.length > 0 || events.length > 0 ? (
           <FormModal action={fileNoteAction} title="Link" label="Link" icon="link" variant="secondary" size="sm" submit="Link">
             <input type="hidden" name="noteId" value={note.id} />
             <input type="hidden" name="contextId" value={current} />
             <Field label="Meeting" required>
-              <Select name="meetingId" required defaultValue={match?.id ?? ''}>
+              <Select name="meetingId" required defaultValue={picked}>
                 <option value="" disabled>
                   —
                 </option>
@@ -89,6 +99,15 @@ export function UnfiledCard({
                     </option>
                   ),
                 )}
+                {events.length > 0 ? (
+                  <optgroup label="Calendar">
+                    {events.map((event) => (
+                      <option key={event.eventId} value={`event:${event.eventId}`}>
+                        {`${event.title}${when(event.startsAt)}`}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </Select>
             </Field>
           </FormModal>

@@ -38,6 +38,8 @@ export async function seed({ todoistToken }: { todoistToken?: string } = {}) {
   await createItem(db, actor, { contextId: church.id, kind: 'topic', text: WORLD.items.loose })
   await createItem(db, actor, { contextId: conference.id, kind: 'topic', text: WORLD.items.accountability, parties: [{ personId: adlene.id, role: 'with' }] })
   // Adlene's, in a project: its crumbs lead back to whichever page it was opened from.
+  // Raised at a meeting, and more than a conversation: it becomes a project of its own.
+  await createItem(db, actor, { contextId: conference.id, kind: 'topic', text: WORLD.items.policy, projectId: year.id })
   await createItem(db, actor, { contextId: conference.id, kind: 'action', text: WORLD.items.venue, parties: [{ personId: adlene.id, role: 'owner' }], projectId: year.id })
   // Asked by John of no one in particular: it will come as a press release.
   await createItem(db, actor, { contextId: conference.id, kind: 'question', text: WORLD.items.delegateCost, dueOn: addDays(today, 5), parties: [{ personId: john.id, role: 'with' }], projectId: year.id })

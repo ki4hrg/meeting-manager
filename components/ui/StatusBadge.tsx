@@ -170,10 +170,12 @@ export function DueBadge({
 
 // ─── project status ──────────────────────────────────────────────────────────
 
-export type ProjectStatus = 'active' | 'paused' | 'done'
+export type ProjectStatus = 'active' | 'pending' | 'proposed' | 'paused' | 'done'
 
 export const PROJECT_STATUS: Record<ProjectStatus, { label: string; tone: Tone }> = {
   active: { label: 'Active', tone: 'green' },
+  pending: { label: 'Pending', tone: 'blue' },
+  proposed: { label: 'Proposed', tone: 'purple' },
   paused: { label: 'Paused', tone: 'amber' },
   done: { label: 'Done', tone: 'gray' },
 }

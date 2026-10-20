@@ -12,7 +12,9 @@ export type ProjectStatus = Project['status']
 export type Milestone = typeof milestones.$inferSelect
 export type ProjectLink = typeof projectLinks.$inferSelect
 
-export const PROJECT_STATUSES: ProjectStatus[] = ['active', 'paused', 'done']
+/* Pending will happen but has not started; proposed has not been agreed to at
+   all, so nothing of it is offered on an agenda (`unconfirmedIds`). */
+export const PROJECT_STATUSES: ProjectStatus[] = ['active', 'pending', 'proposed', 'paused', 'done']
 
 /** A context's projects; `all` for the tree itself, which still reads archived ones. */
 export async function listProjects(exec: Executor, contextId: string, shelf: Shelf = 'live'): Promise<Project[]> {
@@ -63,7 +65,13 @@ async function assertParent(exec: Executor, contextId: string, parentId: string,
 
 export async function createProject(
   exec: Executor,
-  input: { contextId: string; name: string; description?: string | null; parentId?: string | null },
+  input: {
+    contextId: string
+    name: string
+    description?: string | null
+    parentId?: string | null
+    status?: ProjectStatus
+  },
 ): Promise<Project> {
   const name = input.name.trim()
   if (name === '') throw new ValidationError('Enter a name.')
@@ -78,6 +86,7 @@ export async function createProject(
       name,
       description: blankToNull(input.description),
       parentId: input.parentId || null,
+      ...(input.status ? { status: input.status } : {}),
     })
     .returning()
   return row!
@@ -155,6 +164,47 @@ export function descendantIds(all: Pick<Project, 'id' | 'parentId'>[], ids: Iter
     frontier = next.map((one) => one.id)
   }
   return found
+}
+
+/**
+ * The projects not yet agreed to: each proposed one and everything within it.
+ * Their items are no agenda's to offer until the project is confirmed, except
+ * at a meeting that carries the proposed project or one within it (`carried`:
+ * the meeting's projects and every one above them), which is about it.
+ */
+export function unconfirmedIds(
+  all: Pick<Project, 'id' | 'parentId' | 'status'>[],
+  carried: Set<string> = new Set(),
+): Set<string> {
+  const byId = new Map(all.map((one) => [one.id, one]))
+  const found = new Set<string>()
+  for (const one of all) {
+    let at: (typeof all)[number] | undefined = one
+    for (let depth = 0; at && depth < 100; depth++) {
+      if (at.status === 'proposed' && !carried.has(at.id)) {
+        found.add(one.id)
+        break
+      }
+      at = at.parentId ? byId.get(at.parentId) : undefined
+    }
+  }
+  return found
+}
+
+/**
+ * These projects, every one above them and every one within them, as the
+ * generated blocks read a meeting's projects. A proposed project within them
+ * is left out, and what is within it: it is not theirs until agreed to
+ * (`unconfirmedIds`).
+ */
+export function projectLine(
+  all: Pick<Project, 'id' | 'parentId' | 'status'>[],
+  own: string[],
+): Set<string> {
+  const above = ancestorIds(all, own)
+  const unconfirmed = unconfirmedIds(all, new Set([...own, ...above]))
+  const below = [...descendantIds(all, own)].filter((id) => !unconfirmed.has(id))
+  return new Set([...own, ...above, ...below])
 }
 
 /** Every project above these, up to the top, not counting them. */

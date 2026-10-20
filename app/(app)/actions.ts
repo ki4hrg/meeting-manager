@@ -56,6 +56,7 @@ import {
 } from '@/lib/projects/projects'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { getSeries } from '@/lib/meetings/series'
+import { projectFromTopic } from '@/lib/projects/from-topic'
 import { act, field, partyRef, pickedParties, pickedPeople, pickedReportTo, type ActionResult } from '@/lib/web/action'
 import { CONTEXT_COOKIE, contextCookieOptions, currentContext } from '@/lib/web/context'
 import { switchTarget } from '@/lib/web/switch'
@@ -421,8 +422,27 @@ export async function createProjectAction(formData: FormData): Promise<ActionRes
       name: field(formData, 'name'),
       description: field(formData, 'description'),
       parentId: field(formData, 'parentId') || null,
+      ...(field(formData, 'status') === 'proposed' ? { status: 'proposed' as const } : {}),
     })
   })
+}
+
+/* A topic that is a project of its own: on to the project made from it. */
+export async function makeProjectAction(formData: FormData): Promise<ActionResult> {
+  let projectId = ''
+  const result = await act(async (actor) => {
+    const status = field(formData, 'status') as ProjectStatus
+    if (!PROJECT_STATUSES.includes(status)) throw new ValidationError('Pick a status.')
+    const { project } = await projectFromTopic(db, actor, field(formData, 'id'), {
+      name: field(formData, 'name'),
+      parentId: field(formData, 'parentId') || null,
+      status,
+      closeTopic: formData.has('closeTopic'),
+    })
+    projectId = project.id
+  })
+  if (!result.error) redirect(`/projects/${projectId}`)
+  return result
 }
 
 export async function updateProjectAction(formData: FormData): Promise<ActionResult> {

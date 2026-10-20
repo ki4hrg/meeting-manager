@@ -1,6 +1,7 @@
 import { AppShell, type NavSection } from '@/components/AppShell'
 import { ContextSwitcher } from '@/components/ContextSwitcher'
 import { DirectoryProvider, type Directory } from '@/components/Directory'
+import { KeepTimeZone } from '@/components/KeepTimeZone'
 import { QuickAdd } from '@/components/QuickAdd'
 import { countUnfiledNotes } from '@/lib/connect/granola/unfiled'
 import { db } from '@/lib/db'
@@ -72,6 +73,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           ) : null
         }
       >
+        {/* Nothing saved yet: the browser's zone is, on the first page opened. */}
+        {user.timeZone ? null : <KeepTimeZone />}
         {children}
       </AppShell>
     </DirectoryProvider>

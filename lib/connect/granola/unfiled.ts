@@ -9,8 +9,9 @@
  *
  * Filing does in the chosen context what the ingest does in a bound folder's:
  * the meeting for its calendar event, else the one under way when it started,
- * else a meeting of its own. Or John links it to a meeting he picks there. Then
- * a run is queued, as for any arriving note.
+ * else a meeting of its own. Or John links it to a meeting he picks there, or
+ * to a calendar event there, which is prepped as Prep would and the note filed
+ * on its meeting. Then a run is queued, as for any arriving note.
  */
 
 import { and, count, desc, eq, isNull } from 'drizzle-orm'
@@ -24,7 +25,9 @@ import {
 import { notes, type NoteAttendee } from '../../db/schema'
 import { getContext } from '../../directory/contexts'
 import { groupsByEmail } from '../../directory/groups'
+import type { CalendarEvent } from '../../calendar/feed'
 import { getMeeting } from '../../meetings/meetings'
+import { prepFromEvent, unpreppedBetween } from '../../meetings/prep'
 import { getNote } from '../../notes/notes'
 import { queueRun } from '../../processing/run'
 import { isUniqueViolation, knownPeople, lockNote, matchMeeting, placeNote } from './ingest'
@@ -34,6 +37,8 @@ export type UnfiledNote = {
   title: string | null
   startsAt: Date | null
   endsAt: Date | null
+  /** The calendar event Granola recorded it against, if any. */
+  calendarEventId: string | null
   attendees: NoteAttendee[]
   receivedAt: Date
 }
@@ -59,6 +64,7 @@ export async function listUnfiledNotes(exec: Executor): Promise<UnfiledNote[]> {
       title: row.title,
       startsAt: at(row.filing?.startsAt),
       endsAt: at(row.filing?.endsAt),
+      calendarEventId: row.filing?.calendarEventId ?? null,
       attendees: row.attendees,
       receivedAt: row.createdAt,
     }))
@@ -106,27 +112,60 @@ export async function previewFiling(
   )
 }
 
+/* A calendar event this close to when a note was recorded may be its meeting. */
+const NEAR_MS = 12 * 60 * 60_000
+
+/**
+ * The calendar events in a context with no meeting yet that each note could be
+ * linked to: those starting near when it was recorded, its own event first,
+ * then the closest. One read of the calendars for every note. `events` stands
+ * in for the calendars, for tests.
+ */
+export async function eventsNearNotes(
+  exec: Executor,
+  contextId: string,
+  held: UnfiledNote[],
+  opts: { events?: CalendarEvent[] } = {},
+): Promise<Map<string, CalendarEvent[]>> {
+  const near = new Map<string, CalendarEvent[]>()
+  if (held.length === 0) return near
+  const at = (note: UnfiledNote) => (note.startsAt ?? note.receivedAt).getTime()
+  const times = held.map(at)
+  const events = await unpreppedBetween(
+    exec,
+    contextId,
+    new Date(Math.min(...times) - NEAR_MS),
+    new Date(Math.max(...times) + NEAR_MS),
+    opts,
+  )
+  for (const note of held) {
+    const distance = (event: CalendarEvent) =>
+      event.eventId === note.calendarEventId ? -1 : Math.abs(event.startsAt.getTime() - at(note))
+    near.set(
+      note.id,
+      events
+        .filter((event) => distance(event) <= NEAR_MS)
+        .sort((a, b) => distance(a) - distance(b)),
+    )
+  }
+  return near
+}
+
 /**
  * File a held note in a context: on the meeting it records there, or on one
  * made for it. With `meetingId`, on that meeting instead, which must be in the
- * context and, if it has sessions, be one of them. Returns the meeting.
+ * context and, if it has sessions, be one of them. With `event`, on that
+ * calendar event's meeting, prepped now if it has none. Returns the meeting.
  */
 export async function fileHeldNote(
   exec: Executor,
   actor: ActorContext,
   noteId: string,
   contextId: string,
-  opts: { meetingId?: string } = {},
+  opts: { meetingId?: string; event?: CalendarEvent } = {},
 ): Promise<{ meetingId: string; via: 'event' | 'time' | 'new' | 'chosen' }> {
   await getContext(exec, contextId)
-  if (opts.meetingId) {
-    const chosen = await getMeeting(exec, opts.meetingId)
-    if (chosen.contextId !== contextId) {
-      throw new ValidationError('That meeting belongs to another context.')
-    }
-    // As for any note: the session, not the meeting it belongs to.
-    if (chosen.sessions.length > 0) throw new ValidationError('Pick one of its sessions.')
-  }
+  if (opts.meetingId) await assertChoosable(exec, opts.meetingId, contextId)
 
   const file = () =>
     inTransaction(exec, async (tx) => {
@@ -138,21 +177,23 @@ export async function fileHeldNote(
 
       const placed = opts.meetingId
         ? { meetingId: opts.meetingId, via: 'chosen' as const }
-        : await placeNote(tx, actor, {
-            contextId,
-            projectIds: [],
-            filing: note.filing ?? NO_FILING,
-            personIds: await knownPeople(
-              tx,
-              note.attendees.map((attendee) => attendee.email),
-            ),
-            groupIds: await groupsByEmail(
-              tx,
+        : opts.event
+          ? { meetingId: await meetingForChosenEvent(tx, actor, contextId, opts.event), via: 'chosen' as const }
+          : await placeNote(tx, actor, {
               contextId,
-              note.attendees.map((attendee) => attendee.email),
-            ),
-            title: note.title,
-          })
+              projectIds: [],
+              filing: note.filing ?? NO_FILING,
+              personIds: await knownPeople(
+                tx,
+                note.attendees.map((attendee) => attendee.email),
+              ),
+              groupIds: await groupsByEmail(
+                tx,
+                contextId,
+                note.attendees.map((attendee) => attendee.email),
+              ),
+              title: note.title,
+            })
       await tx
         .update(notes)
         .set({ meetingId: placed.meetingId, dismissedAt: null, updatedAt: new Date() })
@@ -168,6 +209,27 @@ export async function fileHeldNote(
     if (!isUniqueViolation(err)) throw err
     return file()
   }
+}
+
+/* The meeting a picked event leads to: the one it has, or one prepped for it. */
+async function meetingForChosenEvent(
+  tx: Executor,
+  actor: ActorContext,
+  contextId: string,
+  event: CalendarEvent,
+): Promise<string> {
+  const meeting = await prepFromEvent(tx, actor, { contextId, event })
+  await assertChoosable(tx, meeting.id, contextId)
+  return meeting.id
+}
+
+async function assertChoosable(exec: Executor, meetingId: string, contextId: string) {
+  const chosen = await getMeeting(exec, meetingId)
+  if (chosen.contextId !== contextId) {
+    throw new ValidationError('That meeting belongs to another context.')
+  }
+  // As for any note: the session, not the meeting it belongs to.
+  if (chosen.sessions.length > 0) throw new ValidationError('Pick one of its sessions.')
 }
 
 /** Take a dismissal back: the note is held in the Inbox again. */

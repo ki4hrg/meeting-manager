@@ -105,6 +105,9 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const children = family
     .filter((one) => one.parentId === id && !one.archivedAt)
     .sort((a, b) => a.name.localeCompare(b.name))
+  // Not yet agreed to: listed apart, beside the work, until they are.
+  const proposed = children.filter((one) => one.status === 'proposed')
+  const subProjects = children.filter((one) => one.status !== 'proposed')
   const nextOf = await nextMilestones(db, project.contextId, today)
   const below = descendantIds(family, [id])
   const query = await searchParams
@@ -183,7 +186,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
 
         <Section
           title="Sub-projects"
-          count={children.length}
+          count={subProjects.length}
           action={
             <div className="flex items-center gap-2">
               {children.length > 0 ? (
@@ -206,9 +209,9 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
             </div>
           }
         >
-          {children.length === 0 ? null : (
+          {subProjects.length === 0 ? null : (
             <CardGrid>
-              {children.map((child) => {
+              {subProjects.map((child) => {
                 const next = nextOf.get(child.id)
                 return (
                   <LinkCard key={child.id} href={`/projects/${child.id}`}>
@@ -289,6 +292,30 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                 action={<QuickAdd presets={{ kind: 'question', projectId: id, ongoing: true }} />}
               >
                 <ItemGrid items={ongoing} today={today} empty="question" showProject={rolled} />
+              </Section>
+
+              <Section
+                title="Proposed"
+                count={proposed.length}
+                action={
+                  <FormModal action={createProjectAction} title="New proposed project" label="New" icon="plus" variant="secondary" size="sm" submit="Create">
+                    <input type="hidden" name="parentId" value={project.id} />
+                    <input type="hidden" name="status" value="proposed" />
+                    <Field label="Name" required>
+                      <Input name="name" required />
+                    </Field>
+                  </FormModal>
+                }
+              >
+                {proposed.length === 0 ? null : (
+                  <CardGrid>
+                    {proposed.map((child) => (
+                      <LinkCard key={child.id} href={`/projects/${child.id}`}>
+                        <CardHeader title={child.name} />
+                      </LinkCard>
+                    ))}
+                  </CardGrid>
+                )}
               </Section>
 
               <Section

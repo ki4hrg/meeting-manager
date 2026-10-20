@@ -176,6 +176,13 @@
       "when": 1792376891690,
       "tag": "0024_todoist_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792458701628,
+      "tag": "0025_proposed_projects",
+      "breakpoints": true
     }
   ]
 }

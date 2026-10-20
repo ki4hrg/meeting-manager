@@ -1,7 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { archive, unarchive } from '../lib/archive/archive'
-import { createFirstUser, setTimeZone } from '../lib/auth/users'
 import { itemComments } from '../lib/connect/todoist/comments'
 import { bindTodoistProject, todoistConnection } from '../lib/connect/todoist/connection'
 import { itemTodoist, linkItem, openTasks, rankTasks, sendItem, skipItem, unmatchedItemIds } from '../lib/connect/todoist/match'
@@ -103,20 +102,21 @@ describe('what syncs', () => {
     ])
   })
 
-  it('sets the scheduled date to the day it is made on John’s clock, and none while parked', async () => {
+  it('sends the deadline and no scheduled date: when to work on it is John’s to set', async () => {
     const fake = fakeTodoist()
     const w = await world()
-    const user = await createFirstUser({ email: 'john@example.test', displayName: 'John', password: 'a long enough password' }, db)
-    await setTimeZone(db, user.id, 'America/Chicago')
     await connect()
 
     const parked = await w.action('Later thing', { dueOn: '2026-12-01' })
     await parkItem(db, actor, parked.id, { until: '2026-11-15' })
     await w.action('Now thing')
-    // 03:30 UTC on the 19th is still the 18th in Chicago.
+    await w.action('Dated thing', { dueOn: '2026-10-20' })
     await syncTodoist(db, new Date('2026-10-19T03:30:00Z'))
 
-    expect(fake.byContent('Now thing')?.due).toEqual({ date: '2026-10-18' })
+    expect(fake.byContent('Now thing')?.due).toBeNull()
+    expect(fake.byContent('Now thing')?.deadline).toBeNull()
+    expect(fake.byContent('Dated thing')?.due).toBeNull()
+    expect(fake.byContent('Dated thing')?.deadline).toEqual({ date: '2026-10-20' })
     expect(fake.byContent('Later thing')?.due).toBeNull()
     expect(fake.byContent('Later thing')?.deadline).toEqual({ date: '2026-12-01' })
     expect(fake.byContent('Now thing')?.description).toContain('https://meetings.example.test/items/')

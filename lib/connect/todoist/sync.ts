@@ -24,7 +24,6 @@
 
 import { randomUUID } from 'node:crypto'
 import { and, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm'
-import { todayIn } from '../../core/dates'
 import { AppError, inTransaction, type ActorContext, type Executor } from '../../core/types'
 import {
   connections,
@@ -33,7 +32,6 @@ import {
   items,
   itemTodoistLinks,
   todoistTasks,
-  users,
 } from '../../db/schema'
 import { findSelf } from '../../directory/people'
 import {
@@ -341,11 +339,6 @@ async function planMerges(exec: Executor, connectionId: string, selfId: string |
   return plans
 }
 
-async function timeZone(exec: Executor): Promise<string | null> {
-  const [user] = await exec.select({ timeZone: users.timeZone }).from(users).limit(1)
-  return user?.timeZone ?? null
-}
-
 /**
  * Tasks to make: a `pending` link for each item that newly syncs, written
  * before anything is sent, and any pending link a past pass left unfinished.
@@ -354,7 +347,6 @@ async function planCreates(
   exec: Executor,
   connectionId: string,
   selfId: string | null,
-  now: Date,
 ): Promise<Plan[]> {
   for (const item of await itemsWithoutTask(exec, connectionId, selfId)) {
     await exec
@@ -378,9 +370,8 @@ async function planCreates(
     .innerJoin(items, eq(items.id, itemTodoistLinks.itemId))
     .where(and(eq(itemTodoistLinks.connectionId, connectionId), eq(itemTodoistLinks.state, 'pending')))
 
-  /* The scheduled date: the day it is made, on John's clock, so it shows in
-     Todoist's Today for triage. Never read or written again. */
-  const today = todayIn(await timeZone(exec), now)
+  /* No scheduled date: that is when John will work on it, his to set in
+     Todoist. Only the deadline, which is when it is due, is sent. */
   const plans: Plan[] = []
   for (const { link, item } of pending) {
     const projectId = link.lastError ? null : await todoistProjectFor(exec, connectionId, item)
@@ -389,8 +380,6 @@ async function planCreates(
       description: `[Meeting Manager](${absoluteUrl(`/items/${item.id}`)})`,
       ...(projectId ? { project_id: projectId } : {}),
       ...(link.baseDueOn ? { deadline: { date: link.baseDueOn } } : {}),
-      /* Parked: no date to land it in Today; it comes back by its deadline. */
-      ...(item.parkedAt ? {} : { due: { date: today } }),
     }
     plans.push({
       linkId: link.id,
@@ -560,7 +549,7 @@ export async function syncTodoist(exec: Executor, now: Date = new Date()): Promi
   const selfId = self?.id ?? null
 
   const merges = await planMerges(exec, connection.id, selfId, now)
-  const creates = await planCreates(exec, connection.id, selfId, now)
+  const creates = await planCreates(exec, connection.id, selfId)
   const plans = [...merges, ...creates]
 
   const responses = new Map<string, SyncResponse | null>()

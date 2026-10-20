@@ -530,7 +530,7 @@ export default function DesignPage() {
       <Section title="Icons">
         <Card>
           <div className="grid grid-cols-6 gap-4 sm:grid-cols-8 md:grid-cols-12">
-            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'share', 'printer', 'download', 'broadcast', 'log', 'search', 'key', 'todoist'] as const).map((name) => (
+            {(['topic', 'question', 'action', 'decision', 'person', 'group', 'project', 'meeting', 'inbox', 'clock', 'plus', 'close', 'menu', 'chevronDown', 'signOut', 'arrowRight', 'scale', 'mutual', 'check', 'link', 'flag', 'pencil', 'trash', 'refresh', 'context', 'swatch', 'chevronUp', 'lock', 'copy', 'document', 'undo', 'section', 'sparkles', 'clipboard', 'alert', 'cog', 'later', 'archive', 'share', 'printer', 'download', 'broadcast', 'log', 'search', 'key', 'todoist'] as const).map((name) => (
               <div key={name} className="flex flex-col items-center gap-2">
                 <Icon name={name} className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 <span className="text-xs text-gray-500 dark:text-gray-500">{name}</span>
@@ -655,6 +655,7 @@ export default function DesignPage() {
               title: 'Corridor chat',
               startsAt: new Date('2026-10-01T15:00:00Z'),
               endsAt: null,
+              calendarEventId: 'evt-corridor',
               attendees: [{ email: 'sarah@example.test', name: 'Sarah Jones' }],
               receivedAt: new Date('2026-10-01T15:40:00Z'),
             }}
@@ -674,6 +675,7 @@ export default function DesignPage() {
                 sessions: [{ id: 'r1', title: 'Day one', startsAt: new Date('2026-10-02T14:00:00Z'), endsAt: null }],
               },
             ]}
+            events={[{ eventId: 'evt-corridor', title: 'Corridor chat', startsAt: new Date('2026-10-01T15:00:00Z') }]}
           />
           <UnfiledCard
             note={{
@@ -681,6 +683,7 @@ export default function DesignPage() {
               title: null,
               startsAt: null,
               endsAt: null,
+              calendarEventId: null,
               attendees: [],
               receivedAt: new Date('2026-10-01T15:40:00Z'),
             }}
@@ -689,6 +692,7 @@ export default function DesignPage() {
             timeZone={null}
             match={null}
             choices={[]}
+            events={[]}
           />
         </CardGrid>
       </Section>

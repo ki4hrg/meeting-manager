@@ -22,6 +22,7 @@ export const WORLD = {
     longForm: 'Does the bishop want the long form of the liturgy?',
     loose: 'Ideas for the youth retreat',
     venue: 'Confirm the venue contract',
+    policy: 'Vulnerable adults policy update',
   },
   meetings: {
     checkIn: 'Adlene/John Check-In',

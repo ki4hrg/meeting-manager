@@ -47,7 +47,7 @@ export const itemStatus = pgEnum('item_status', [
 
 export const partyRole = pgEnum('party_role', ['owner', 'with'])
 
-export const projectStatus = pgEnum('project_status', ['active', 'paused', 'done'])
+export const projectStatus = pgEnum('project_status', ['active', 'pending', 'proposed', 'paused', 'done'])
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

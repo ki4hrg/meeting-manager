@@ -31,6 +31,7 @@ import {
   markDiscussed,
   parkItem,
   recordDecision,
+  setItemTarget,
 } from '../lib/items/items'
 import { createMeeting, getMeeting, setMeetingPeople, updateMeeting } from '../lib/meetings/meetings'
 import type { CalendarEvent } from '../lib/calendar/feed'
@@ -1147,6 +1148,54 @@ describe('projects within projects', () => {
     expect(await status(worship.id)).toBe('active')
     expect(await status(lastYear.id)).toBe('done')
     expect(await status(standing.id)).toBe('done')
+  })
+
+  it('offers nothing of a proposed sub-project at its parent’s meeting, but a pending one’s as usual', async () => {
+    const { w, year, worship, music, items } = await conference()
+    await updateProject(db, music.id, { status: 'proposed' })
+    await updateProject(db, worship.id, { status: 'pending' })
+    const meeting = await meetingOn(w.parish.id, year.id)
+
+    const c = await getCandidates(db, meeting.id, NOW)
+    expect(grouped(c.suggested)).toEqual([items.year.id, items.worship.id].sort())
+    expect([...offered(c), ...grouped(c.more)]).not.toContain(items.music.id)
+
+    // Aimed here by hand, it is placed all the same.
+    await setItemTarget(db, actor, items.music.id, { meetingId: meeting.id })
+    expect(ids((await getCandidates(db, meeting.id, NOW)).toPlace)).toEqual([items.music.id])
+  })
+
+  it('offers a proposed project’s items at a meeting about it, or about a project within it', async () => {
+    const { w, year, music, items } = await conference()
+    await updateProject(db, music.id, { status: 'proposed' })
+    const choir = await createProject(db, { contextId: w.parish.id, name: 'AC2027 Choir', parentId: music.id })
+    const robes = await createItem(db, actor, { contextId: w.parish.id, text: 'robes', projectId: choir.id })
+
+    const onMusic = await getCandidates(db, (await meetingOn(w.parish.id, music.id)).id, NOW)
+    expect(grouped(onMusic.suggested)).toEqual([items.music.id, robes.id].sort())
+
+    const onChoir = await getCandidates(db, (await meetingOn(w.parish.id, choir.id)).id, NOW)
+    expect(grouped(onChoir.suggested)).toEqual([robes.id])
+    expect(grouped(onChoir.more)).toContain(items.music.id)
+
+    // Its parent’s meeting sees neither.
+    const onYear = await getCandidates(db, (await meetingOn(w.parish.id, year.id)).id, NOW)
+    expect([...offered(onYear), ...grouped(onYear.more)]).not.toContain(robes.id)
+  })
+
+  it('leaves a proposed sub-project’s dates out of its parent’s lookahead', async () => {
+    const { w, year, music } = await conference()
+    await updateProject(db, music.id, { status: 'proposed' })
+    await addMilestone(db, { projectId: year.id, title: 'Registration opens', dueOn: '2026-10-21' })
+    await addMilestone(db, { projectId: music.id, title: 'Organist booked', dueOn: '2026-10-23' })
+
+    const onYear = await meetingOn(w.parish.id, year.id)
+    const middle = await computeBlocks(db, onYear.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(middle.lookahead?.milestones.map((m) => m.title)).toEqual(['Registration opens'])
+
+    const onMusic = await meetingOn(w.parish.id, music.id)
+    const own = await computeBlocks(db, onMusic.id, { today: TODAY, now: NOW, force: ALL_ON })
+    expect(own.lookahead?.milestones.map((m) => m.title)).toEqual(['Registration opens', 'Organist booked'])
   })
 })
 

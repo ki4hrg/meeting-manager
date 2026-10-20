@@ -430,20 +430,35 @@ export async function unpreppedOn(
 ): Promise<CalendarEvent[]> {
   const from = fromLocalInput(`${day}T00:00`, timeZone)
   const to = fromLocalInput(`${addDays(day, 1)}T00:00`, timeZone)
+  return unpreppedBetween(exec, contextId, from, to, opts)
+}
+
+/**
+ * The calendar events starting in a range in a context that have no meeting
+ * yet, in order. All-day events are not meetings. `events` stands in for the
+ * calendars, for tests.
+ */
+export async function unpreppedBetween(
+  exec: Executor,
+  contextId: string,
+  from: Date,
+  to: Date,
+  opts: { events?: CalendarEvent[] } = {},
+): Promise<CalendarEvent[]> {
   const events = opts.events
     ? await eventsHere(exec, contextId, opts.events.map((event) => ({ event, contextId })))
     : await listEventsIn(exec, { contextId, from, to })
-  const onDay = events.filter((event) => !event.allDay && event.startsAt >= from && event.startsAt < to)
-  if (onDay.length === 0) return []
+  const inRange = events.filter((event) => !event.allDay && event.startsAt >= from && event.startsAt < to)
+  if (inRange.length === 0) return []
   const prepped = new Set(
     (
       await exec
         .select({ eventId: meetings.calendarEventId })
         .from(meetings)
-        .where(inArray(meetings.calendarEventId, onDay.map((event) => event.eventId)))
+        .where(inArray(meetings.calendarEventId, inRange.map((event) => event.eventId)))
     ).map((row) => row.eventId),
   )
-  return onDay
+  return inRange
     .filter((event) => !prepped.has(event.eventId))
     .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
 }

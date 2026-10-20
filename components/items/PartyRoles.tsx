@@ -2,6 +2,7 @@ import type { IconName } from '@/components/ui/icons'
 import type { ItemKind, ItemParty } from '@/lib/items/items'
 import { COLLABORATOR, hasCollaborators, roleLabel, roleMoves, roleOrder, type PartyRole } from '@/lib/items/roles'
 import type { ActionResult } from '@/lib/web/action'
+import { targetMark } from './ItemCard'
 import { PartyChip } from './PartyChip'
 
 type Action = (formData: FormData) => Promise<ActionResult>
@@ -34,7 +35,7 @@ export function PartyRoles({
   const owners = parties.filter((party) => party.role === 'owner').length
   const rows: Row[] = roleOrder(kind).flatMap((role): Row[] => {
     const list = parties.filter((party) => party.role === role)
-    const marks: IconName[] = role === target ? ['arrowRight'] : []
+    const marks: IconName[] = role === target ? [targetMark(kind)] : []
     if (role === 'owner' && hasCollaborators(kind)) {
       return [
         { label: roleLabel(kind, role), role, offset: 0, marks, parties: list.slice(0, 1) },
@@ -49,7 +50,7 @@ export function PartyRoles({
   const takesMore = (row: Row) => !(hasCollaborators(kind) && row.role === 'owner' && row.offset === 0 && owners > 0)
 
   const moveIcon = (role: PartyRole, lead: boolean | undefined, party: ItemParty): IconName =>
-    role === target ? 'arrowRight' : lead === false ? 'mutual' : party.type
+    role === target ? targetMark(kind) : lead === false ? 'mutual' : party.type
 
   return (
     <div className="flex flex-col gap-2">
