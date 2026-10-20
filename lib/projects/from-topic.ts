@@ -11,6 +11,7 @@
 
 import { inTransaction, ValidationError, type ActorContext, type Executor } from '../core/types'
 import { completeItem, getItem, isOpen, updateItem, type ItemView } from '../items/items'
+import { acceptProposal, getProposal } from '../processing/proposals'
 import { createProject, type Project, type ProjectStatus } from './projects'
 
 export async function projectFromTopic(
@@ -41,5 +42,28 @@ export async function projectFromTopic(
     let moved = await updateItem(tx, actor, topic.id, { projectId: project.id })
     if (input.closeTopic) moved = await completeItem(tx, actor, topic.id)
     return { project, topic: moved }
+  })
+}
+
+/**
+ * The same from a topic processing proposed, on the review screen: a pending
+ * proposal is accepted first, in the same commit, so a project that cannot be
+ * made (a name already taken) leaves the proposal as it was.
+ */
+export async function projectFromProposal(
+  exec: Executor,
+  actor: ActorContext,
+  proposalId: string,
+  input: Parameters<typeof projectFromTopic>[3] = {},
+): Promise<{ project: Project; topic: ItemView }> {
+  return inTransaction(exec, async (tx) => {
+    const proposal = await getProposal(tx, proposalId)
+    if (proposal.payload.type !== 'item' || proposal.payload.kind !== 'topic') {
+      throw new ValidationError('Only a topic becomes a project.')
+    }
+    const accepted = await acceptProposal(tx, actor, proposalId)
+    const itemId = accepted.result?.itemId
+    if (!itemId) throw new ValidationError('Only a topic becomes a project.')
+    return projectFromTopic(tx, actor, itemId, input)
   })
 }

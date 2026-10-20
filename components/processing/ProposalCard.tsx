@@ -4,11 +4,13 @@ import {
   acceptWithAction,
   editProposalAction,
   rejectProposalAction,
+  makeProjectFromProposalAction,
   undoProposalAction,
 } from '@/app/(app)/meetings/processing-actions'
 import { askItemAction } from '@/app/(app)/actions'
 import { FormModal, IconAction } from '@/components/forms'
 import { PartyLine, targetMark } from '@/components/items/ItemCard'
+import { MakeProjectFields } from '@/components/projects/MakeProjectFields'
 import { Card } from '@/components/ui/Card'
 import { Markdown } from '@/components/ui/Markdown'
 import { Icon, type IconName } from '@/components/ui/icons'
@@ -42,6 +44,21 @@ function askable(proposal: ProposalView): boolean {
     item.laterUntilItemId === null &&
     item.parties.some((party) => party.role === 'owner' && !party.isSelf)
   )
+}
+
+/* A topic that could be a project of its own: proposed and not settled in the
+   meeting, or accepted and still open. Returns what the form starts from. */
+function projectable(proposal: ProposalView): { name: string; parentId: string | null } | null {
+  const { payload } = proposal
+  if (proposal.status === 'pending') {
+    return payload.type === 'item' && payload.kind === 'topic' && !payload.resolution
+      ? { name: payload.text, parentId: payload.projectId ?? null }
+      : null
+  }
+  const item = proposal.status === 'accepted' ? proposal.made?.item : null
+  return item && item.kind === 'topic' && item.status === 'open'
+    ? { name: item.text, parentId: item.project?.id ?? null }
+    : null
 }
 
 /* The mark on the left: an item's kind, or what else the proposal would make. */
@@ -139,6 +156,20 @@ export function ProposalCard({
   /* A meeting to prep reads like an action: who it is with is where it points. */
   const kind: ItemKind = payload.type === 'item' ? payload.kind : 'action'
   const body = payload.type === 'item' ? payload.detail : payload.type === 'update' ? payload.text : null
+  const asProject = projectable(proposal)
+  const makeProject = asProject ? (
+    <FormModal
+      action={makeProjectFromProposalAction}
+      title="Make project"
+      icon="project"
+      compact
+      submit="Create"
+      disabled={pending && unknown.length > 0}
+    >
+      <input type="hidden" name="id" value={proposal.id} />
+      <MakeProjectFields name={asProject.name} parentId={asProject.parentId} projects={choices.projects} />
+    </FormModal>
+  ) : null
 
   return (
     <Card className={`flex flex-col ${pending ? '' : 'opacity-80'}`}>
@@ -315,6 +346,8 @@ export function ProposalCard({
                 <input type="hidden" name="id" value={proposal.id} />
                 <ProposalFields proposal={proposal} choices={choices} />
               </FormModal>
+              {/* Accepts it on the way, as a topic on the project made from it. */}
+              {makeProject}
               {/* What it leaves unsaid is asked for on the way in; blank is fine. */}
               {missing.length > 0 ? (
                 <FormModal
@@ -345,6 +378,7 @@ export function ProposalCard({
               {askable(proposal) ? (
                 <IconAction action={askItemAction} fields={{ id: proposal.made!.item!.id }} icon="mail" label="Ask" />
               ) : null}
+              {makeProject}
               <IconAction action={undoProposalAction} fields={{ id: proposal.id }} icon="undo" label="Undo" />
             </>
           )}

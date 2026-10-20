@@ -18,6 +18,8 @@ import { getMeeting } from '@/lib/meetings/meetings'
 import { findEvent } from '@/lib/meetings/prep'
 import { attendeeIsGroup, dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
 import { getNote, meetingOf, moveNote, saveNote } from '@/lib/notes/notes'
+import { projectFromProposal } from '@/lib/projects/from-topic'
+import { PROJECT_STATUSES, type ProjectStatus } from '@/lib/projects/projects'
 import {
   acceptEdited,
   acceptProposal,
@@ -214,6 +216,21 @@ export async function acceptProposalAction(formData: FormData): Promise<ActionRe
   return act(async (actor) => {
     const proposal = await ownProposal(field(formData, 'id'))
     await acceptProposal(db, actor, proposal.id)
+  })
+}
+
+/* A topic proposed, or accepted, that is a project of its own: the review stays open. */
+export async function makeProjectFromProposalAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const proposal = await ownProposal(field(formData, 'id'))
+    const status = field(formData, 'status') as ProjectStatus
+    if (!PROJECT_STATUSES.includes(status)) throw new ValidationError('Pick a status.')
+    await projectFromProposal(db, actor, proposal.id, {
+      name: field(formData, 'name'),
+      parentId: field(formData, 'parentId') || null,
+      status,
+      closeTopic: formData.has('closeTopic'),
+    })
   })
 }
 
