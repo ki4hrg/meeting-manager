@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { connections, meetings, notes, people, processingRuns } from '../lib/db/schema'
 import { ValidationError } from '../lib/core/types'
+import type { CalendarEvent } from '../lib/calendar/feed'
 import {
   bindFolder,
   connectGranola,
@@ -23,6 +24,7 @@ import { granolaActor, ingestNoteById, type IngestOutcome } from '../lib/connect
 import {
   countUnfiledNotes,
   dismissHeldNote,
+  eventsNearNotes,
   undismissHeldNote,
   fileHeldNote,
   listUnfiledNotes,
@@ -438,6 +440,74 @@ describe('the Inbox', () => {
     expect(await listUnfiledNotes(db)).toEqual([])
     // No meeting was made for it.
     expect(await listMeetings(db, { contextId: parish.id })).toHaveLength(3)
+  })
+
+  it('offers the calendar events near a held note, and files it on one, prepping its meeting', async () => {
+    const { parish, diocese, sarah, granola, ingest } = await setUp()
+    const event = (over: Partial<CalendarEvent>): CalendarEvent => ({
+      calendarId: 'cal-1',
+      eventId: 'evt-1',
+      seriesId: null,
+      title: 'Event',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+      endsAt: new Date('2026-10-01T16:00:00Z'),
+      allDay: false,
+      attendees: [],
+      location: null,
+      htmlLink: null,
+      ...over,
+    })
+    const councilEvent = event({
+      eventId: 'evt_council',
+      title: 'Council',
+      attendees: [{ personId: sarah.id, email: 'sarah@example.test', name: 'Sarah', declined: false }],
+    })
+    const lunch = event({ eventId: 'evt_lunch', title: 'Lunch', startsAt: new Date('2026-10-01T14:30:00Z') })
+    const elsewhere = event({ eventId: 'evt_elsewhere', title: 'Elsewhere', startsAt: new Date('2026-10-01T15:30:00Z') })
+    const events = [
+      lunch,
+      councilEvent,
+      elsewhere,
+      event({ eventId: 'evt_later', title: 'Later', startsAt: new Date('2026-10-04T15:00:00Z') }),
+      event({ eventId: 'evt_allday', title: 'Feast', allDay: true }),
+    ]
+    // An event that already has a meeting is offered as that meeting, not as an event.
+    await createMeeting(db, actor, {
+      contextId: diocese.id,
+      title: 'Elsewhere',
+      startsAt: elsewhere.startsAt,
+      calendarEventId: 'evt_elsewhere',
+    })
+
+    const first = noteId()
+    granola.script.notes[first] = note({ id: first, title: 'Council', calendar_event: council })
+    const held = await ingest(first)
+    if (held.kind !== 'held') throw new Error('expected held')
+
+    const unfiled = await listUnfiledNotes(db)
+    expect(unfiled[0]).toMatchObject({ calendarEventId: 'evt_council' })
+    // Its own event first, then the closest; nothing far off, all day, or already a meeting.
+    const near = await eventsNearNotes(db, parish.id, unfiled, { events })
+    expect(near.get(held.noteId)!.map((one) => one.title)).toEqual(['Council', 'Lunch'])
+
+    expect(await fileHeldNote(db, actor, held.noteId, parish.id, { event: councilEvent })).toMatchObject({
+      via: 'chosen',
+    })
+    const [filedOn] = await listMeetings(db, { contextId: parish.id })
+    expect(filedOn).toMatchObject({ title: 'Council', calendarEventId: 'evt_council', contextId: parish.id })
+    expect(filedOn!.people.map((person) => person.id)).toEqual([sarah.id])
+    expect((await listNotes(db, filedOn!.id)).map((one) => one.id)).toEqual([held.noteId])
+    expect((await everyRun()).map((run) => run.noteId)).toEqual([held.noteId])
+
+    // An event whose meeting is in another context is refused, and nothing is filed.
+    const second = noteId()
+    granola.script.notes[second] = note({ id: second })
+    const other = await ingest(second)
+    if (other.kind !== 'held') throw new Error('expected held')
+    await expect(fileHeldNote(db, actor, other.noteId, parish.id, { event: elsewhere })).rejects.toThrow(
+      /another context/,
+    )
+    expect((await listUnfiledNotes(db)).map((one) => one.id)).toEqual([other.noteId])
   })
 
   it('keeps a held note held when it changes, and files it once its folder is bound', async () => {

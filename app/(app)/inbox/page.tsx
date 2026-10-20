@@ -4,7 +4,7 @@ import { UnfiledCard } from '@/components/meetings/UnfiledCard'
 import { QuickAdd } from '@/components/QuickAdd'
 import { CardGrid, Section } from '@/components/ui/Card'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { listUnfiledNotes, previewFiling } from '@/lib/connect/granola/unfiled'
+import { eventsNearNotes, listUnfiledNotes, previewFiling } from '@/lib/connect/granola/unfiled'
 import { db } from '@/lib/db'
 import { getMeeting, meetingsNear } from '@/lib/meetings/meetings'
 import { inboxEverywhere, reviewEverywhere } from '@/lib/today'
@@ -33,7 +33,12 @@ export default async function InboxPage() {
   const pending = new Map([...review].map(([id, { count }]) => [id, count]))
   const contextOf = (meetingId: string) => review.get(meetingId)!.contextId
   /* Where each note would go in the selected context, and what it could be
-     linked to there instead: the meetings nearest when it was recorded. */
+     linked to there instead: the meetings nearest when it was recorded, and
+     the calendar events then that have no meeting yet. */
+  const events = await eventsNearNotes(db, context.id, notes).catch(
+    // The calendar could not be read: Link still offers the meetings.
+    () => new Map<string, never[]>(),
+  )
   const filing = await Promise.all(
     notes.map(async (note) => {
       const match = await previewFiling(db, note.id, context.id)
@@ -75,6 +80,7 @@ export default async function InboxPage() {
                 timeZone={user.timeZone}
                 match={filing[index]!.match}
                 choices={filing[index]!.choices}
+                events={events.get(note.id) ?? []}
               />
             ))}
           </CardGrid>

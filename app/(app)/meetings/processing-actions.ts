@@ -15,6 +15,7 @@ import { ITEM_KINDS } from '@/lib/items/items'
 import { PROCESS_NOTES, kick } from '@/lib/jobs'
 import { logMeeting } from '@/lib/meetings/log'
 import { getMeeting } from '@/lib/meetings/meetings'
+import { findEvent } from '@/lib/meetings/prep'
 import { attendeeIsGroup, dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
 import { getNote, meetingOf, moveNote, saveNote } from '@/lib/notes/notes'
 import {
@@ -166,13 +167,26 @@ export async function moveNoteAction(formData: FormData): Promise<ActionResult> 
  * then follows the note to its review there.
  */
 
+const EVENT = 'event:'
+
+/* A calendar event picked for a note, looked for around when the note was recorded. */
+async function noteEvent(noteId: string, contextId: string, eventId: string) {
+  const startsAt = (await getNote(db, noteId)).filing?.startsAt
+  return findEvent(db, contextId, eventId, undefined, undefined, startsAt ? new Date(startsAt) : undefined)
+}
+
 export async function fileNoteAction(formData: FormData): Promise<ActionResult> {
   let to = { contextId: '', meetingId: '' }
   const result = await act(async (actor) => {
     const chosen = field(formData, 'contextId') || (await contextId())
-    // Link sends the meeting John picked; File leaves it to the match.
-    const { meetingId } = await fileHeldNote(db, actor, field(formData, 'noteId'), chosen, {
-      meetingId: field(formData, 'meetingId') || undefined,
+    const noteId = field(formData, 'noteId')
+    /* Link sends the meeting John picked, or a calendar event as `event:<id>`;
+       File leaves it to the match. */
+    const picked = field(formData, 'meetingId')
+    const eventId = picked.startsWith(EVENT) ? picked.slice(EVENT.length) : null
+    const { meetingId } = await fileHeldNote(db, actor, noteId, chosen, {
+      meetingId: !eventId && picked ? picked : undefined,
+      event: eventId ? await noteEvent(noteId, chosen, eventId) : undefined,
     })
     to = { contextId: chosen, meetingId }
     processSoon()

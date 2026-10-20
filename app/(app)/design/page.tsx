@@ -655,6 +655,7 @@ export default function DesignPage() {
               title: 'Corridor chat',
               startsAt: new Date('2026-10-01T15:00:00Z'),
               endsAt: null,
+              calendarEventId: 'evt-corridor',
               attendees: [{ email: 'sarah@example.test', name: 'Sarah Jones' }],
               receivedAt: new Date('2026-10-01T15:40:00Z'),
             }}
@@ -674,6 +675,7 @@ export default function DesignPage() {
                 sessions: [{ id: 'r1', title: 'Day one', startsAt: new Date('2026-10-02T14:00:00Z'), endsAt: null }],
               },
             ]}
+            events={[{ eventId: 'evt-corridor', title: 'Corridor chat', startsAt: new Date('2026-10-01T15:00:00Z') }]}
           />
           <UnfiledCard
             note={{
@@ -681,6 +683,7 @@ export default function DesignPage() {
               title: null,
               startsAt: null,
               endsAt: null,
+              calendarEventId: null,
               attendees: [],
               receivedAt: new Date('2026-10-01T15:40:00Z'),
             }}
@@ -689,6 +692,7 @@ export default function DesignPage() {
             timeZone={null}
             match={null}
             choices={[]}
+            events={[]}
           />
         </CardGrid>
       </Section>
