@@ -161,7 +161,7 @@ One page component, four filters:
 ## Todoist sync
 
 - Syncs open actions and questions that name John as an owner. Group-only ownership does not sync.
-- `due_on` maps to Todoist's **deadline** (`deadline_date`, verified in the API; needs Todoist Pro, which the account has). The tool sets the scheduled date once at creation (the day the item is approved, so it appears in Today for triage) and never reads or writes it again.
+- `due_on` maps to Todoist's **deadline** (`deadline_date`, verified in the API; needs Todoist Pro, which the account has). ~~The tool sets the scheduled date once at creation~~ *(John, 2026-10-20)* The tool never sets, reads or writes the scheduled date: that is when John will work on it, which he sets in Todoist. Only the deadline, when it is due, is sent, so it matches the app.
 - Title, deadline and completion merge three ways against the snapshot in `item_todoist_links`; Todoist wins when both sides changed.
 - *(review)* Remaining rules:
   - item done, dropped, converted to a decision, or John removed as owner: the task is closed;
@@ -173,7 +173,7 @@ One page component, four filters:
   - **Connection:** the instance's own registered Todoist app (OAuth, `TODOIST_CLIENT_ID`/`TODOIST_CLIENT_SECRET`), not a personal token, so Todoist's webhook can say when a task changes. Webhooks are only a nudge (Todoist says they can be late, out of order or lost): a delivery kicks the sync, which reads the change feed (`/api/v1/sync`, incremental by `sync_token`) as it always does. The sync also runs after every change made here, and every 10 minutes as the net. Tokens from a new app last an hour and the refresh token rotates, so a refresh holds a lock on the connection row. One Todoist account.
   - **Ownership:** John's own person row among the owners. A group as owner neither adds nor takes away: John and a group (his or not) syncs; a group alone, even his, does not.
   - **Existing items are not sent.** On connect, the items already open and syncing are set aside as *unmatched*. Settings → Match lists them; each is linked to a task John already has (the likeliest, by shared words, offered first; any open task can be searched), sent as a new task, or skipped. Linking takes the task's text and deadline (Todoist wins) and leaves it in its project. An item page, and `update_item`'s `todoist`, do the same for any syncing item with no task.
-  - **Later:** a parked item's task is made with no scheduled date, so it does not land in Todoist's Today; its deadline follows `due_on` as always.
+  - **Later:** a parked item's task, like every task, is made with no scheduled date; its deadline follows `due_on` as always.
   - **Unbound:** an item whose project and context have no Todoist project goes to the Inbox.
   - **Removed:** an accept undone deletes the task it made, if still open; an item deleted after being closed leaves its closed task alone.
   - **What closes a task, Todoist cannot undo:** a task reopened in Todoist reopens a done, dropped or needs-answer action or question; one closed because John is no longer an owner, or because it became a topic, is closed again.
