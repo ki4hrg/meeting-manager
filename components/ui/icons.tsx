@@ -25,6 +25,9 @@ const PATHS = {
   signOut:
     'M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1',
   arrowRight: 'M17 8l4 4m0 0l-4 4m4-4H3',
+  /* Scales: who decides, where the arrow would point on a decision. */
+  scale:
+    'M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3',
   /* Two-way arrows: working on something together. */
   mutual: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4',
   check: 'M5 13l4 4L19 7',

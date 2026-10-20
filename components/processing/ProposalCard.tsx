@@ -8,7 +8,7 @@ import {
 } from '@/app/(app)/meetings/processing-actions'
 import { askItemAction } from '@/app/(app)/actions'
 import { FormModal, IconAction } from '@/components/forms'
-import { PartyLine } from '@/components/items/ItemCard'
+import { PartyLine, targetMark } from '@/components/items/ItemCard'
 import { Card } from '@/components/ui/Card'
 import { Markdown } from '@/components/ui/Markdown'
 import { Icon, type IconName } from '@/components/ui/icons'
@@ -220,7 +220,7 @@ export function ProposalCard({
                         />
                       ) : role === roleOrder(kind)[1] ? (
                         <Icon
-                          name="arrowRight"
+                          name={targetMark(kind)}
                           className="h-3.5 w-3.5 shrink-0 text-gray-500 dark:text-gray-400"
                           label={roleLabel(kind, role)}
                         />

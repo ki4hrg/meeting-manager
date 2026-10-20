@@ -13,6 +13,11 @@ function names(parties: ItemParty[]): string {
   return parties.map((party) => (party.isSelf ? 'Me' : party.name)).join(', ')
 }
 
+/** The mark before who an item points at: the arrow, or on a decision the scales of who decides. */
+export function targetMark(kind: ItemKind): IconName {
+  return kind === 'decision' ? 'scale' : 'arrowRight'
+}
+
 const mark = (list: ItemParty[]): IconName =>
   list.length > 1 || list[0]?.type === 'group' ? 'group' : 'person'
 
@@ -20,7 +25,7 @@ const mark = (list: ItemParty[]): IconName =>
  * Who an item involves, without the words "owner" or "with". Whoever leads
  * comes first under a person or group icon, collaborators follow the two-way
  * mark, and the arrow points at who it is for: on a question, who it is asked
- * of; on a decision, who decides (`lib/items/roles.ts`). An owner that is only
+ * of. On a decision the scales mark who decides (`lib/items/roles.ts`). An owner that is only
  * a guess is marked on the owner itself. `noOne` puts the no-one-in-particular
  * mark where who a question is asked of would be (`askedOfNoOne`).
  */
@@ -91,12 +96,12 @@ export function PartyLine({
         ? run(
             target,
             pointed,
-            <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0" label={roleLabel(kind, target)} />,
+            <Icon name={targetMark(kind)} className="h-3.5 w-3.5 shrink-0" label={roleLabel(kind, target)} />,
           )
         : null}
       {noOne && pointed.length === 0 ? (
         <>
-          <Icon name="arrowRight" className="h-3.5 w-3.5 shrink-0" label={roleLabel(kind, target)} />
+          <Icon name={targetMark(kind)} className="h-3.5 w-3.5 shrink-0" label={roleLabel(kind, target)} />
           <Icon name="broadcast" className="h-3.5 w-3.5 shrink-0" label="No one in particular" />
         </>
       ) : null}
