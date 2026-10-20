@@ -122,6 +122,19 @@ describe('what syncs', () => {
     expect(fake.byContent('Now thing')?.description).toContain('https://meetings.example.test/items/')
   })
 
+  it('puts the item’s detail above the link in the task’s description', async () => {
+    const fake = fakeTodoist()
+    const w = await world()
+    await connect()
+
+    await w.action('Email Jo Dennis', { detail: 'Ask for David as host.' })
+    await syncTodoist(db, new Date('2026-10-19T03:30:00Z'))
+
+    expect(fake.byContent('Email Jo Dennis')?.description).toMatch(
+      /^Ask for David as host\.\n\n\[Meeting Manager\]\(https:\/\/meetings\.example\.test\/items\//,
+    )
+  })
+
   it('sends a task to its project’s binding, an ancestor’s, the context’s, or the Inbox', async () => {
     const fake = fakeTodoist()
     const w = await world()
