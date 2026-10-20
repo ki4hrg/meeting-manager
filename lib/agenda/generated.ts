@@ -15,7 +15,7 @@ import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, o
 import { addDays } from '../core/dates'
 import { notDeleted, onShelf } from '../db/shelf'
 import { NotFoundError, type Executor } from '../core/types'
-import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
+import { listProjects, projectLine } from '../projects/projects'
 import {
   agendaLines,
   itemEvents,
@@ -151,7 +151,7 @@ async function followUpsFor(
 }
 
 /* A meeting's circle: its series, its groups and its projects, these read up
-   and down the project tree as the lookahead reads them. */
+   and down the project tree as the lookahead reads them (`projectLine`). */
 type Circle = {
   seriesId: string | null
   groupIds: Set<string>
@@ -170,7 +170,7 @@ async function circleOf(exec: Executor, meeting: Meeting): Promise<Circle | null
   ])
   const own = ownProjects.map((row) => row.id)
   const tree = own.length > 0 ? await listProjects(exec, meeting.contextId, 'all') : []
-  const projectIds = new Set([...own, ...ancestorIds(tree, own), ...descendantIds(tree, own)])
+  const projectIds = projectLine(tree, own)
   const groupIds = new Set(ownGroups.map((row) => row.id))
   if (!meeting.seriesId && projectIds.size === 0 && groupIds.size === 0) return null
 
@@ -355,9 +355,10 @@ async function lookaheadFor(
   ).map((row) => row.projectId)
   /* The lookahead reads up and down the project tree: what the projects the
      meeting's sit within, and the ones within them, have coming. Not sideways:
-     a sibling's dates are its own. Each row names its project. */
+     a sibling's dates are its own, and so are a proposed one's. Each row
+     names its project. */
   const tree = own.length > 0 ? await listProjects(exec, meeting.contextId, 'all') : []
-  const projectIds = [...new Set([...own, ...ancestorIds(tree, own), ...descendantIds(tree, own)])]
+  const projectIds = [...projectLine(tree, own)]
   const until = addDays(today, LOOKAHEAD_DAYS)
 
   const dueMilestones =

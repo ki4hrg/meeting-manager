@@ -249,6 +249,12 @@ export const listProjectsTool = defineTool({
   },
 })
 
+const projectStatusArg = z
+  .enum(['active', 'pending', 'proposed', 'paused', 'done'])
+  .describe(
+    'pending: agreed to, not started. proposed: not yet agreed to; its items are offered on no agenda unless aimed at a meeting.',
+  )
+
 export const createProjectTool = defineTool({
   name: 'create_project',
   title: 'Create a project',
@@ -259,6 +265,7 @@ export const createProjectTool = defineTool({
     context: contextArg,
     description: z.string().optional(),
     parent: z.string().optional().describe('The project it sits within: name, path ("AC2027/Worship") or id.'),
+    status: projectStatusArg.optional(),
     idempotency_key: idempotencyKey,
   }),
   handler: async (input, context) =>
@@ -270,6 +277,7 @@ export const createProjectTool = defineTool({
         name: input.name,
         description: input.description,
         parentId: parent?.id ?? null,
+        status: input.status,
       })
       return { project: { id: project.id, name: project.name, status: project.status, parent_id: project.parentId } }
     }),
@@ -287,7 +295,7 @@ export const updateProjectTool = defineTool({
     context: contextArg,
     name: z.string().min(1).optional(),
     description: z.string().nullable().optional(),
-    status: z.enum(['active', 'paused', 'done']).optional(),
+    status: projectStatusArg.optional(),
     with_sub_projects: z
       .boolean()
       .optional()

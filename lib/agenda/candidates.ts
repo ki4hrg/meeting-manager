@@ -17,6 +17,10 @@
  *     A person match alone is not enough in a larger meeting; those sit under
  *     "more" and are never placed for him, as do the items of a project the
  *     meeting's projects sit within.
+ *   - An item on a proposed project, or one within it, is offered nowhere,
+ *     under any reason, until the project is agreed to, except at a meeting
+ *     that carries that project or one within it. Aimed here by hand, it is
+ *     still placed.
  *   - An item aimed at another meeting, series or project is on its way there
  *     and is not offered here at all. An aim at a meeting that is over (or
  *     gone) is spent, and the item is matched as if it had none.
@@ -48,7 +52,7 @@ import { todayIn } from '../core/dates'
 import { isLater } from '../items/horizon'
 import { getItem, isOpen, listItems, type ItemView } from '../items/items'
 import { byStance, type Stance } from '../items/roles'
-import { ancestorIds, descendantIds, listProjects } from '../projects/projects'
+import { ancestorIds, descendantIds, listProjects, unconfirmedIds } from '../projects/projects'
 
 export type CandidateGroup = {
   by: { type: 'person' | 'group' | 'project'; id: string; name: string }
@@ -204,9 +208,10 @@ export async function getCandidates(
   const projectIds = new Set(projectRows.map((row) => row.projectId))
   /* Projects within the meeting's are suggested too; projects they sit within
      are reachable under "more". Neither is ever placed. */
-  const tree = projectIds.size > 0 ? await listProjects(exec, meeting.contextId, 'all') : []
+  const tree = await listProjects(exec, meeting.contextId, 'all')
   const below = descendantIds(tree, projectIds)
   const above = ancestorIds(tree, projectIds)
+  const unconfirmed = unconfirmedIds(tree, new Set([...projectIds, ...above]))
   const projectName = new Map(tree.map((project) => [project.id, project.name]))
   /* A meeting with a group is the group's, however few have joined it so far:
      never a 1:1, and what is for one member alone waits under "more". */
@@ -289,6 +294,8 @@ export async function getCandidates(
         item.targetSeriesId !== null ||
         item.targetProjectId !== null)
     if (aimedElsewhere) continue
+    // Not yet agreed to: only an aim brings it here.
+    if (!aimedHere && item.project !== null && unconfirmed.has(item.project.id)) continue
     const viaProject = item.project !== null && projectIds.has(item.project.id)
     const viaChild = item.project !== null && !viaProject && below.has(item.project.id)
     const viaParent = item.project !== null && !viaProject && !viaChild && above.has(item.project.id)

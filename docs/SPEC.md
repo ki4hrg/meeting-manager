@@ -140,6 +140,7 @@ One pipeline; every stage is optional, with no rail.
 One page component, four filters:
 
 - **Project:** description, status, milestones, working documents, owed items by owner, decision log, waiting topics, meeting timeline.
+  - *(John, 2026-10-20)* **Proposed and pending projects.** Besides active, paused and done, a project can be **pending** (it will happen but has not started) or **proposed** (nobody has agreed it will happen yet). Pending behaves as active. A proposed project's items, and those of every project within it, are offered on no agenda (not suggested, not under more) and stay out of a parent's lookahead and "since last time", except at a meeting that carries the proposed project or one within it; an item aimed at a meeting by hand is still placed. A project hub lists its proposed sub-projects apart, under **Proposed** in the side column, with New to add one. **Make project** on an open topic makes a project from it (its text as the name, its detail as the description), within the topic's project unless another is picked, proposed unless Pending or Active is chosen, and moves the topic onto it; the form asks whether to close the topic (`lib/projects/from-topic.ts`). Processing does not propose projects: one arising wholly from a meeting is rare, so it is made by hand.
 - **Person:** what I want to raise with them, what they owe, what I owe them, recent meetings.
 - **Group:** what the group owes, what is waiting for it, decisions, members, meetings.
 - **Series:** next agenda, skeleton, history.

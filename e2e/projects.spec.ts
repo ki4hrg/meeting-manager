@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { dialog } from './helpers'
+import { dialog, selectContext } from './helpers'
 import { WORLD } from './world'
 
 test("pausing a project offers to pause its sub-projects, and does only when asked", async ({ page }) => {
@@ -45,4 +45,31 @@ test('sub-projects sit inside their top-level project, and fold away', async ({ 
   await expect(worship).toHaveCount(0)
   await page.getByRole('button', { name: 'Expand' }).click()
   await expect(worship).toBeVisible()
+})
+
+test('a topic becomes a proposed project, listed apart on its parent until agreed to', async ({ page }) => {
+  await selectContext(page, WORLD.contexts.conference)
+  await page.goto('/projects')
+  await page.getByRole('link').filter({ hasText: WORLD.projects.year }).first().click()
+  const topics = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Topics/ }) })
+  await topics.getByRole('link').filter({ hasText: WORLD.items.policy }).click()
+
+  await page.getByRole('button', { name: 'Make project', exact: true }).click()
+  await expect(dialog(page).getByLabel('Name')).toHaveValue(WORLD.items.policy)
+  await expect(dialog(page).getByLabel('Within').locator('option:checked')).toHaveText(new RegExp(WORLD.projects.year))
+  await expect(dialog(page).getByLabel('Status')).toHaveValue('proposed')
+  await expect(dialog(page).getByLabel('Close the topic')).not.toBeChecked()
+  await dialog(page).getByRole('button', { name: 'Create', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: WORLD.items.policy, exact: true })).toBeVisible()
+  await expect(page.getByText('Proposed', { exact: true }).first()).toBeVisible()
+  // The topic came along, still open: the next thing to raise about it.
+  const moved = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Topics/ }) })
+  await expect(moved.getByText(WORLD.items.policy)).toBeVisible()
+
+  await page.getByRole('link', { name: WORLD.projects.year }).first().click()
+  const proposed = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Proposed/ }) })
+  await expect(proposed.getByRole('link').filter({ hasText: WORLD.items.policy })).toBeVisible()
+  const subProjects = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Sub-projects/ }) })
+  await expect(subProjects.getByRole('link').filter({ hasText: WORLD.items.policy })).toHaveCount(0)
 })

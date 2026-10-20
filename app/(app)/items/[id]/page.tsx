@@ -23,8 +23,10 @@ import {
   DueBadge,
   KIND,
   KindIcon,
+  PROJECT_STATUS,
   StatusBadge,
   type ItemKind,
+  type ProjectStatus,
 } from '@/components/ui/StatusBadge'
 import { iconButtonClasses } from '@/components/ui/IconButton'
 import { splitGranolaLinks } from '@/lib/connect/granola/links'
@@ -56,6 +58,7 @@ import {
   answerItemAction,
   askItemAction,
   convertItemAction,
+  makeProjectAction,
   setOngoingAction,
   deleteItemAction,
   itemStatusAction,
@@ -71,6 +74,9 @@ import {
 import { MatchActions } from '../../settings/Todoist'
 
 const CONVERTIBLE: ItemKind[] = ['topic', 'question', 'action']
+
+/* What a project made from a topic can start as: proposed unless already agreed to. */
+const NEW_PROJECT_STATUSES: ProjectStatus[] = ['proposed', 'pending', 'active']
 
 /* One item, the thread it belongs to, and everything that has happened to it. */
 export default async function ItemPage({
@@ -508,6 +514,45 @@ export default async function ItemPage({
                   {reportTo}
                 </FormModal>
               )}
+
+              {open && item.kind === 'topic' ? (
+                <FormModal
+                  action={makeProjectAction}
+                  title="Make project"
+                  label="Make project"
+                  icon="project"
+                  variant="secondary"
+                  size="sm"
+                  submit="Create"
+                >
+                  <input type="hidden" name="id" value={item.id} />
+                  <Field label="Name" required>
+                    <Input name="name" required defaultValue={item.text} />
+                  </Field>
+                  <Field label="Within">
+                    <Select name="parentId" defaultValue={item.project?.id ?? ''}>
+                      <option value="">—</option>
+                      {projects
+                        .filter((project) => project.status !== 'done' || project.id === item.project?.id)
+                        .map((project) => (
+                          <option key={project.id} value={project.id}>
+                            {project.name}
+                          </option>
+                        ))}
+                    </Select>
+                  </Field>
+                  <Field label="Status">
+                    <Select name="status" defaultValue="proposed">
+                      {NEW_PROJECT_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {PROJECT_STATUS[status].label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Checkbox name="closeTopic" label="Close the topic" />
+                </FormModal>
+              ) : null}
 
               <QuickAdd
                 label="Follow-up"

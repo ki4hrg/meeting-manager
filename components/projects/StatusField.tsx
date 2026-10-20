@@ -4,10 +4,12 @@ import { useState } from 'react'
 import { Field, Select } from '@/components/ui/Field'
 import { PROJECT_STATUS, type ProjectStatus } from '@/components/ui/StatusBadge'
 
-const STATUSES: ProjectStatus[] = ['active', 'paused', 'done']
+const STATUSES: ProjectStatus[] = ['active', 'pending', 'proposed', 'paused', 'done']
 
 const ALSO: Record<ProjectStatus, (n: number) => string> = {
   active: (n) => `Also make ${n === 1 ? 'its sub-project' : `${n} sub-projects`} active`,
+  pending: (n) => `Also make ${n === 1 ? 'its sub-project' : `${n} sub-projects`} pending`,
+  proposed: (n) => `Also make ${n === 1 ? 'its sub-project' : `${n} sub-projects`} proposed`,
   paused: (n) => `Also pause ${n === 1 ? 'its sub-project' : `${n} sub-projects`}`,
   done: (n) => `Also mark ${n === 1 ? 'its sub-project' : `${n} sub-projects`} done`,
 }
