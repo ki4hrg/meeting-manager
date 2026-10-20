@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/Field'
-import { KIND, type ItemKind } from '@/components/ui/StatusBadge'
+import { KIND, PROJECT_STATUS, type ItemKind, type ProjectStatus } from '@/components/ui/StatusBadge'
 import { roleLabel, roleOrder, type PartyRole } from '@/lib/items/roles'
 import { PartyPicker, type PartyOption } from './PartyPicker'
 
@@ -15,6 +15,9 @@ export function kindFields(kind: ItemKind): { due: boolean; raiseAt: boolean; re
     resolution: decision ? null : kind === 'question' ? 'Answer' : 'Resolution',
   }
 }
+
+/* What a project made from a proposal can start as: proposed unless already agreed to. */
+const PROJECT_STATUSES: ProjectStatus[] = ['proposed', 'pending', 'active']
 
 /* Shown, or kept out of the form: a hidden field is disabled, so it is not submitted. */
 function Shown({ when, children }: { when: boolean; children: React.ReactNode }) {
@@ -32,6 +35,11 @@ function Shown({ when, children }: { when: boolean; children: React.ReactNode })
  * The fields submit as `kind`, `owners`, `withs`, `dueOn` and `resolution`;
  * the rest come in as slots. Every part is optional, so a shorter form (Accept)
  * can take only the pickers it asks for.
+ *
+ * With `asProject`, the kind can also be Project: accepted as a project of its
+ * own, the text its name, the project the one it sits within, the detail its
+ * description. It submits `status` and `keepTopic`; the people pickers show,
+ * labelled for a topic, only when a topic is kept on it.
  */
 export function ItemFields({
   kind: initial,
@@ -46,6 +54,7 @@ export function ItemFields({
   detail,
   resolution,
   ongoing,
+  asProject = false,
 }: {
   kind: ItemKind
   /** Off: the kind is fixed and submitted as it is. */
@@ -64,23 +73,30 @@ export function ItemFields({
   resolution?: { value: string | null }
   /** Whether a question is ongoing; leave out for no such box. */
   ongoing?: { value: boolean }
+  /** Offer Project as a kind: a proposal accepted as a project of its own. */
+  asProject?: boolean
 }) {
-  const [kind, setKind] = useState(initial)
+  const [chosenKind, setKind] = useState<ItemKind | 'project'>(initial)
+  const [keepTopic, setKeepTopic] = useState(false)
+  const isProject = chosenKind === 'project'
+  // A project's people are the kept topic's.
+  const kind: ItemKind = isProject ? 'topic' : chosenKind
   const [chosen, setChosen] = useState<Record<PartyRole, PartyOption[]>>({
     owner: selected?.owner ?? [],
     with: selected?.with ?? [],
   })
-  const shows = kindFields(kind)
+  const shows = isProject ? { due: false, raiseAt: false, resolution: null } : kindFields(kind)
   const other = (role: PartyRole): PartyRole => (role === 'owner' ? 'with' : 'owner')
 
   const kindField = kindSelect ? (
     <Field label="Kind">
-      <Select name="kind" value={kind} onChange={(event) => setKind(event.target.value as ItemKind)}>
+      <Select name="kind" value={chosenKind} onChange={(event) => setKind(event.target.value as ItemKind | 'project')}>
         {(Object.keys(KIND) as ItemKind[]).map((one) => (
           <option key={one} value={one}>
             {KIND[one].label}
           </option>
         ))}
+        {asProject ? <option value="project">Project</option> : null}
       </Select>
     </Field>
   ) : (
@@ -100,7 +116,27 @@ export function ItemFields({
           {kindField}
         </>
       )}
+      {asProject ? (
+        <Shown when={isProject}>
+          <Field label="Status">
+            <Select name="status" defaultValue="proposed">
+              {PROJECT_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {PROJECT_STATUS[status].label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Checkbox
+            name="keepTopic"
+            label="Keep a topic for it"
+            checked={keepTopic}
+            onChange={(event) => setKeepTopic(event.target.checked)}
+          />
+        </Shown>
+      ) : null}
       {/* Keyed by role, so a picker keeps its picks when the kind reorders them. */}
+      <Shown when={!isProject || keepTopic}>
       {roleOrder(kind)
         .filter((role) => roles.includes(role))
         .map((role) => (
@@ -128,6 +164,7 @@ export function ItemFields({
             allowNewGroup
           />
         ))}
+      </Shown>
       {project || due || raiseAt ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {project}
@@ -150,7 +187,7 @@ export function ItemFields({
         </Shown>
       ) : null}
       {ongoing ? (
-        <Shown when={kind === 'question'}>
+        <Shown when={chosenKind === 'question'}>
           <Checkbox name="ongoing" label="Ongoing" defaultChecked={ongoing.value} />
         </Shown>
       ) : null}

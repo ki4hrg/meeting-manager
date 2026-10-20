@@ -953,6 +953,8 @@ export type ProposalPayload =
 /* What accepting a proposal made or changed, kept so it can be undone. */
 export type ProposalResult = {
   itemId?: string
+  /* An item proposal accepted as a project of its own (`acceptAsProject`). */
+  projectId?: string
   documentId?: string
   meetingId?: string
   /* For an update: the item's fields before it. */

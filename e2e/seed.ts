@@ -70,6 +70,10 @@ export async function seed({ todoistToken }: { todoistToken?: string } = {}) {
   await addProposals(db, { meetingId: finance.id }, [
     { payload: { type: 'item', kind: 'action', text: WORLD.proposal, parties: [] } },
   ])
+  const camps = await createMeeting(db, actor, { contextId: conference.id, title: WORLD.meetings.camps, startsAt: at(-3, 14), endsAt: at(-3, 15), personIds: [adlene.id] })
+  await addProposals(db, { meetingId: camps.id }, [
+    { payload: { type: 'item', kind: 'topic', text: WORLD.projectProposal, parties: [{ role: 'with', name: WORLD.people.adlene, personId: adlene.id }], projectId: year.id } },
+  ])
 
   /* Connected last, so the items above are the ones already open: they wait
      in Match. */

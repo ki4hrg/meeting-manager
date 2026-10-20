@@ -29,6 +29,9 @@ export const WORLD = {
     finance: 'Finance committee',
     planning: 'Worship planning',
     bishop: 'With the bishop',
+    camps: 'Camps review',
   },
   proposal: 'Get three quotes for the boiler',
+  /* Raised at a meeting as a topic, and more than one: accepted as a project. */
+  projectProposal: 'Rewrite the camp policy',
 }
