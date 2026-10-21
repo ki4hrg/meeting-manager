@@ -94,30 +94,35 @@ export async function settleAttendance(
     if (await attendanceLocked(tx, meetingId)) {
       throw new ValidationError('What came of this meeting has been accepted, so who was there stays as it is.')
     }
-    const expected = await rollCall(tx, meetingId)
-    const rows = presentIds.length
-      ? await tx
-          .select({ id: people.id, isSelf: people.isSelf })
-          .from(people)
-          .where(and(inArray(people.id, [...new Set(presentIds)]), notDeleted(people)))
-      : []
-    const here = rows.filter((row) => !row.isSelf).map((row) => row.id)
-    const out = expected.filter((entry) => !here.includes(entry.id)).map((entry) => entry.id)
-    // Who came with a group is kept apart from who was on it by name.
-    const broughtBy = new Map(expected.map((entry) => [entry.id, entry.groupId]))
-
-    await tx.delete(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
-    if (here.length > 0) {
-      await tx
-        .insert(meetingPeople)
-        .values(here.map((personId) => ({ meetingId, personId, groupId: broughtBy.get(personId) ?? null })))
-    }
-    await tx.delete(meetingAbsences).where(eq(meetingAbsences.meetingId, meetingId))
-    if (out.length > 0) await tx.insert(meetingAbsences).values(out.map((personId) => ({ meetingId, personId })))
-    await tx.update(meetings).set({ attendanceAt: now, updatedAt: now }).where(eq(meetings.id, meetingId))
-    await linkAttendees(tx, meetingId)
-    return getMeeting(tx, meetingId)
+    return settle(tx, meetingId, presentIds, now)
   })
+}
+
+/** Copy who was there onto the meeting and stamp it settled, without asking whether that is still allowed. */
+async function settle(tx: Executor, meetingId: string, presentIds: string[], now: Date): Promise<MeetingView> {
+  const expected = await rollCall(tx, meetingId)
+  const rows = presentIds.length
+    ? await tx
+        .select({ id: people.id, isSelf: people.isSelf })
+        .from(people)
+        .where(and(inArray(people.id, [...new Set(presentIds)]), notDeleted(people)))
+    : []
+  const here = rows.filter((row) => !row.isSelf).map((row) => row.id)
+  const out = expected.filter((entry) => !here.includes(entry.id)).map((entry) => entry.id)
+  // Who came with a group is kept apart from who was on it by name.
+  const broughtBy = new Map(expected.map((entry) => [entry.id, entry.groupId]))
+
+  await tx.delete(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
+  if (here.length > 0) {
+    await tx
+      .insert(meetingPeople)
+      .values(here.map((personId) => ({ meetingId, personId, groupId: broughtBy.get(personId) ?? null })))
+  }
+  await tx.delete(meetingAbsences).where(eq(meetingAbsences.meetingId, meetingId))
+  if (out.length > 0) await tx.insert(meetingAbsences).values(out.map((personId) => ({ meetingId, personId })))
+  await tx.update(meetings).set({ attendanceAt: now, updatedAt: now }).where(eq(meetings.id, meetingId))
+  await linkAttendees(tx, meetingId)
+  return getMeeting(tx, meetingId)
 }
 
 /** The meeting's people, added to: for someone who turned up, or a note's attendee. */
@@ -142,16 +147,20 @@ export async function addAttendees(exec: Executor, meetingId: string, personIds:
 
 /**
  * The first look after a meeting's end settles its attendance as it stands,
- * if no roll call did. Returns whether it settled it now.
+ * if no roll call did. Returns whether it settled it now. Settling as it
+ * stands marks no one out, so it goes ahead even when a proposal was
+ * accepted before the meeting ended.
  */
 export async function settleIfOver(exec: Executor, meetingId: string, now: Date = new Date()): Promise<boolean> {
   const meeting = await getMeeting(exec, meetingId)
   if (meeting.attendanceAt || !isOver(meeting, now)) return false
-  await settleAttendance(
-    exec,
-    meetingId,
-    meeting.attendees.map((person) => person.id),
-    now,
+  await inTransaction(exec, (tx) =>
+    settle(
+      tx,
+      meetingId,
+      meeting.attendees.map((person) => person.id),
+      now,
+    ),
   )
   return true
 }
