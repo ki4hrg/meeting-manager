@@ -19,6 +19,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { ValidationError, inTransaction, type Executor } from '../core/types'
 import { groupMembers, meetingAbsences, meetingPeople, meetings, people, proposals } from '../db/schema'
 import { notDeleted } from '../db/shelf'
+import { linkAttendees } from '../processing/proposals'
 import { getMeeting, isOver, type MeetingView } from './meetings'
 
 export type RollCallEntry = {
@@ -114,6 +115,7 @@ export async function settleAttendance(
     await tx.delete(meetingAbsences).where(eq(meetingAbsences.meetingId, meetingId))
     if (out.length > 0) await tx.insert(meetingAbsences).values(out.map((personId) => ({ meetingId, personId })))
     await tx.update(meetings).set({ attendanceAt: now, updatedAt: now }).where(eq(meetings.id, meetingId))
+    await linkAttendees(tx, meetingId)
     return getMeeting(tx, meetingId)
   })
 }
@@ -135,6 +137,7 @@ export async function addAttendees(exec: Executor, meetingId: string, personIds:
   await exec
     .delete(meetingAbsences)
     .where(and(eq(meetingAbsences.meetingId, meetingId), inArray(meetingAbsences.personId, adding)))
+  await linkAttendees(exec, meetingId)
 }
 
 /**

@@ -50,6 +50,7 @@ import {
   type MeetingView,
 } from '../../meetings/meetings'
 import { clearAbsences, joinRoster, recordAbsences } from '../../meetings/roster'
+import { linkAttendees } from '../../processing/proposals'
 import { moveMeeting, moveSeries } from '../../meetings/move'
 import { prepMeeting, prepNextInSeries, prepWithPerson } from '../../meetings/prep'
 import {
@@ -707,7 +708,10 @@ export const updateMeetingTool = defineTool({
         blocks,
       })
       const people = input.people ? await peopleFrom(tx, input.people) : null
-      if (people) await setMeetingPeople(tx, actor, input.id, people)
+      if (people) {
+        await setMeetingPeople(tx, actor, input.id, people)
+        await linkAttendees(tx, input.id)
+      }
       const inSeries = (await getMeeting(tx, input.id)).series
       if (input.add_to_series) {
         if (!inSeries) throw new ValidationError('add_to_series needs a meeting in a series.')

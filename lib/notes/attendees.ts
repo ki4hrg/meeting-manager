@@ -16,6 +16,7 @@ import { meetingGroups, meetingPeople, meetings, notes, people, personEmails, ty
 import { notDeleted } from '../db/shelf'
 import { addGroupEmail, allGroupEmails, getGroup } from '../directory/groups'
 import { addPersonEmail, createPerson, getPerson, type Person } from '../directory/people'
+import { linkAttendees } from '../processing/proposals'
 
 /** Who this meeting's notes name that the directory does not have, in the order given. */
 export async function unknownAttendees(exec: Executor, meetingId: string): Promise<NoteAttendee[]> {
@@ -78,6 +79,7 @@ export async function nameAttendee(
 
     if (!person.isSelf) {
       await tx.insert(meetingPeople).values({ meetingId, personId: person.id }).onConflictDoNothing()
+      await linkAttendees(tx, meetingId)
     }
     return person
   })
@@ -97,6 +99,7 @@ export async function attendeeIsGroup(
     if (group.contextId !== meeting?.contextId) throw new ValidationError('That group belongs to another context.')
     await addGroupEmail(tx, groupId, attendee.email)
     await tx.insert(meetingGroups).values({ meetingId, groupId }).onConflictDoNothing()
+    await linkAttendees(tx, meetingId)
   })
 }
 
