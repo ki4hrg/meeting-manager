@@ -20,7 +20,7 @@
 import { createHash } from 'node:crypto'
 import { and, asc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm'
 import { isDay } from '../core/dates'
-import { isUuid, normalise } from '../core/match'
+import { isUuid, matchName, normalise } from '../core/match'
 import {
   AppError,
   NotFoundError,
@@ -67,7 +67,7 @@ import {
   type ItemView,
   type PartyInput,
 } from '../items/items'
-import { deleteMeeting } from '../meetings/meetings'
+import { deleteMeeting, getMeeting } from '../meetings/meetings'
 import { prepMeeting } from '../meetings/prep'
 import { createProject, deleteEmptyProject, type ProjectStatus } from '../projects/projects'
 
@@ -659,6 +659,78 @@ export async function listProposals(exec: Executor, meetingId: string): Promise<
     // The enum is declared pending, accepted, rejected.
     .orderBy(asc(proposals.status), asc(proposals.position), asc(proposals.createdAt))
   return toViews(exec, rows)
+}
+
+/**
+ * Someone who joined a meeting after its notes were processed is linked into
+ * its pending proposals: a name that points at no row and matches exactly one
+ * of its people (or else one of its groups) is given that row. A name that
+ * matches several stays to be asked for.
+ */
+export async function linkAttendees(exec: Executor, meetingId: string): Promise<void> {
+  const pending = await exec
+    .select({ id: proposals.id, payload: proposals.payload })
+    .from(proposals)
+    .where(and(eq(proposals.meetingId, meetingId), eq(proposals.status, 'pending')))
+  const open = pending.filter((row) => unresolvedIn(row.payload).length > 0)
+  if (open.length === 0) return
+
+  const meeting = await getMeeting(exec, meetingId)
+  const attendees = meeting.attendees.map(({ id, name }) => ({ id, name }))
+  const one = <T>(found: T[]): T | null => (found.length === 1 ? found[0]! : null)
+
+  for (const row of open) {
+    const { payload } = row
+    let changed = false
+    if (payload.type === 'item') {
+      const parties: ProposedParty[] = []
+      for (const party of payload.parties) {
+        if (party.personId || party.groupId) {
+          parties.push(party)
+          continue
+        }
+        const person = one(matchName(attendees, party.name))
+        const group = person ? null : one(matchName(meeting.groups, party.name))
+        const linked: ProposedParty = person
+          ? { role: party.role, name: person.name, personId: person.id }
+          : group
+            ? { role: party.role, name: group.name, groupId: group.id }
+            : party
+        if (linked === party) {
+          parties.push(party)
+          continue
+        }
+        changed = true
+        // Already a party under another name or role: once is enough.
+        const id = linked.personId ?? linked.groupId
+        const named = [...payload.parties, ...parties].some((p) => (p.personId ?? p.groupId) === id)
+        if (!named) parties.push(linked)
+      }
+      if (changed) {
+        await exec
+          .update(proposals)
+          .set({ payload: { ...payload, parties }, updatedAt: new Date() })
+          .where(eq(proposals.id, row.id))
+      }
+    } else if (payload.type === 'stub') {
+      const who: StubPayload['people'] = []
+      for (const person of payload.people) {
+        const found = person.personId ? null : one(matchName(attendees, person.name))
+        if (!found) {
+          who.push(person)
+          continue
+        }
+        changed = true
+        if (!payload.people.some((p) => p.personId === found.id)) who.push({ name: found.name, personId: found.id })
+      }
+      if (changed) {
+        await exec
+          .update(proposals)
+          .set({ payload: { ...payload, people: who }, updatedAt: new Date() })
+          .where(eq(proposals.id, row.id))
+      }
+    }
+  }
 }
 
 /** The meeting whose review an item's step was accepted from. */
