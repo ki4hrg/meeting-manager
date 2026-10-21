@@ -161,6 +161,25 @@ describe('settling on the first look after', () => {
     await expect(settleAttendance(db, meeting.id, [w.sarah.id, w.tom.id])).rejects.toThrow('stays as it is')
   })
 
+  it('settles as it stands when a proposal was accepted before it ended', async () => {
+    const w = await makeWorld()
+    const startsAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt })
+    const { note } = await saveNote(db, actor, { meetingId: meeting.id, source: 'pasted', body: 'D: Keep the Thursday slot' })
+    const run = await queueRun(db, note.id)
+    await processRun(db, run!.id)
+    expect((await getMeeting(db, meeting.id)).attendanceAt).toBeNull()
+    const [proposal] = await listProposals(db, meeting.id)
+    await acceptProposal(db, actor, proposal!.id)
+
+    const after = new Date(startsAt.getTime() + 24 * 60 * 60 * 1000)
+    expect(await settleIfOver(db, meeting.id, after)).toBe(true)
+    const settled = await getMeeting(db, meeting.id)
+    expect(settled.attendanceAt).toEqual(after)
+    expect(ids(settled.people)).toEqual(ids([w.sarah, w.tom]))
+    await expect(settleAttendance(db, meeting.id, [w.sarah.id])).rejects.toThrow('stays as it is')
+  })
+
   it('after an accept, someone who was there can still be added, but no one marked out', async () => {
     const w = await makeWorld()
     const guest = await createPerson(db, { name: 'Guest Preacher' })
