@@ -8,6 +8,7 @@ import { PartyOptions } from '@/components/items/PartyOptions'
 import { PartyRoles } from '@/components/items/PartyRoles'
 import { MakeProjectFields } from '@/components/projects/MakeProjectFields'
 import { RaiseAt } from '@/components/items/RaiseAt'
+import { RecordDecision } from '@/components/items/RecordDecision'
 import { BackWhen, WaitingOnThis } from '@/components/items/WaitsOn'
 import { PartyPicker, type PartyOption } from '@/components/processing/PartyPicker'
 import { GranolaChip } from '@/components/GranolaChip'
@@ -406,14 +407,12 @@ export default async function ItemPage({
                   <Field label="Answer" required>
                     <Textarea name="answer" rows={3} required />
                   </Field>
-                  <Field label="Decision">
-                    <Textarea name="decision" rows={2} />
-                  </Field>
-                  <Checkbox name="told" label="Told them" />
                   {ask ? (
                     <Checkbox name="closeAsk" label={`Close: ${ask.ask.text}`} defaultChecked={!ask.shared} />
                   ) : null}
                   {reportTo}
+                  <Checkbox name="told" label="Already reported" />
+                  <RecordDecision />
                 </FormModal>
               ) : null}
               {askedOf ? (

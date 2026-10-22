@@ -593,7 +593,7 @@ export default function DesignPage() {
               <Field label="Text">
                 <Input name="text" defaultValue="Budget review" />
               </Field>
-              <Checkbox name="told" label="Told them" />
+              <Checkbox name="told" label="Already reported" />
             </FormModal>
             <IconAction action={sampleAction} fields={{}} icon="close" label="Remove" />
             <FormModal action={sampleAction} title="Delete" icon="trash" compact submit="Delete" danger>

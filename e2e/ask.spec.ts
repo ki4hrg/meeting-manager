@@ -27,7 +27,9 @@ test('a question for the bishop is asked, answered with a decision, and reported
   // His answer comes back by email, and is worth keeping as a decision.
   await page.getByRole('button', { name: 'Answer', exact: true }).click()
   await dialog(page).getByLabel('Answer').fill('Micah 6:8')
-  await dialog(page).getByLabel('Decision').fill('Closing worship ends on Micah 6:8')
+  await dialog(page).getByLabel('Also record a decision').check()
+  await expect(dialog(page).getByRole('textbox', { name: 'Decision' })).toHaveValue('Micah 6:8')
+  await dialog(page).getByRole('textbox', { name: 'Decision' }).fill('Closing worship ends on Micah 6:8')
   await dialog(page).getByRole('button', { name: 'Save' }).click()
   await expect(dialog(page)).toHaveCount(0)
 
