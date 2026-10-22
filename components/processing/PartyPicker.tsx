@@ -187,6 +187,8 @@ export function PartyPicker({
         className="mt-1 flex flex-wrap items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2 py-1.5 shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
         onClick={() => inputRef.current?.focus()}
       >
+        {/* The magnifier marks a box that searches, as `SearchInput` does. */}
+        <Icon name="search" className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
         {me ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
             <Icon name="person" className="h-3.5 w-3.5 shrink-0" />
@@ -267,12 +269,13 @@ export function PartyPicker({
             setHighlighted(0)
           }}
           onKeyDown={onKeyDown}
+          placeholder={chosen.length === 0 && !me ? 'Search' : undefined}
           autoComplete="off"
           data-1p-ignore
           data-lpignore="true"
           data-bwignore
           data-form-type="other"
-          className="min-w-[6rem] flex-1 border-0 bg-transparent p-0.5 text-gray-900 focus:outline-none focus:ring-0 sm:text-sm dark:text-gray-100"
+          className="min-w-[6rem] flex-1 border-0 bg-transparent p-0.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 sm:text-sm dark:text-gray-100 dark:placeholder:text-gray-500"
         />
       </div>
       {allowNew ? <input type="hidden" name={`${name}New`} value={kinds.join(',')} /> : null}
