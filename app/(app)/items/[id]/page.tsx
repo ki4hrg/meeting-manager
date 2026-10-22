@@ -410,8 +410,8 @@ export default async function ItemPage({
                   {ask ? (
                     <Checkbox name="closeAsk" label={`Close: ${ask.ask.text}`} defaultChecked={!ask.shared} />
                   ) : null}
-                  <Checkbox name="told" label="Already passed on" />
                   {reportTo}
+                  <Checkbox name="told" label="Already reported" />
                   <RecordDecision />
                 </FormModal>
               ) : null}
