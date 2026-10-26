@@ -42,6 +42,7 @@ export function UnknownAttendee({
 }) {
   const [opened, setOpened] = useState(0)
   const [open, setOpen] = useState(false)
+  const [party, setParty] = useState('')
   const close = () => setOpen(false)
   const shown = name ?? email
 
@@ -51,6 +52,7 @@ export function UnknownAttendee({
         type="button"
         onClick={() => {
           setOpened((count) => count + 1)
+          setParty('')
           setOpen(true)
         }}
         aria-label={`Who is ${shown}?`}
@@ -67,24 +69,31 @@ export function UnknownAttendee({
         <ActionForm key={opened} action={nameAttendeeAction} onDone={close}>
           <input type="hidden" name="meetingId" value={meetingId} />
           <input type="hidden" name="email" value={email} />
-          <Field label="Name">
-            <Input name="name" defaultValue={name ?? guess(email)} />
-          </Field>
           <Field label={groups.length > 0 ? 'Person or group' : 'Person'}>
-            <Select name="party" defaultValue="">
+            <Select name="party" value={party} onChange={(event) => setParty(event.target.value)}>
               <PartyOptions people={people} groups={groups} />
             </Select>
           </Field>
-          <div className="flex flex-wrap justify-end gap-2">
+          {/* The name only makes a new person; linking keeps the one on file. */}
+          {!party && (
+            <Field label="Name">
+              <Input name="name" defaultValue={name ?? guess(email)} />
+            </Field>
+          )}
+          {/* Main action first, so Enter in Name makes the person rather than skipping. */}
+          <div className="flex flex-row-reverse flex-wrap justify-start gap-2">
+            {party ? (
+              <Button type="submit">Save</Button>
+            ) : (
+              <Button type="submit" name="create" value="1">
+                <Icon name="plus" className="h-4 w-4" />
+                New person
+              </Button>
+            )}
             <Button type="submit" name="skip" value="1" variant="secondary">
               <Icon name="close" className="h-4 w-4" />
               Skip
             </Button>
-            <Button type="submit" name="create" value="1" variant="accent">
-              <Icon name="plus" className="h-4 w-4" />
-              New person
-            </Button>
-            <Button type="submit">Save</Button>
           </div>
         </ActionForm>
       </Modal>
