@@ -10,9 +10,19 @@
  * moment anyone in the directory has it, on every meeting at once.
  */
 
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
-import { meetingGroups, meetingPeople, meetings, notes, people, personEmails, type NoteAttendee } from '../db/schema'
+import {
+  groupMembers,
+  meetingAbsences,
+  meetingGroups,
+  meetingPeople,
+  meetings,
+  notes,
+  people,
+  personEmails,
+  type NoteAttendee,
+} from '../db/schema'
 import { notDeleted } from '../db/shelf'
 import { addGroupEmail, allGroupEmails, getGroup } from '../directory/groups'
 import { addPersonEmail, createPerson, getPerson, type Person } from '../directory/people'
@@ -85,7 +95,12 @@ export async function nameAttendee(
   })
 }
 
-/** An unknown attendee was a group's list: the group takes the address and joins the meeting. */
+/**
+ * An unknown attendee was a group's list: the group takes the address and
+ * joins the meeting. Once attendance is settled a group no longer stands for
+ * its members, so they are put on the meeting as brought by it, as settling
+ * would have: not John, not whoever is on it already, and not anyone marked out.
+ */
 export async function attendeeIsGroup(
   exec: Executor,
   meetingId: string,
@@ -95,10 +110,27 @@ export async function attendeeIsGroup(
   await inTransaction(exec, async (tx) => {
     const attendee = await offered(tx, meetingId, email)
     const group = await getGroup(tx, groupId)
-    const [meeting] = await tx.select({ contextId: meetings.contextId }).from(meetings).where(eq(meetings.id, meetingId))
+    const [meeting] = await tx
+      .select({ contextId: meetings.contextId, attendanceAt: meetings.attendanceAt })
+      .from(meetings)
+      .where(eq(meetings.id, meetingId))
     if (group.contextId !== meeting?.contextId) throw new ValidationError('That group belongs to another context.')
     await addGroupEmail(tx, groupId, attendee.email)
     await tx.insert(meetingGroups).values({ meetingId, groupId }).onConflictDoNothing()
+    if (meeting.attendanceAt) {
+      const out = tx.select({ id: meetingAbsences.personId }).from(meetingAbsences).where(eq(meetingAbsences.meetingId, meetingId))
+      const members = await tx
+        .select({ id: people.id })
+        .from(groupMembers)
+        .innerJoin(people, eq(people.id, groupMembers.personId))
+        .where(and(eq(groupMembers.groupId, groupId), eq(people.isSelf, false), notDeleted(people), notInArray(people.id, out)))
+      if (members.length > 0) {
+        await tx
+          .insert(meetingPeople)
+          .values(members.map((member) => ({ meetingId, personId: member.id, groupId })))
+          .onConflictDoNothing()
+      }
+    }
     await linkAttendees(tx, meetingId)
   })
 }

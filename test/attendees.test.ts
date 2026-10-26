@@ -2,11 +2,12 @@
 
 import { describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { meetingPeople, personEmails } from '../lib/db/schema'
+import { meetingAbsences, meetingPeople, meetings, personEmails } from '../lib/db/schema'
+import { addMember } from '../lib/directory/groups'
 import { createPerson } from '../lib/directory/people'
 import { addAttendees } from '../lib/meetings/attendance'
 import { createMeeting } from '../lib/meetings/meetings'
-import { dismissAttendee, nameAttendee, unknownAttendees } from '../lib/notes/attendees'
+import { attendeeIsGroup, dismissAttendee, nameAttendee, unknownAttendees } from '../lib/notes/attendees'
 import { saveNote } from '../lib/notes/notes'
 import { addProposals, listProposals } from '../lib/processing/proposals'
 import { db, resetBetweenTests } from './helpers/db'
@@ -59,6 +60,26 @@ describe('people a note names who are not in the directory', () => {
     expect(emails).toHaveLength(before + 1)
     expect(emails.find((row) => row.email === 'new.face@example.test')?.isPrimary).toBe(before === 0)
     expect(await on(meeting.id)).toEqual([w.tom.id])
+  })
+
+  it("puts the members of a list's group on a meeting already settled, under the group", async () => {
+    const { w, meeting } = await setup()
+    const ray = await createPerson(db, { name: 'Ray Hall' })
+    await addMember(db, w.staff.id, w.john.id)
+    await addMember(db, w.staff.id, ray.id)
+    // Tom is on it by name; Ray was marked out at the roll call.
+    await addAttendees(db, meeting.id, [w.tom.id])
+    await db.insert(meetingAbsences).values({ meetingId: meeting.id, personId: ray.id })
+    await db.update(meetings).set({ attendanceAt: new Date() }).where(eq(meetings.id, meeting.id))
+
+    await attendeeIsGroup(db, meeting.id, 'new.face@example.test', w.staff.id)
+    const rows = await db.select().from(meetingPeople).where(eq(meetingPeople.meetingId, meeting.id))
+    expect(rows.map(({ personId, groupId }) => ({ personId, groupId })).sort((a, b) => a.personId.localeCompare(b.personId))).toEqual(
+      [
+        { personId: w.sarah.id, groupId: w.staff.id },
+        { personId: w.tom.id, groupId: null },
+      ].sort((a, b) => a.personId.localeCompare(b.personId)),
+    )
   })
 
   it('refuses an address the note does not offer', async () => {
