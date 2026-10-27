@@ -44,8 +44,10 @@ import { getItem, type ItemView } from '../../items/items'
 import {
   getMeeting,
   listMeetings,
+  makeSessionOf,
   setMeetingPeople,
   setMeetingProjects,
+  sittingBefore,
   updateMeeting,
   type MeetingView,
 } from '../../meetings/meetings'
@@ -53,7 +55,14 @@ import { takeRoll } from '../../meetings/attendance'
 import { clearAbsences, joinRoster, recordAbsences } from '../../meetings/roster'
 import { linkAttendees } from '../../processing/proposals'
 import { moveMeeting, moveSeries } from '../../meetings/move'
-import { prepMeeting, prepNextInSeries, prepWithPerson } from '../../meetings/prep'
+import {
+  ownMeetingFromNote,
+  prepMeeting,
+  prepNextInSeries,
+  prepWithPerson,
+  sessionFromNote,
+} from '../../meetings/prep'
+import { listNotes } from '../../notes/notes'
 import {
   addToRoster,
   createSeries,
@@ -351,6 +360,8 @@ async function meetingView(exec: Executor, id: string, clock: Clock) {
   const meeting = await getMeeting(exec, id)
   const agenda = await getAgenda(exec, id, { timeZone: clock.timeZone })
   const candidates = await getCandidates(exec, id, clock.now)
+  const notes = await listNotes(exec, id)
+  const before = await sittingBefore(exec, meeting)
   return {
     meeting: {
       ...meetingOut(meeting, clock),
@@ -363,6 +374,21 @@ async function meetingView(exec: Executor, id: string, clock: Clock) {
         ends_at_local: localOf(session.endsAt, clock),
       })),
       blocks: blocksOut(meeting.blocks),
+      notes: notes.map((note) => {
+        const at = (value: string | null | undefined) => (value ? new Date(value) : null)
+        const from = at(note.filing?.startsAt)
+        const to = at(note.filing?.recordedTo)
+        return {
+          id: note.id,
+          title: note.title,
+          source: note.source,
+          started_at: from?.toISOString() ?? null,
+          started_at_local: localOf(from, clock),
+          recorded_to: to?.toISOString() ?? null,
+          recorded_to_local: localOf(to, clock),
+        }
+      }),
+      may_be_session_of: before,
     },
     agenda: agendaOut(agenda),
     candidates: candidatesOut(candidates),
@@ -648,8 +674,10 @@ export const updateMeetingTool = defineTool({
     'mark only the people named, joining the list if they were not on it. starts_at null takes the date off and ' +
     `makes it a stub again. ${BLOCKS_RULE} blocks null goes back to the series' settings. ` +
     'Pass null to clear ends_at, group or series. context moves it to another context, out ' +
-    `of its series, before anything else is applied. ${MOVE_RULE} Returns what get_meeting ` +
-    'returns.',
+    `of its series, before anything else is applied. ${MOVE_RULE} session_of makes it a ` +
+    "session of that meeting (its next sitting: a debrief), after everything else, taking the " +
+    "meeting's people, groups and projects beside its own; get_meeting's may_be_session_of " +
+    'names the one it began during or just after. Never do this unasked. Returns what get_meeting returns.',
   scope: 'meetings:write',
   input: z.object({
     id: meetingId,
@@ -665,6 +693,7 @@ export const updateMeetingTool = defineTool({
     groups: groupsArg,
     series: z.string().min(1).nullable().optional().describe('Series name or id.'),
     blocks: blocksArg.nullable().optional(),
+    session_of: z.uuid().optional().describe('Meeting id: this one becomes a session of it.'),
     add_to_series: z
       .boolean()
       .optional()
@@ -754,10 +783,37 @@ export const updateMeetingTool = defineTool({
           out: [...now.absent.map((one) => one.id), ...out].filter((id) => !here.includes(id)),
         })
       }
+      if (input.session_of) await makeSessionOf(tx, actor, input.id, input.session_of)
       const view = await meetingView(tx, input.id, clock)
       return destination
         ? { ...view, context: { id: destination.id, name: destination.name } }
         : view
+    }),
+})
+
+export const splitNoteTool = defineTool({
+  name: 'split_note',
+  title: 'Split a note off its meeting',
+  description:
+    "A note filed on a meeting (get_meeting's notes) that was a conversation of its own: " +
+    "into session makes it a session of that meeting (it reconvened); into meeting gives it " +
+    "a meeting of its own (a 1:1 straight after), with its title, times, the people it names " +
+    "and the meeting's projects. It moves with its pending and rejected proposals; accepted " +
+    'ones stay where their items were made. Never do this unasked. Returns what get_meeting ' +
+    'returns, for the meeting it is now on.',
+  scope: 'meetings:write',
+  input: z.object({
+    id: z.uuid().describe('Note id.'),
+    into: z.enum(['session', 'meeting']),
+    idempotency_key: idempotencyKey,
+  }),
+  handler: async (input, context) =>
+    write(context, 'split_note', input, async (tx) => {
+      const made =
+        input.into === 'session'
+          ? await sessionFromNote(tx, context.actor, input.id)
+          : await ownMeetingFromNote(tx, context.actor, input.id)
+      return meetingView(tx, made.id, await clockFor(tx, context))
     }),
 })
 
@@ -1278,6 +1334,7 @@ export const meetingTools = [
   getMeetingTool,
   prepMeetingTool,
   updateMeetingTool,
+  splitNoteTool,
   setAgendaTool,
   editAgendaTool,
   getBriefingTool,

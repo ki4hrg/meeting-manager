@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { agendaLines, meetingDismissals, meetingGroups, meetings, series, users } from '../lib/db/schema'
 import { createItem, listItems } from '../lib/items/items'
+import { saveNote } from '../lib/notes/notes'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
 import { connect, dataOf, identityFor, makeUser, textOf, type ConnectedClient } from './helpers/mcp'
@@ -773,6 +774,78 @@ describe('update_meeting', () => {
   })
 })
 
+describe('back-to-back conversations', () => {
+  type Sitting = View & {
+    meeting: View['meeting'] & {
+      parent_meeting_id: string | null
+      sessions: { id: string; title: string }[]
+      notes: { id: string; title: string | null; started_at: string | null; recorded_to: string | null }[]
+      may_be_session_of: { id: string; title: string } | null
+    }
+  }
+
+  async function visit() {
+    const { meeting } = await ok<Sitting>('prep_meeting', {
+      context: 'Parish',
+      title: 'Site visit',
+      starts_at: '2030-03-05T10:00',
+      ends_at: '2030-03-05T11:00',
+      people: ['sarah'],
+    })
+    return meeting
+  }
+
+  it('names the meeting a later one may be a session of, and makes it one when asked', async () => {
+    const site = await visit()
+    const { meeting: debrief } = await ok<Sitting>('prep_meeting', {
+      context: 'Parish',
+      title: 'Debrief',
+      starts_at: '2030-03-05T10:53',
+    })
+    expect(debrief.may_be_session_of).toEqual({ id: site.id, title: 'Site visit' })
+
+    const joined = await ok<Sitting>('update_meeting', { id: debrief.id, session_of: site.id })
+    expect(joined.meeting.parent_meeting_id).toBe(site.id)
+    expect(joined.meeting.people.map((one) => one.name)).toEqual(['Sarah Jones'])
+    expect(joined.meeting.may_be_session_of).toBeNull()
+    expect((await ok<Sitting>('get_meeting', { id: site.id })).meeting.sessions.map((one) => one.id)).toEqual([
+      debrief.id,
+    ])
+  })
+
+  it("lists a meeting's notes and splits one into a session or a meeting of its own", async () => {
+    const site = await visit()
+    const recorded = (title: string, from: string, to: string) =>
+      saveNote(db, actor, {
+        meetingId: site.id,
+        source: 'granola',
+        externalId: `not_${title.replace(/\W/g, '').padEnd(14, '0').slice(0, 14)}`,
+        title,
+        body: title,
+        filing: { startsAt: from, endsAt: null, calendarEventId: null, recordedTo: to },
+      })
+    await recorded('Tour', '2030-03-05T16:00:00Z', '2030-03-05T16:45:00Z')
+    const debrief = (await recorded('Debrief', '2030-03-05T16:50:00Z', '2030-03-05T17:20:00Z')).note
+    const oneToOne = (await recorded('Sarah and John', '2030-03-05T17:20:00Z', '2030-03-05T17:50:00Z')).note
+
+    const listed = (await ok<Sitting>('get_meeting', { id: site.id })).meeting.notes
+    expect(listed.map((note) => note.title)).toEqual(['Tour', 'Debrief', 'Sarah and John'])
+    expect(listed[1]).toMatchObject({ started_at: '2030-03-05T16:50:00.000Z', recorded_to: '2030-03-05T17:20:00.000Z' })
+
+    const session = await ok<Sitting>('split_note', { id: debrief.id, into: 'session' })
+    expect(session.meeting).toMatchObject({ title: 'Debrief', parent_meeting_id: site.id })
+    expect(session.meeting.notes.map((note) => note.id)).toEqual([debrief.id])
+
+    const own = await ok<Sitting>('split_note', { id: oneToOne.id, into: 'meeting' })
+    expect(own.meeting).toMatchObject({ title: 'Sarah and John', parent_meeting_id: null })
+    expect(own.meeting.notes.map((note) => note.id)).toEqual([oneToOne.id])
+
+    expect((await ok<Sitting>('get_meeting', { id: site.id })).meeting.notes.map((note) => note.title)).toEqual([
+      'Tour',
+    ])
+  })
+})
+
 describe('moving between contexts', () => {
   it('update_meeting with context moves the meeting and says where it went', async () => {
     const parishItem = await capture({ context: 'Parish', text: 'parish matter', with: ['bishop'] })
@@ -1216,6 +1289,7 @@ describe('scopes', () => {
     for (const write of [
       'prep_meeting',
       'update_meeting',
+      'split_note',
       'set_agenda',
       'edit_agenda',
       'create_series',
@@ -1241,6 +1315,7 @@ describe('scopes', () => {
         'get_meeting',
         'prep_meeting',
         'update_meeting',
+        'split_note',
         'set_agenda',
         'edit_agenda',
         'get_briefing',
@@ -1249,7 +1324,7 @@ describe('scopes', () => {
         'update_series',
       ].includes(tool.name),
     )
-    expect(mine).toHaveLength(10)
+    expect(mine).toHaveLength(11)
     for (const tool of mine) expect(tool.inputSchema.type).toBe('object')
   })
 })
