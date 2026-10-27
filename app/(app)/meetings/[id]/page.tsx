@@ -14,7 +14,7 @@ import { Suggestions } from '@/components/meetings/Suggestions'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Card, CardGrid, Section, TwoColumn } from '@/components/ui/Card'
 import { DocumentCard } from '@/components/documents/DocumentCard'
-import { ItemGrid } from '@/components/items/ItemCard'
+import { ItemsByKind } from '@/components/items/ItemCard'
 import { Chip } from '@/components/ui/Chip'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
@@ -359,7 +359,7 @@ export default async function MeetingPage({
                   count={outcome.length}
                   action={<QuickAdd presets={{ kind: 'action', originMeetingId: meeting.id }} />}
                 >
-                  <ItemGrid items={outcome} today={today} empty="action" />
+                  <ItemsByKind items={outcome} today={today} empty="action" />
                 </Section>
               ) : null}
 

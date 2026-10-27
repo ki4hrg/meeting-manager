@@ -1620,6 +1620,99 @@ describe('since last time, between meetings', () => {
   })
 })
 
+describe('a project does not make a smaller room part of a larger one', () => {
+  const fromNow = (days: number) => new Date(Date.now() + days * 86_400_000)
+
+  it('since last time skips a 1:1 on the same project, and what came out of it', async () => {
+    const w = await makeWorld()
+    const team = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+      startsAt: fromNow(-30),
+    })
+    const oneToOne = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.bishop.id],
+      projectIds: [w.retreat.id],
+      startsAt: fromNow(-10),
+    })
+    const now = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+      startsAt: fromNow(10),
+      blocks: ALL_ON,
+    })
+    const inPrivate = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'decision',
+      text: 'Budget held at last year',
+      projectId: w.retreat.id,
+      originMeetingId: oneToOne.id,
+    })
+    const atTeam = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'question',
+      text: 'Coach or cars?',
+      projectId: w.retreat.id,
+      originMeetingId: team.id,
+      parties: [{ personId: w.sarah.id, role: 'owner' }],
+    })
+
+    expect((await computeBlocks(db, now.id, { today: TODAY })).sinceLast?.meeting.id).toBe(team.id)
+    const shown = await blockItemIds(now.id)
+    expect(shown).toContain(atTeam.id)
+    expect(shown).not.toContain(inPrivate.id)
+  })
+
+  it('the lookahead lists only meetings everyone here is at, and no deadline from a smaller room', async () => {
+    const w = await makeWorld()
+    const now = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id, w.tom.id],
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-06T15:00:00Z'),
+      blocks: ALL_ON,
+    })
+    const next = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id, w.tom.id, w.bishop.id],
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-13T15:00:00Z'),
+    })
+    const oneToOne = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.sarah.id],
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-10T15:00:00Z'),
+    })
+    const due = '2026-10-12'
+    const fromPrivate = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'Send Sarah her review',
+      projectId: w.retreat.id,
+      dueOn: due,
+      originMeetingId: oneToOne.id,
+    })
+    const open = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'action',
+      text: 'Book the coach',
+      projectId: w.retreat.id,
+      dueOn: due,
+    })
+
+    const ahead = (await computeBlocks(db, now.id, { today: TODAY })).lookahead
+    expect(ahead?.meetings.map((row) => row.id)).toEqual([next.id])
+    expect(ahead?.deadlines.map((row) => row.itemId)).toEqual([open.id])
+    expect(ahead?.deadlines.map((row) => row.itemId)).not.toContain(fromPrivate.id)
+  })
+})
+
 describe('an ongoing question', () => {
   it('is suggested like a topic where its project meets, placed when aimed, and never a follow-up', async () => {
     const w = await makeWorld()

@@ -300,7 +300,7 @@ function generatedOut(blocks: GeneratedBlocks, clock: Clock) {
             starts_at: blocks.sinceLast.meeting.startsAt?.toISOString() ?? null,
             starts_at_local: localOf(blocks.sinceLast.meeting.startsAt, clock),
           },
-          decisions: blocks.sinceLast.decisions.map((d) => ({ item_id: d.itemId, text: d.text })),
+          decisions: blocks.sinceLast.decisions.map((d) => ({ item_id: d.itemId, text: d.text, says: d.says })),
           closed: blocks.sinceLast.closed.map((c) => ({
             item_id: c.itemId,
             kind: c.kind,

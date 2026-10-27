@@ -23,7 +23,8 @@ export type FollowUpsBlock = { party: BlockParty; items: OwedEntry[] }[]
 /** Against the previous occurrence of the series. */
 export type SinceLastBlock = {
   meeting: { id: string; title: string; startsAt: Date | null }
-  decisions: { itemId: string; text: string }[]
+  /** `says`: the decision itself, when the text names only what it was about. */
+  decisions: { itemId: string; text: string; says: string | null }[]
   closed: { itemId: string; kind: ItemKind; text: string; resolution: string | null }[]
   stillOpen: { itemId: string; kind: ItemKind; text: string }[]
 }

@@ -12,7 +12,7 @@ import { Card } from '@/components/ui/Card'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Markdown } from '@/components/ui/Markdown'
 import { Icon } from '@/components/ui/icons'
-import { Badge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
+import { Badge, DueBadge, KindIcon, StatusBadge, struck } from '@/components/ui/StatusBadge'
 import type { Agenda, AgendaLine, AgendaSection } from '@/lib/agenda/lines'
 import { formatClock, formatDay } from '@/lib/core/dates'
 import { isOpen } from '@/lib/items/items'
@@ -153,7 +153,9 @@ function LineRow({
             className={`text-sm font-medium hover:underline ${
               isOpen(item)
                 ? 'text-gray-900 dark:text-gray-100'
-                : 'text-gray-500 line-through dark:text-gray-400'
+                : struck(item.status)
+                  ? 'text-gray-500 line-through dark:text-gray-400'
+                  : 'text-gray-500 dark:text-gray-400'
             }`}
           >
             {line.text}
@@ -167,6 +169,11 @@ function LineRow({
             <Icon name="person" className="h-3 w-3 shrink-0 text-gray-400 dark:text-gray-500" label="Leads" />
             {line.leader.isSelf ? 'Me' : line.leader.name}
           </p>
+        ) : null}
+
+        {/* An answer, or how it closed: done is not dropped. */}
+        {item && !isOpen(item) && item.resolution ? (
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{item.resolution}</p>
         ) : null}
 
         {line.description ? (

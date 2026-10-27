@@ -1,7 +1,7 @@
 import { CardGrid, LinkCard } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Icon, type IconName } from '@/components/ui/icons'
-import { Badge, ContextBadge, DueBadge, KindIcon, StatusBadge } from '@/components/ui/StatusBadge'
+import { Badge, ContextBadge, DueBadge, KindIcon, StatusBadge, struck } from '@/components/ui/StatusBadge'
 import { splitGranolaLinks } from '@/lib/connect/granola/links'
 import { formatDay } from '@/lib/core/dates'
 import { askedOfNoOne, isLater } from '@/lib/items/horizon'
@@ -136,7 +136,7 @@ export function ItemCard({
         <div className="min-w-0 flex-1">
           <p
             className={`text-sm font-medium ${
-              item.status === 'dropped' || item.status === 'superseded'
+              struck(item.status)
                 ? 'text-gray-500 line-through dark:text-gray-400'
                 : 'text-gray-900 dark:text-gray-100'
             }`}
@@ -206,5 +206,35 @@ export function ItemGrid({
         />
       ))}
     </CardGrid>
+  )
+}
+
+const KIND_ORDER: ItemKind[] = ['decision', 'action', 'question', 'topic']
+const PLURAL: Record<ItemKind, string> = {
+  decision: 'Decisions',
+  action: 'Actions',
+  question: 'Questions',
+  topic: 'Topics',
+}
+
+/** Items under a heading for each kind: what was decided, then what is to do, asked and raised. */
+export function ItemsByKind({ items, today, empty }: { items: ItemView[]; today: string; empty: IconName }) {
+  if (items.length === 0) return <EmptyState icon={empty} />
+  const groups = KIND_ORDER.map((kind) => ({ kind, list: items.filter((item) => item.kind === kind) })).filter(
+    (group) => group.list.length > 0,
+  )
+  return (
+    <div className="flex flex-col gap-5">
+      {groups.map(({ kind, list }) => (
+        <div key={kind}>
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-300">
+            <KindIcon kind={kind} className="h-4 w-4" />
+            {PLURAL[kind]}
+            <span className="font-normal tabular-nums text-gray-500 dark:text-gray-400">{list.length}</span>
+          </h3>
+          <ItemGrid items={list} today={today} empty={empty} />
+        </div>
+      ))}
+    </div>
   )
 }

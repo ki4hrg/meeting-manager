@@ -1,21 +1,20 @@
 import { notFound } from 'next/navigation'
 import { CopyButton } from '@/components/CopyButton'
 import { Export } from '@/components/Export'
-import { FormModal, IconAction } from '@/components/forms'
+import { IconAction, InlineEdit } from '@/components/forms'
 import { LivesIn } from '@/components/meetings/Move'
 import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ButtonLink } from '@/components/ui/Button'
 import { Card, CardGrid, CardHeader, Section } from '@/components/ui/Card'
-import { Field, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
 import {
   getRecap,
   recapMailto,
   recapOutline,
+  recapPieces,
   recapSubject,
   renderPersonSnippet,
-  renderRecapHtml,
   type RecapParty,
 } from '@/lib/agenda/recap'
 import { isUuid } from '@/lib/core/match'
@@ -103,7 +102,8 @@ export default async function RecapPage({
     getRecap(db, id, { today, timeZone: user.timeZone, selfId: self.id }),
     pendingOnCards(db, context.id),
   ])
-  const html = renderRecapHtml(recap)
+  const pieces = recapPieces(recap)
+  const edit = { id: meeting.id }
 
   /* Everyone the recap names who is not John: who was there, then anyone else
      who owes something. Only those with something to be told get a snippet. */
@@ -133,22 +133,6 @@ export default async function RecapPage({
         }
         tools={
           <>
-            <FormModal action={editRecapAction} title="Edit" icon="pencil" compact iconSize="md" wide>
-              <input type="hidden" name="id" value={meeting.id} />
-              <Field label="Summary">
-                <Textarea name="summary" rows={6} defaultValue={recap.summary ?? ''} />
-              </Field>
-              <input type="hidden" name="summaryWas" value={recap.summary ?? ''} />
-              {recap.lines.map((line) => (
-                <div key={line.lineId}>
-                  <input type="hidden" name="lineId" value={line.lineId} />
-                  <input type="hidden" name={`line:${line.lineId}Was`} value={line.summary} />
-                  <Field label={line.text}>
-                    <Textarea name={`line:${line.lineId}`} rows={3} defaultValue={line.summary} />
-                  </Field>
-                </div>
-              ))}
-            </FormModal>
             {recap.edited ? (
               <IconAction
                 action={resetRecapAction}
@@ -181,8 +165,32 @@ export default async function RecapPage({
         }
       />
 
+      {/* As it will paste, with each piece of prose reworded where it stands. */}
       <Card padding="md" className="mb-8">
-        <div className={RENDERED} dangerouslySetInnerHTML={{ __html: html }} />
+        <div className={RENDERED}>
+          <div dangerouslySetInnerHTML={{ __html: pieces.head }} />
+          {/* Its pencil on the heading's row, so an empty summary can still be written. */}
+          <div className="mt-5">
+            <InlineEdit action={editRecapAction} fields={edit} name="summary" value={recap.summary ?? ''} label="Summary" rows={8}>
+              <h2 className="mt-1!">Summary</h2>
+              {pieces.summary ? <div dangerouslySetInnerHTML={{ __html: pieces.summary }} /> : null}
+            </InlineEdit>
+          </div>
+          {pieces.lines.length > 0 ? <h2>Discussed</h2> : null}
+          {pieces.lines.map((line) => (
+            <InlineEdit
+              key={line.lineId}
+              action={editRecapAction}
+              fields={{ ...edit, lineId: line.lineId }}
+              name={`line:${line.lineId}`}
+              value={line.summary}
+              label={line.text}
+            >
+              <div dangerouslySetInnerHTML={{ __html: line.html }} />
+            </InlineEdit>
+          ))}
+          <div dangerouslySetInnerHTML={{ __html: pieces.rest }} />
+        </div>
       </Card>
 
       {snippets.length > 0 ? (
