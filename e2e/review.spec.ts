@@ -16,12 +16,18 @@ test('a proposal waiting in another context is reviewed from home and accepted',
 
   // Someone else who was there comes in as here, and stays here when confirmed again (#41).
   const attendance = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Attendance' }) })
+  /* Confirm, and wait for the server to have it: a reload straight after would cut the save off. */
+  const confirm = () =>
+    Promise.all([
+      page.waitForResponse((response) => response.request().method() === 'POST'),
+      attendance.getByRole('button', { name: 'Confirm', exact: true }).click(),
+    ])
   await attendance.getByLabel('Also here').fill(WORLD.people.bishop)
   await attendance.getByRole('option', { name: WORLD.people.bishop }).click()
-  await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await confirm()
   const bishop = attendance.getByRole('button', { name: chip(WORLD.people.bishop) })
   await expect(bishop).toHaveAttribute('aria-pressed', 'true')
-  await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await confirm()
   await page.reload()
   await expect(bishop).toHaveAttribute('aria-pressed', 'true')
 
@@ -50,7 +56,7 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await expect(bishop).toHaveAccessibleName(/^Out/)
   await attendance.getByLabel('Also here').fill(WORLD.people.adlene)
   await attendance.getByRole('option', { name: WORLD.people.adlene }).click()
-  await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await confirm()
   await expect(attendance.getByRole('button', { name: chip(WORLD.people.adlene) })).toHaveAttribute('aria-pressed', 'true')
   await page.reload()
   await expect(bishop).toHaveAccessibleName(/^Out/)
@@ -61,8 +67,7 @@ test('a proposal waiting in another context is reviewed from home and accepted',
     await attendance.getByRole('button', { name: `Remove ${WORLD.people.bishop}` }).click()
     await expect(bishop).toHaveCount(0, { timeout: 1_000 })
   }).toPass()
-  await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
-  await page.waitForLoadState('networkidle')
+  await confirm()
   await page.reload()
   await expect(bishop).toHaveCount(0)
 
