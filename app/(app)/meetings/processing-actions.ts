@@ -15,7 +15,7 @@ import { ITEM_KINDS } from '@/lib/items/items'
 import { PROCESS_NOTES, kick } from '@/lib/jobs'
 import { logMeeting } from '@/lib/meetings/log'
 import { getMeeting } from '@/lib/meetings/meetings'
-import { findEvent } from '@/lib/meetings/prep'
+import { findEvent, sessionFromNote } from '@/lib/meetings/prep'
 import { attendeeIsGroup, dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
 import { getNote, meetingOf, moveNote, saveNote } from '@/lib/notes/notes'
 import { PROJECT_STATUSES, type ProjectStatus } from '@/lib/projects/projects'
@@ -157,6 +157,15 @@ export async function moveNoteAction(formData: FormData): Promise<ActionResult> 
     await ownMeeting(meetingOf(note))
     const to = await ownMeeting(field(formData, 'meetingId'))
     await moveNote(db, actor, note.id, to.id)
+  })
+}
+
+/** A note on a meeting becomes a session of it, the note filed there. */
+export async function sessionFromNoteAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const note = await getNote(db, field(formData, 'noteId'))
+    await ownMeeting(meetingOf(note))
+    await sessionFromNote(db, actor, note.id)
   })
 }
 

@@ -25,6 +25,7 @@ import {
   listMeetings,
   type MeetingView,
 } from './meetings'
+import { getNote, meetingOf, moveNote } from '../notes/notes'
 import { joinRoster } from './roster'
 import { createSeries, findSeriesByCalendar, getSeries, listSeries, updateSeries, type SeriesView } from './series'
 
@@ -154,6 +155,42 @@ export async function meetingFromNote(
     /* With a series and nobody recognised, its roster stands in, as it does
        for an event with no invitees. */
     ...(input.personIds.length > 0 || !input.seriesId ? { personIds: input.personIds } : {}),
+  })
+}
+
+/**
+ * A note filed on a meeting becomes a session of it: the meeting reconvened
+ * (a debrief after a site visit) and the note was matched to it by time. The
+ * session takes the note's title and times and starts with its meeting's
+ * people, groups and projects, as one added by hand does; the note moves onto
+ * it with what it left undecided. Not prepped, for the reason
+ * `meetingFromNote` gives.
+ */
+export async function sessionFromNote(
+  exec: Executor,
+  actor: ActorContext,
+  noteId: string,
+): Promise<MeetingView> {
+  return inTransaction(exec, async (tx) => {
+    const note = await getNote(tx, noteId)
+    const on = await getMeeting(tx, meetingOf(note))
+    const parent = on.parentMeetingId ? await getMeeting(tx, on.parentMeetingId) : on
+
+    const at = (value: string | null | undefined) => (value ? new Date(value) : null)
+    const startsAt = at(note.filing?.startsAt) ?? note.createdAt
+    const endsAt = at(note.filing?.endsAt)
+    const session = await createMeeting(tx, actor, {
+      contextId: parent.contextId,
+      parentMeetingId: parent.id,
+      title: note.title?.trim() || 'Session',
+      startsAt,
+      endsAt: endsAt && endsAt > startsAt ? endsAt : null,
+      groupIds: parent.groups.map((group) => group.id),
+      personIds: parent.people.map((person) => person.id),
+      projectIds: parent.projects.map((project) => project.id),
+    })
+    await moveNote(tx, actor, note.id, session.id)
+    return session
   })
 }
 
