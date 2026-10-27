@@ -4,7 +4,7 @@ import { knownPeople } from '@/lib/connect/granola/ingest'
 import { copyListIfOver, rollCall } from '@/lib/meetings/attendance'
 import { notFound } from 'next/navigation'
 import { ActionSelect } from '@/components/ActionSelect'
-import { FormModal, IconAction } from '@/components/forms'
+import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { LivesIn } from '@/components/meetings/Move'
 import { ApproveAll } from '@/components/processing/ApproveAll'
 import { ProposalCard } from '@/components/processing/ProposalCard'
@@ -22,7 +22,7 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { listGroups } from '@/lib/directory/groups'
 import { listPeople } from '@/lib/directory/people'
-import { getMeeting } from '@/lib/meetings/meetings'
+import { getMeeting, sittingBefore } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
 import { unknownAttendees } from '@/lib/notes/attendees'
 import { listNotes } from '@/lib/notes/notes'
@@ -32,7 +32,13 @@ import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import { crumbsFrom } from '@/lib/web/crumbs'
 import { openMeetingAction, takeRollAction } from '../../actions'
-import { addNoteAction, moveNoteAction, sessionFromNoteAction } from '../../processing-actions'
+import {
+  addNoteAction,
+  makeSessionOfAction,
+  moveNoteAction,
+  ownMeetingFromNoteAction,
+  sessionFromNoteAction,
+} from '../../processing-actions'
 
 const SUMMARY =
   'mb-4 flex cursor-pointer list-none items-center gap-2 rounded-md text-lg font-semibold text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-100 [&::-webkit-details-marker]:hidden'
@@ -67,7 +73,7 @@ export default async function ReviewPage({
     return <LivesIn title={meeting.title} context={home} action={openMeetingAction} id={meeting.id} />
   }
 
-  const [run, proposals, notes, parent, people, groups, projects, series, strangers] = await Promise.all([
+  const [run, proposals, notes, parent, people, groups, projects, series, strangers, before] = await Promise.all([
     latestRun(db, id),
     listProposals(db, id),
     listNotes(db, id),
@@ -77,6 +83,7 @@ export default async function ReviewPage({
     listProjectChoices(db, context.id),
     listSeries(db, context.id),
     unknownAttendees(db, id),
+    sittingBefore(db, meeting),
   ])
 
   const choices = { people, groups, projects, series }
@@ -122,9 +129,8 @@ export default async function ReviewPage({
      sessions there is nowhere else for it to go and no picker. */
   const family = parent ?? meeting
   const places = family.sessions.length > 0 ? [family, ...family.sessions] : []
-  /* Two notes on one meeting are two sittings of it, perhaps (a debrief that
-     started before the meeting's end was matched to it by time): either can
-     become a session of its own. */
+  /* Two notes on one meeting may be two conversations: either can become a
+     session of it (it reconvened) or a meeting of its own (a 1:1 after). */
   const splits = !meeting.parentMeetingId && notes.length > 1
 
   const addNote = (
@@ -182,12 +188,20 @@ export default async function ReviewPage({
                   </ActionSelect>
                 ) : null}
                 {splits ? (
-                  <IconAction
-                    action={sessionFromNoteAction}
-                    fields={{ noteId: note.id }}
-                    icon="meeting"
-                    label="New session"
-                  />
+                  <>
+                    <IconAction
+                      action={sessionFromNoteAction}
+                      fields={{ noteId: note.id }}
+                      icon="section"
+                      label="New session"
+                    />
+                    <IconAction
+                      action={ownMeetingFromNoteAction}
+                      fields={{ noteId: note.id }}
+                      icon="meeting"
+                      label="Own meeting"
+                    />
+                  </>
                 ) : null}
               </li>
             ))}
@@ -212,6 +226,18 @@ export default async function ReviewPage({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {ready.length > 0 ? <ApproveAll meetingId={meeting.id} count={ready.length} /> : null}
+            {/* A meeting just after another may be its next sitting: John says so. */}
+            {before ? (
+              <ActionButton
+                action={makeSessionOfAction}
+                fields={{ meetingId: meeting.id, parentId: before.id }}
+                variant="secondary"
+                className="max-w-full"
+              >
+                <Icon name="section" className="h-4 w-4 shrink-0" />
+                <span className="truncate">Session of {before.title}</span>
+              </ActionButton>
+            ) : null}
             <ButtonLink href={`/meetings/${meeting.id}/recap`} variant="secondary">
               <Icon name="document" className="h-4 w-4" />
               Recap

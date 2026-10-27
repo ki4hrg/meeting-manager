@@ -823,6 +823,8 @@ export type NoteFiling = {
   startsAt: string | null
   endsAt: string | null
   calendarEventId: string | null
+  /** When its recording stopped, whatever the calendar said. Absent on notes filed before it was kept. */
+  recordedTo?: string | null
 }
 
 export const notes = pgTable(

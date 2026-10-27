@@ -294,3 +294,17 @@ export async function setPersonEmails(exec: Executor, personId: string, values: 
     if (emails[0]) await makePrimaryEmail(tx, personId, emails[0])
   })
 }
+
+/* The people at these addresses who are already in the directory, without
+   John: he is at every meeting and never a row on one. */
+export async function knownPeople(exec: Executor, emails: string[]): Promise<string[]> {
+  if (emails.length === 0) return []
+  const rows = await exec
+    .select({ personId: personEmails.personId })
+    .from(personEmails)
+    .innerJoin(people, eq(people.id, personEmails.personId))
+    .where(
+      and(inArray(sql`lower(${personEmails.email})`, emails), eq(people.isSelf, false), notDeleted(people)),
+    )
+  return [...new Set(rows.map((row) => row.personId))]
+}

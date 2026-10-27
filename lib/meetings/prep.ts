@@ -16,16 +16,17 @@ import { ValidationError, inTransaction, type ActorContext, type Executor } from
 import { groups, meetings, projects, series } from '../db/schema'
 import { onShelf } from '../db/shelf'
 import { groupsByEmail } from '../directory/groups'
-import { findSelf } from '../directory/people'
+import { findSelf, knownPeople } from '../directory/people'
 import {
   attachToEvent,
   createMeeting,
   findMeetingByEvent,
   getMeeting,
   listMeetings,
+  setMeetingProjects,
   type MeetingView,
 } from './meetings'
-import { getNote, meetingOf, moveNote } from '../notes/notes'
+import { getNote, meetingOf, moveNote, splitNote } from '../notes/notes'
 import { joinRoster } from './roster'
 import { createSeries, findSeriesByCalendar, getSeries, listSeries, updateSeries, type SeriesView } from './series'
 
@@ -177,7 +178,8 @@ export async function sessionFromNote(
     const parent = on.parentMeetingId ? await getMeeting(tx, on.parentMeetingId) : on
 
     const at = (value: string | null | undefined) => (value ? new Date(value) : null)
-    const startsAt = at(note.filing?.startsAt) ?? note.createdAt
+    // A pasted note says nothing of when: the meeting it was on does.
+    const startsAt = at(note.filing?.startsAt) ?? parent.startsAt ?? note.createdAt
     const endsAt = at(note.filing?.endsAt)
     const session = await createMeeting(tx, actor, {
       contextId: parent.contextId,
@@ -191,6 +193,47 @@ export async function sessionFromNote(
     })
     await moveNote(tx, actor, note.id, session.id)
     return session
+  })
+}
+
+/**
+ * The other way: a note filed on a meeting by time was a conversation of its
+ * own (a 1:1 straight after). It gets the meeting it would have had, with its
+ * title, times and the people it names, and the projects of the meeting it
+ * leaves, which its folder put there or which are this context's work; it
+ * moves there with what it left undecided. Accepted proposals stay where
+ * their items were made.
+ */
+export async function ownMeetingFromNote(
+  exec: Executor,
+  actor: ActorContext,
+  noteId: string,
+): Promise<MeetingView> {
+  return inTransaction(exec, async (tx) => {
+    const note = await getNote(tx, noteId)
+    const from = await getMeeting(tx, meetingOf(note))
+
+    const at = (value: string | null | undefined) => (value ? new Date(value) : null)
+    const startsAt = at(note.filing?.startsAt) ?? from.startsAt ?? note.createdAt
+    const endsAt = at(note.filing?.recordedTo) ?? at(note.filing?.endsAt)
+    const made = await meetingFromNote(tx, actor, {
+      contextId: from.contextId,
+      title: note.title?.trim() || null,
+      startsAt,
+      endsAt: endsAt && endsAt > startsAt ? endsAt : null,
+      personIds: await knownPeople(
+        tx,
+        note.attendees.map((attendee) => attendee.email.toLowerCase()),
+      ),
+    })
+    await setMeetingProjects(
+      tx,
+      actor,
+      made.id,
+      from.projects.map((project) => project.id),
+    )
+    await splitNote(tx, note.id, made.id)
+    return getMeeting(tx, made.id)
   })
 }
 

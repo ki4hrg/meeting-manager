@@ -30,6 +30,15 @@ export const WORLD = {
     planning: 'Worship planning',
     bishop: 'With the bishop',
     camps: 'Camps review',
+    /* Two recordings filed on it by time. */
+    siteVisit: 'Site visit',
+    /* And a debrief begun just after it. */
+    walkThrough: 'Hall walk-through',
+    debrief: 'Walk-through debrief',
+  },
+  notes: {
+    tour: 'The tour',
+    oneToOne: 'Sarah and John',
   },
   proposal: 'Get three quotes for the boiler',
   /* Raised at a meeting as a topic, and more than one: accepted as a project. */

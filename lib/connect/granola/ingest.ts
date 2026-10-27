@@ -48,14 +48,14 @@ import {
   meetingPeople,
   meetingProjects,
   meetings,
-  people,
-  personEmails,
+  notes,
   series,
   type NoteAttendee,
   type NoteFiling,
 } from '../../db/schema'
 import { listContexts } from '../../directory/contexts'
 import { groupsByEmail } from '../../directory/groups'
+import { knownPeople } from '../../directory/people'
 import { addMeetingGroups } from '../../meetings/meetings'
 import { meetingFromNote } from '../../meetings/prep'
 import { findSeriesByCalendar } from '../../meetings/series'
@@ -231,19 +231,7 @@ function namedAttendees(note: GranolaNote): NoteAttendee[] {
   return [...byEmail.values()]
 }
 
-/* The people at these addresses who are already in the directory, without
-   John: he is at every meeting and never a row on one. */
-export async function knownPeople(exec: Executor, emails: string[]): Promise<string[]> {
-  if (emails.length === 0) return []
-  const rows = await exec
-    .select({ personId: personEmails.personId })
-    .from(personEmails)
-    .innerJoin(people, eq(people.id, personEmails.personId))
-    .where(
-      and(inArray(sql`lower(${personEmails.email})`, emails), eq(people.isSelf, false), notDeleted(people)),
-    )
-  return [...new Set(rows.map((row) => row.personId))]
-}
+export { knownPeople }
 
 function moment(value: string | null | undefined): Date | null {
   if (!value) return null
@@ -259,11 +247,13 @@ export function startedAt(note: GranolaNote): Date | null {
 /** When the note says it was and which event it recorded: all that finding its meeting reads. */
 export function filingOf(note: GranolaNote, lines: GranolaTranscriptLine[]): NoteFiling {
   const start = startedAt(note)
-  const end = moment(note.calendar_event?.scheduled_end_time) ?? moment(lines.at(-1)?.end_time)
+  const recorded = moment(lines.at(-1)?.end_time)
+  const end = moment(note.calendar_event?.scheduled_end_time) ?? recorded
   return {
     startsAt: start?.toISOString() ?? null,
     endsAt: start && end && end > start ? end.toISOString() : null,
     calendarEventId: note.calendar_event?.calendar_event_id?.trim() || null,
+    recordedTo: recorded?.toISOString() ?? null,
   }
 }
 
@@ -367,8 +357,33 @@ async function findMeeting(
         under.map((row) => row.id),
       ),
     )
+  /* A meeting that has been recorded is over when its recording stopped, not
+     when the calendar said: a note started after that is the next
+     conversation (a 1:1 straight after, a debrief), and gets a meeting of its
+     own. One that overlaps the recording is the same conversation, split. */
+  const recordings = await exec
+    .select({ meetingId: notes.meetingId, filing: notes.filing })
+    .from(notes)
+    .where(
+      and(
+        inArray(
+          notes.meetingId,
+          under.map((row) => row.id),
+        ),
+        eq(notes.source, GRANOLA),
+      ),
+    )
+  const recordedTo = new Map<string, number>()
+  for (const one of recordings) {
+    const to = moment(one.filing?.recordedTo)
+    if (!one.meetingId || !to) continue
+    recordedTo.set(one.meetingId, Math.max(recordedTo.get(one.meetingId) ?? 0, to.getTime()))
+  }
+
   const known = new Set(personIds)
   const fits = under.filter((row) => {
+    const until = recordedTo.get(row.id)
+    if (until !== undefined && start.getTime() >= until) return false
     const roster = rosters.filter((one) => one.meetingId === row.id)
     /* People contradict only when both sides name some and share none. */
     return known.size === 0 || roster.length === 0 || roster.some((one) => known.has(one.personId))

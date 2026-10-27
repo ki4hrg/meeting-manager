@@ -12,6 +12,7 @@ import { createItem } from '../lib/items/items'
 import { createMeeting } from '../lib/meetings/meetings'
 import { createSeries } from '../lib/meetings/series'
 import { addProposals } from '../lib/processing/proposals'
+import { saveNote } from '../lib/notes/notes'
 import { createProject } from '../lib/projects/projects'
 import { ACCOUNT, WORLD } from './world'
 
@@ -74,6 +75,26 @@ export async function seed({ todoistToken }: { todoistToken?: string } = {}) {
   await addProposals(db, { meetingId: camps.id }, [
     { payload: { type: 'item', kind: 'topic', text: WORLD.projectProposal, parties: [{ role: 'with', name: WORLD.people.adlene, personId: adlene.id }], projectId: year.id } },
   ])
+
+  // Four days back: a site visit and its two recordings, the second a 1:1 after it.
+  const visit = await createMeeting(db, actor, { contextId: church.id, title: WORLD.meetings.siteVisit, startsAt: at(-4, 10), endsAt: at(-4, 11), personIds: [sarah.id] })
+  const minutes = (hour: number, minute: number) => new Date(at(-4, hour).getTime() + minute * 60_000).toISOString()
+  for (const [title, from, to] of [
+    [WORLD.notes.tour, minutes(10, 0), minutes(10, 45)],
+    [WORLD.notes.oneToOne, minutes(10, 45), minutes(11, 15)],
+  ] as const) {
+    await saveNote(db, actor, {
+      meetingId: visit.id,
+      source: 'granola',
+      externalId: `not_${randomUUID().replaceAll('-', '').slice(0, 14)}`,
+      title,
+      body: title,
+      filing: { startsAt: from, endsAt: null, calendarEventId: null, recordedTo: to },
+    })
+  }
+  // Five days back: a walk-through, and a debrief begun just after it.
+  await createMeeting(db, actor, { contextId: church.id, title: WORLD.meetings.walkThrough, startsAt: at(-5, 10), endsAt: at(-5, 11) })
+  await createMeeting(db, actor, { contextId: church.id, title: WORLD.meetings.debrief, startsAt: new Date(at(-5, 11).getTime() + 5 * 60_000), endsAt: at(-5, 12) })
 
   /* Connected last, so the items above are the ones already open: they wait
      in Match. */
