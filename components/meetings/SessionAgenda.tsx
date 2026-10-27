@@ -13,6 +13,7 @@ export function SessionAgenda({
   people,
   sessions,
   tools,
+  housekeeping,
 }: {
   session: { id: string; title: string; startsAt: Date | null; endsAt: Date | null }
   agenda: Agenda
@@ -21,6 +22,8 @@ export function SessionAgenda({
   people: LeaderChoice[]
   sessions?: SessionChoice[]
   tools?: React.ReactNode
+  /** Icon-only actions on the session itself, beside its name. */
+  housekeeping?: React.ReactNode
 }) {
   return (
     <div>
@@ -39,6 +42,7 @@ export function SessionAgenda({
           ) : (
             <Badge tone="amber">Undated</Badge>
           )}
+          {housekeeping ? <span className="flex items-center self-center">{housekeeping}</span> : null}
         </div>
         {tools}
       </div>

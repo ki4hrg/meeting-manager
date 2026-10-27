@@ -329,6 +329,14 @@ export default async function MeetingPage({
                           people={leaders}
                           sessions={sessions}
                           tools={agendaTools(session.id)}
+                          housekeeping={
+                            <IconAction
+                              action={separateSessionAction}
+                              fields={{ meetingId: session.id }}
+                              icon="meeting"
+                              label="Own meeting"
+                            />
+                          }
                         />
                       ))}
                     </div>
