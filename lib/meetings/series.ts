@@ -229,6 +229,7 @@ function cleanBlocks(input: BlockSettings): BlockSettings {
     followUps: input?.followUps === true,
     sinceLast: input?.sinceLast === true,
     lookahead: input?.lookahead === true,
+    ...(input?.wholeProject === true ? { wholeProject: true } : {}),
   }
 }
 

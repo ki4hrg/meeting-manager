@@ -9,7 +9,7 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await page.goto('/')
   const review = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Review/ }) })
   await review.getByRole('link').filter({ hasText: WORLD.meetings.finance }).click()
-  await expect(page).toHaveURL(/\/review$/)
+  await expect(page).toHaveURL(/#review$/)
   expect(await selectedContext(page)).toBe(WORLD.contexts.church)
 
   await expect(page.getByText(WORLD.proposal)).toBeVisible()
@@ -26,7 +26,7 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await expect(bishop).toHaveAttribute('aria-pressed', 'true')
 
   // Changing its kind relabels the people and keeps who is picked; a decision takes no deadline.
-  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  await page.locator('#review').getByRole('button', { name: 'Edit', exact: true }).first().click()
   await dialog(page).getByLabel('Assigned to', { exact: true }).fill(WORLD.people.sarah)
   await dialog(page).getByRole('option', { name: WORLD.people.sarah }).click()
   await expect(dialog(page).getByLabel('Due')).toBeVisible()
@@ -40,7 +40,7 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await expect(dialog(page).getByLabel('Due')).toBeHidden()
   await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click()
   // It names no owner or deadline, so Accept asks for them; both may stay empty.
-  await page.getByRole('button', { name: 'Accept', exact: true }).first().click()
+  await page.locator('#review').getByRole('button', { name: 'Accept', exact: true }).first().click()
   await dialog(page).getByRole('button', { name: 'Accept', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible()
 
@@ -56,8 +56,13 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await expect(bishop).toHaveAccessibleName(/^Out/)
 
   // Someone on the list by mistake comes off it altogether, rather than out.
-  await attendance.getByRole('button', { name: `Remove ${WORLD.people.bishop}` }).click()
+  // A tap before the page has hydrated does nothing, so it is tapped until the chip goes.
+  await expect(async () => {
+    await attendance.getByRole('button', { name: `Remove ${WORLD.people.bishop}` }).click()
+    await expect(bishop).toHaveCount(0, { timeout: 1_000 })
+  }).toPass()
   await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await page.waitForLoadState('networkidle')
   await page.reload()
   await expect(bishop).toHaveCount(0)
 
@@ -71,10 +76,10 @@ test('a proposal accepted as a project from its kind, with a topic kept on it, a
   await selectContext(page, WORLD.contexts.conference)
   const review = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Review/ }) })
   await review.getByRole('link').filter({ hasText: WORLD.meetings.camps }).click()
-  await expect(page).toHaveURL(/\/review$/)
+  await expect(page).toHaveURL(/#review$/)
   await expect(page.getByText(WORLD.projectProposal)).toBeVisible()
 
-  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  await page.locator('#review').getByRole('button', { name: 'Edit', exact: true }).first().click()
   await dialog(page).getByLabel('Kind').selectOption('project')
   await expect(dialog(page).getByLabel('Status')).toHaveValue('proposed')
   // The people are the kept topic's, so they show only with it.
@@ -84,7 +89,7 @@ test('a proposal accepted as a project from its kind, with a topic kept on it, a
   await dialog(page).getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog(page)).toHaveCount(0)
 
-  await expect(page.getByRole('link', { name: WORLD.projectProposal })).toHaveAttribute('href', /\/projects\//)
+  await expect(page.locator('#review').getByRole('link', { name: WORLD.projectProposal })).toHaveAttribute('href', /\/projects\//)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Accept', exact: true })).toBeVisible()
   await page.goto('/projects')

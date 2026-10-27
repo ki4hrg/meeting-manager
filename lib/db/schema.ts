@@ -494,7 +494,14 @@ export const itemEvents = pgTable(
 
 /* Which generated blocks an agenda carries. Set on the series; a meeting with
    no series, or with `blocks` null, falls back to all off. */
-export type BlockSettings = { followUps: boolean; sinceLast: boolean; lookahead: boolean }
+export type BlockSettings = {
+  followUps: boolean
+  sinceLast: boolean
+  lookahead: boolean
+  /* Since last time and the lookahead read every meeting on its projects, not
+     only those everyone here was at (lib/agenda/generated.ts, `hearsAll`). */
+  wholeProject?: boolean
+}
 
 /* John's own wording for a recap's prose, over what the runs wrote. A key that
    is absent keeps the computed text; an empty string leaves that part out. */

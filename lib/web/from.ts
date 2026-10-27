@@ -65,6 +65,9 @@ function takesFrom(path: string): boolean {
  */
 export function withFrom(href: string, current: string | null | undefined): string {
   if (!current || !parseFrom(current)) return href
+  // A fragment (`#review`) stays at the end, after the query.
+  const hashAt = href.indexOf('#')
+  if (hashAt !== -1) return withFrom(href.slice(0, hashAt), current) + href.slice(hashAt)
   const [path, query = ''] = href.split('?', 2) as [string, string?]
   if (path === '/api/open') {
     const params = new URLSearchParams(query)

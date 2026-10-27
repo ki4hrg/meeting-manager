@@ -8,7 +8,7 @@ test('a logged meeting turns its D: line into a proposal to review', async ({ pa
   await dialog(page).getByRole('button', { name: 'Log', exact: true }).click()
 
   // Log opens the meeting's review; the run is kicked once the response has gone.
-  await expect(page).toHaveURL(/\/review$/)
+  await expect(page).toHaveURL(/#review$/)
   await expect(async () => {
     await page.reload()
     await expect(page.getByText('Keep the Thursday slot')).toBeVisible({ timeout: 2_000 })
@@ -22,13 +22,13 @@ test('a name nobody matches is settled from the edit form, as a new person', asy
   await dialog(page).getByLabel('Notes').fill('A: Book the hall @Priya')
   await dialog(page).getByRole('button', { name: 'Log', exact: true }).click()
 
-  await expect(page).toHaveURL(/\/review$/)
+  await expect(page).toHaveURL(/#review$/)
   await expect(async () => {
     await page.reload()
     await expect(page.getByText('Book the hall', { exact: true })).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
 
-  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  await page.locator('#review').getByRole('button', { name: 'Edit', exact: true }).first().click()
   await dialog(page).getByRole('listbox', { name: 'Who is Priya?' }).getByRole('option', { name: 'New person Priya' }).click()
   await dialog(page).getByLabel("New person's name").fill('Priya Patel')
   await expect(dialog(page).getByRole('listbox', { name: 'Who is Priya?' })).toBeHidden()

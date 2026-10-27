@@ -229,7 +229,7 @@ export async function pasteSkeletonAction(
   return { ...result, skeleton }
 }
 
-const BLOCKS = ['followUps', 'sinceLast', 'lookahead'] as const
+const BLOCKS = ['followUps', 'sinceLast', 'lookahead', 'wholeProject'] as const
 
 export async function setSeriesBlockAction(formData: FormData): Promise<ActionResult> {
   return act(async () => {

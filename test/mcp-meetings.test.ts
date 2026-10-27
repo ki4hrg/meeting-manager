@@ -707,7 +707,7 @@ describe('update_meeting', () => {
       ends_at: '2030-03-05T10:00',
       people: ['sarah'],
     })
-    expect(meeting.blocks).toEqual({ follow_ups: false, since_last: false, lookahead: false })
+    expect(meeting.blocks).toEqual({ follow_ups: false, since_last: false, lookahead: false, whole_project: false })
 
     const updated = await ok<View>('update_meeting', {
       id: meeting.id,
@@ -736,12 +736,12 @@ describe('update_meeting', () => {
       ],
       groups: [{ id: world.staff.id, name: 'Staff' }],
       series: { id: weekly.id, name: 'Weekly' },
-      blocks: { follow_ups: false, since_last: false, lookahead: true },
+      blocks: { follow_ups: false, since_last: false, lookahead: true, whole_project: false },
     })
 
     // null hands the blocks back to the series.
     const inherited = await ok<View>('update_meeting', { id: meeting.id, blocks: null })
-    expect(inherited.meeting.blocks).toEqual({ follow_ups: true, since_last: false, lookahead: false })
+    expect(inherited.meeting.blocks).toEqual({ follow_ups: true, since_last: false, lookahead: false, whole_project: false })
 
     expect(
       await refusal('update_meeting', { id: meeting.id, ends_at: '2030-03-06T12:00' }),
@@ -1050,7 +1050,7 @@ describe('get_briefing', () => {
 
     // The override was for that render only. A project's meeting of no series has since last time.
     const after = await ok<View>('get_meeting', { id })
-    expect(after.meeting.blocks).toEqual({ follow_ups: false, since_last: true, lookahead: false })
+    expect(after.meeting.blocks).toEqual({ follow_ups: false, since_last: true, lookahead: false, whole_project: false })
   })
 })
 
@@ -1078,7 +1078,7 @@ describe('series', () => {
       ],
       projects: [{ id: world.retreat.id, name: 'Retreat' }],
       skeleton: [{ title: 'Opening', lines: [{ text: 'Prayer', minutes: 5 }] }],
-      blocks: { follow_ups: true, since_last: false, lookahead: false },
+      blocks: { follow_ups: true, since_last: false, lookahead: false, whole_project: false },
     })
 
     expect(await refusal('create_series', { context: 'Parish', name: 'staff meeting' })).toContain(
@@ -1120,7 +1120,7 @@ describe('series', () => {
           ],
         },
       ],
-      blocks: { follow_ups: true, since_last: false, lookahead: true },
+      blocks: { follow_ups: true, since_last: false, lookahead: true, whole_project: false },
     })
 
     const listed = await ok<{ context: Named; series: Series[] }>('list_series', { context: 'Parish' })
@@ -1136,7 +1136,7 @@ describe('series', () => {
       starts_at: null,
       series: { id: created.id, name: 'Staff weekly' },
       people: [{ id: world.sarah.id, name: 'Sarah Jones' }],
-      blocks: { follow_ups: true, since_last: false, lookahead: true },
+      blocks: { follow_ups: true, since_last: false, lookahead: true, whole_project: false },
     })
     expect(shape(first)).toEqual([{ Opening: ['Prayer'] }, { Reports: ['Finance', 'Buildings'] }])
     expect(lineOf(first, 'Finance').minutes).toBe(10)

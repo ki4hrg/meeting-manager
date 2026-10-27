@@ -150,7 +150,7 @@ export default async function HomePage() {
                 meeting={meeting}
                 when={meeting.startsAt ? formatMoment(meeting.startsAt, user.timeZone) : null}
                 pending={count}
-                href={open(`/meetings/${meeting.id}/review`, contextId)}
+                href={open(`/meetings/${meeting.id}#review`, contextId)}
                 context={label(contextId)}
               />
             ))}

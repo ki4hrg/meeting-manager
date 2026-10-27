@@ -160,7 +160,7 @@ export function History({
                     <SourceMark source={line.source} />
                     {line.from ? (
                       <Link
-                        href={`/meetings/${line.from.meetingId}/review`}
+                        href={`/meetings/${line.from.meetingId}#review`}
                         title={line.from.title}
                         aria-label={line.from.title}
                         className="inline-flex text-gray-400 hover:text-blue-600 dark:text-gray-500 dark:hover:text-blue-400"

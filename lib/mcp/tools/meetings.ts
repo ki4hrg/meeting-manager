@@ -100,12 +100,15 @@ const blocksArg = z.strictObject({
   follow_ups: z.boolean().optional(),
   since_last: z.boolean().optional(),
   lookahead: z.boolean().optional(),
+  whole_project: z.boolean().optional(),
 })
 
 const BLOCKS_RULE =
   'blocks switches the generated blocks: follow_ups (what is owed, from placed items), ' +
   'since_last (against the previous occurrence), lookahead (milestones, deadlines and the ' +
-  'next linked meetings).'
+  'next linked meetings). whole_project lets since_last and lookahead read every meeting on ' +
+  'its projects; off, they read only meetings everyone at this one was at, and the lookahead ' +
+  'also lists the next meetings of a group or series.'
 
 const agendaLineArg = z
   .strictObject({
@@ -179,6 +182,7 @@ function blocksOut(blocks: BlockSettings) {
     follow_ups: blocks.followUps,
     since_last: blocks.sinceLast,
     lookahead: blocks.lookahead,
+    whole_project: blocks.wholeProject === true,
   }
 }
 
@@ -188,6 +192,7 @@ function blocksFrom(input: BlocksInput | undefined): Partial<BlockSettings> {
   if (input?.follow_ups !== undefined) given.followUps = input.follow_ups
   if (input?.since_last !== undefined) given.sinceLast = input.since_last
   if (input?.lookahead !== undefined) given.lookahead = input.lookahead
+  if (input?.whole_project !== undefined) given.wholeProject = input.whole_project
   return given
 }
 

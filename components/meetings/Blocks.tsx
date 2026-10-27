@@ -12,6 +12,8 @@ const BLOCKS: Array<{ name: keyof BlockSettings; label: string; icon: IconName }
   { name: 'followUps', label: 'Follow-ups due', icon: 'clock' },
   { name: 'sinceLast', label: 'Since last time', icon: 'undo' },
   { name: 'lookahead', label: 'Lookahead', icon: 'flag' },
+  /* Not a block: how far the two above read, the meeting's own room or its whole project. */
+  { name: 'wholeProject', label: 'Whole project', icon: 'project' },
 ]
 
 const ROW = 'flex items-start gap-2 py-1.5'
@@ -50,7 +52,7 @@ export function Blocks({
               icon={block.icon}
               label={block.label}
               tone={settings[block.name] ? 'on' : 'gray'}
-              aria-pressed={settings[block.name]}
+              aria-pressed={settings[block.name] === true}
             />
           ))}
         </div>

@@ -1668,7 +1668,38 @@ describe('a project does not make a smaller room part of a larger one', () => {
     expect(shown).not.toContain(inPrivate.id)
   })
 
-  it('the lookahead lists only meetings everyone here is at, and no deadline from a smaller room', async () => {
+  it('a meeting set to read its whole project hears the 1:1 on it', async () => {
+    const w = await makeWorld()
+    const withTreasurer = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.tom.id],
+      projectIds: [w.retreat.id],
+      startsAt: fromNow(-10),
+    })
+    const withBishop = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      personIds: [w.bishop.id],
+      projectIds: [w.retreat.id],
+      startsAt: fromNow(10),
+      blocks: { ...ALL_ON, wholeProject: true },
+    })
+    const said = await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'decision',
+      text: 'Budget held at last year',
+      projectId: w.retreat.id,
+      originMeetingId: withTreasurer.id,
+    })
+    const blocks = await computeBlocks(db, withBishop.id, { today: TODAY })
+    expect(blocks.sinceLast?.meeting.id).toBe(withTreasurer.id)
+    expect(await blockItemIds(withBishop.id)).toContain(said.id)
+
+    // Off, it does not.
+    await updateMeeting(db, actor, withBishop.id, { blocks: ALL_ON })
+    expect((await computeBlocks(db, withBishop.id, { today: TODAY })).sinceLast).toBeNull()
+  })
+
+  it('the lookahead names a team’s next meeting and every one this room is at, not a 1:1, and no deadline from a smaller room', async () => {
     const w = await makeWorld()
     const now = await createMeeting(db, actor, {
       contextId: w.parish.id,
@@ -1689,6 +1720,13 @@ describe('a project does not make a smaller room part of a larger one', () => {
       projectIds: [w.retreat.id],
       startsAt: new Date('2026-10-10T15:00:00Z'),
     })
+    // Another team's meeting on the project is named, whoever is on it.
+    const worship = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      projectIds: [w.retreat.id],
+      startsAt: new Date('2026-10-11T15:00:00Z'),
+    })
     const due = '2026-10-12'
     const fromPrivate = await createItem(db, actor, {
       contextId: w.parish.id,
@@ -1707,7 +1745,7 @@ describe('a project does not make a smaller room part of a larger one', () => {
     })
 
     const ahead = (await computeBlocks(db, now.id, { today: TODAY })).lookahead
-    expect(ahead?.meetings.map((row) => row.id)).toEqual([next.id])
+    expect(ahead?.meetings.map((row) => row.id)).toEqual([worship.id, next.id])
     expect(ahead?.deadlines.map((row) => row.itemId)).toEqual([open.id])
     expect(ahead?.deadlines.map((row) => row.itemId)).not.toContain(fromPrivate.id)
   })

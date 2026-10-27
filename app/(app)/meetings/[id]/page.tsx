@@ -18,7 +18,6 @@ import { ItemsByKind } from '@/components/items/ItemCard'
 import { Chip } from '@/components/ui/Chip'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Icon } from '@/components/ui/icons'
-import { PendingBadge } from '@/components/processing/PendingBadge'
 import { ButtonLink } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Badge } from '@/components/ui/StatusBadge'
@@ -36,10 +35,10 @@ import { listPeople } from '@/lib/directory/people'
 import { listItems } from '@/lib/items/items'
 import { getMeeting, isOver } from '@/lib/meetings/meetings'
 import { listSeries } from '@/lib/meetings/series'
-import { pendingOnCards } from '@/lib/processing/proposals'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context'
 import { separateSessionAction } from '../processing-actions'
+import { reviewOf } from './review-parts'
 import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addSectionAction,
@@ -93,7 +92,7 @@ export default async function MeetingPage({
   const roll = takesRoll ? await rollCall(db, id) : []
 
   const covered = [meeting.id, ...meeting.sessions.map((one) => one.id)]
-  const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, pending, documents, outcomes] = await Promise.all([
+  const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, documents, outcomes] = await Promise.all([
     getAgenda(db, id, { timeZone }),
     Promise.all(meeting.sessions.map((session) => getAgenda(db, session.id, { timeZone }))),
     getCandidates(db, id),
@@ -103,7 +102,6 @@ export default async function MeetingPage({
     listGroups(db, context.id),
     listProjectChoices(db, context.id),
     listSeries(db, context.id),
-    pendingOnCards(db, context.id),
     // What its notes drafted, its sessions' with it.
     listDocuments(db, { contextId: context.id, meetingIds: covered }),
     // What came out of it, its sessions' with it.
@@ -112,6 +110,19 @@ export default async function MeetingPage({
   const outcome = outcomes.flat()
   // Once it has started there can be something to show for it.
   const started = meeting.startsAt !== null && meeting.startsAt <= new Date()
+  /* What came of it, reviewed here: its notes, the run and the proposals. */
+  const review = await reviewOf({
+    meeting,
+    parent,
+    choices: { people, groups, projects, series },
+    people,
+    groups,
+    roll,
+    today,
+    selfId: self.id,
+    timeZone,
+  })
+  const reviewing = started || review.any
 
   const sessions = rollup
     ? meeting.sessions.map((session, index) => ({ ...session, agenda: sessionAgendas[index]! }))
@@ -214,17 +225,16 @@ export default async function MeetingPage({
         }
         actions={
           <>
+            {review.approveAll}
+            {/* The one blue button is Approve all while anything is ready to approve. */}
             <Export
               kind="agenda"
               outline={briefOutline(brief)}
               title={meeting.title}
               mailto={`mailto:?subject=${encodeURIComponent(meeting.title)}`}
+              variant={review.approveAll ? 'secondary' : 'primary'}
             />
-            <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
-              <Icon name="check" className="h-4 w-4" />
-              Review
-              <PendingBadge count={pending.get(meeting.id)} />
-            </ButtonLink>
+            {review.sessionOf}
             <ButtonLink href={`/meetings/${meeting.id}/recap`} variant="secondary">
               <Icon name="document" className="h-4 w-4" />
               Recap
@@ -307,6 +317,8 @@ export default async function MeetingPage({
           </Section>
         ) : null}
 
+        {reviewing ? review.body : null}
+
         <TwoColumn
           main={
             <>
@@ -362,6 +374,8 @@ export default async function MeetingPage({
                   <ItemsByKind items={outcome} today={today} empty="action" />
                 </Section>
               ) : null}
+
+              {reviewing ? review.notes : null}
 
               {/* One level only: a session has no sessions of its own. */}
               {rollup || parent ? null : <Section title="Sessions" count={0} action={addSession} />}

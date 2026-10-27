@@ -3,8 +3,6 @@ import { CopyButton } from '@/components/CopyButton'
 import { Export } from '@/components/Export'
 import { IconAction, InlineEdit } from '@/components/forms'
 import { LivesIn } from '@/components/meetings/Move'
-import { PendingBadge } from '@/components/processing/PendingBadge'
-import { ButtonLink } from '@/components/ui/Button'
 import { Card, CardGrid, CardHeader, Section } from '@/components/ui/Card'
 import { Icon } from '@/components/ui/icons'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -22,7 +20,6 @@ import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
 import { copyListIfOver } from '@/lib/meetings/attendance'
 import { getMeeting } from '@/lib/meetings/meetings'
-import { pendingOnCards } from '@/lib/processing/proposals'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import { crumbsFrom } from '@/lib/web/crumbs'
 import { editRecapAction, openMeetingAction, resetRecapAction } from '../../actions'
@@ -98,10 +95,7 @@ export default async function RecapPage({
     return <LivesIn title={meeting.title} context={home} action={openMeetingAction} id={meeting.id} />
   }
 
-  const [recap, pending] = await Promise.all([
-    getRecap(db, id, { today, timeZone: user.timeZone, selfId: self.id }),
-    pendingOnCards(db, context.id),
-  ])
+  const recap = await getRecap(db, id, { today, timeZone: user.timeZone, selfId: self.id })
   const pieces = recapPieces(recap)
   const edit = { id: meeting.id }
 
@@ -156,11 +150,6 @@ export default async function RecapPage({
                 { key: 'here', label: 'Here', icon: 'check', href: recapMailto(recap, 'here') },
               ]}
             />
-            <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
-              <Icon name="check" className="h-4 w-4" />
-              Review
-              <PendingBadge count={pending.get(meeting.id)} />
-            </ButtonLink>
           </div>
         }
       />

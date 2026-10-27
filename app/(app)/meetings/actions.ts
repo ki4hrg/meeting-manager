@@ -221,7 +221,9 @@ export async function toggleBlockAction(formData: FormData): Promise<ActionResul
   return act(async (actor) => {
     const block = field(formData, 'block') as keyof BlockSettings
     const meeting = await getMeeting(db, field(formData, 'id'))
-    if (!(block in meeting.blocks)) throw new ValidationError('Unknown block.')
+    if (!['followUps', 'sinceLast', 'lookahead', 'wholeProject'].includes(block)) {
+      throw new ValidationError('Unknown block.')
+    }
     await updateMeeting(db, actor, meeting.id, {
       blocks: { ...meeting.blocks, [block]: !meeting.blocks[block] },
     })

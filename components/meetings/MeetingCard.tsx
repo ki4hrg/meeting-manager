@@ -93,7 +93,7 @@ export function MeetingCard({
   to,
   agenda,
   mark,
-  href = to === 'review' ? `/meetings/${meeting.id}/review` : `/meetings/${meeting.id}`,
+  href = to === 'review' ? `/meetings/${meeting.id}#review` : `/meetings/${meeting.id}`,
   context,
 }: {
   meeting: Listed

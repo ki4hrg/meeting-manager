@@ -13,7 +13,9 @@
  * A project alone does not make a meeting part of the room. What came out of
  * a meeting was said to the people at it, so it is spoken of only where they
  * all were (`hearsAll`): a planning team's meeting on a project does not hear
- * what John's 1:1 with the treasurer on the same project produced.
+ * what John's 1:1 with the treasurer on the same project produced. A meeting
+ * that should (a 1:1 with the bishop, who hears what the treasurer said) is
+ * set to read its whole project (`wholeProject`).
  */
 
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or } from 'drizzle-orm'
@@ -87,8 +89,8 @@ export async function computeBlocks(
 
   const [followUps, sinceLast, lookahead] = await Promise.all([
     on.followUps ? followUpsFor(exec, meeting, opts.today) : null,
-    on.sinceLast ? sinceLastFor(exec, meeting, now) : null,
-    on.lookahead ? lookaheadFor(exec, meeting, opts.today, now) : null,
+    on.sinceLast ? sinceLastFor(exec, meeting, now, on.wholeProject === true) : null,
+    on.lookahead ? lookaheadFor(exec, meeting, opts.today, now, on.wholeProject === true) : null,
   ])
   return { followUps, sinceLast, lookahead }
 }
@@ -168,7 +170,7 @@ type Circle = {
   meetingIds: Set<string>
 }
 
-async function circleOf(exec: Executor, meeting: Meeting): Promise<Circle | null> {
+async function circleOf(exec: Executor, meeting: Meeting, wholeProject: boolean): Promise<Circle | null> {
   const [ownProjects, ownGroups] = await Promise.all([
     exec
       .select({ id: meetingProjects.projectId })
@@ -212,7 +214,8 @@ async function circleOf(exec: Executor, meeting: Meeting): Promise<Circle | null
         ),
       ),
     )
-  const heard = await hearsAll(exec, meeting, rows.map((row) => row.id))
+  const all = rows.map((row) => row.id)
+  const heard = wholeProject ? new Set(all) : await hearsAll(exec, meeting, all)
   return { seriesId: meeting.seriesId, groupIds, projectIds, meetingIds: heard }
 }
 
@@ -256,7 +259,13 @@ async function roomsOf(exec: Executor, ids: string[]): Promise<Map<string, Room>
  * What was said at one of them was heard by everyone here, so it may be
  * repeated here; what was said in a smaller room may not.
  */
-export async function hearsAll(exec: Executor, meeting: Meeting, ids: string[]): Promise<Set<string>> {
+export async function hearsAll(
+  exec: Executor,
+  meeting: Meeting,
+  ids: string[],
+  /** Count any meeting of a group or a series as well: for naming a meeting, not repeating what it said. */
+  opts: { teams?: boolean } = {},
+): Promise<Set<string>> {
   const rooms = await roomsOf(exec, [...new Set([meeting.id, ...ids])])
   const here = rooms.get(meeting.id)!
   const heard = new Set<string>()
@@ -267,6 +276,7 @@ export async function hearsAll(exec: Executor, meeting: Meeting, ids: string[]):
       id === meeting.id ||
       (here.seriesId !== null && there.seriesId === here.seriesId) ||
       [...there.groupIds].some((groupId) => here.groupIds.has(groupId)) ||
+      (opts.teams === true && (there.groupIds.size > 0 || there.seriesId !== null)) ||
       [...here.personIds].every((personId) => there.personIds.has(personId))
     ) {
       heard.add(id)
@@ -287,8 +297,9 @@ async function sinceLastFor(
   exec: Executor,
   meeting: Meeting,
   now: Date,
+  wholeProject: boolean,
 ): Promise<SinceLastBlock | null> {
-  const circle = await circleOf(exec, meeting)
+  const circle = await circleOf(exec, meeting, wholeProject)
   if (!circle) return null
   const before = meeting.startsAt ?? now
 
@@ -361,7 +372,7 @@ async function sinceLastFor(
      project) is judged by its room like any other. */
   const judged = new Map<string, boolean>()
   const outside = async (id: string) => {
-    if (!judged.has(id)) judged.set(id, (await hearsAll(exec, meeting, [id])).has(id))
+    if (!judged.has(id)) judged.set(id, wholeProject || (await hearsAll(exec, meeting, [id])).has(id))
     return judged.get(id)!
   }
   const belongs = async (item: ItemView, depth = 0): Promise<boolean> => {
@@ -434,6 +445,7 @@ async function lookaheadFor(
   meeting: Meeting,
   today: string,
   now: Date,
+  wholeProject: boolean,
 ): Promise<LookaheadBlock | null> {
   const own = (
     await exec
@@ -484,7 +496,7 @@ async function lookaheadFor(
     .sort((a, b) => a.dueOn!.localeCompare(b.dueOn!))
   // Not what came out of a smaller room.
   const origins = [...new Set(deadlines.flatMap((item) => (item.originMeetingId ? [item.originMeetingId] : [])))]
-  const heardAt = await hearsAll(exec, meeting, origins)
+  const heardAt = wholeProject ? new Set(origins) : await hearsAll(exec, meeting, origins)
   const dated = deadlines.filter((item) => !item.originMeetingId || heardAt.has(item.originMeetingId))
 
   const sharesProject =
@@ -519,8 +531,11 @@ async function lookaheadFor(
         .orderBy(asc(meetings.startsAt))
         .limit(LOOKAHEAD_MEETINGS * 10)
     : []
-  // Only the meetings everyone here will be at: not John's 1:1 on the same project.
-  const going = await hearsAll(exec, meeting, linkedNext.map((row) => row.id))
+  /* A meeting is only named, so a team's next meeting on the project is listed
+     whoever is on it: a group's or a series'. A smaller one is not, nor one of
+     other people: not John's next 1:1 on the same project. */
+  const nextIds = linkedNext.map((row) => row.id)
+  const going = wholeProject ? new Set(nextIds) : await hearsAll(exec, meeting, nextIds, { teams: true })
   const next = linkedNext.filter((row) => going.has(row.id)).slice(0, LOOKAHEAD_MEETINGS)
 
   if (dueMilestones.length + dated.length + next.length === 0) return null
