@@ -962,3 +962,78 @@ export async function nextOccurrence(
   const [next] = await loadViews(exec, eq(meetings.id, row.id))
   return next ?? null
 }
+
+/* After a meeting ends this long, one starting is still offered as its next sitting. */
+const RECONVENE_MS = 15 * 60_000
+
+/**
+ * The meeting this one may be a later sitting of: the latest in its context
+ * that began earlier and was still on, or had ended moments before, when this
+ * began. Only ever offered to John (`makeSessionOf`); a note started after a
+ * meeting's recording is filed on a meeting of its own, never folded in.
+ */
+export async function sittingBefore(
+  exec: Executor,
+  meeting: MeetingView,
+): Promise<{ id: string; title: string } | null> {
+  if (!meeting.startsAt || meeting.parentMeetingId || meeting.sessions.length > 0 || meeting.series) {
+    return null
+  }
+  const start = meeting.startsAt.toISOString()
+  const [before] = await exec
+    .select({ id: meetings.id, title: meetings.title })
+    .from(meetings)
+    .where(
+      and(
+        eq(meetings.contextId, meeting.contextId),
+        onShelf(meetings),
+        sql`${meetings.parentMeetingId} is null`,
+        sql`${meetings.id} <> ${meeting.id}`,
+        sql`${meetings.startsAt} < ${start}::timestamptz`,
+        sql`coalesce(${meetings.endsAt}, ${meetings.startsAt} + interval '60 minutes') + interval '${sql.raw(String(RECONVENE_MS / 60_000))} minutes' >= ${start}::timestamptz`,
+      ),
+    )
+    .orderBy(desc(meetings.startsAt))
+    .limit(1)
+  return before ?? null
+}
+
+/**
+ * A meeting becomes a session of another: the debrief after a site visit,
+ * recorded as a conversation of its own. It keeps its notes, agenda and what
+ * came out of it, and takes on the parent's people, groups and projects
+ * beside its own.
+ */
+export async function makeSessionOf(
+  exec: Executor,
+  actor: ActorContext,
+  id: string,
+  parentId: string,
+): Promise<MeetingView> {
+  return inTransaction(exec, async (tx) => {
+    const m = await getMeeting(tx, id)
+    const parent = await getMeeting(tx, parentId)
+    if (m.id === parent.id || m.contextId !== parent.contextId) throw new NotFoundError('Meeting', parentId)
+    if (m.parentMeetingId || parent.parentMeetingId) {
+      throw new ValidationError('A session cannot itself have a session.')
+    }
+    if (m.sessions.length > 0) throw new ValidationError('A meeting with sessions cannot become one.')
+    if (m.series) throw new ValidationError('Take it out of its series first.')
+
+    await tx
+      .update(meetings)
+      .set({ parentMeetingId: parent.id, updatedAt: new Date() })
+      .where(eq(meetings.id, m.id))
+    const union = (mine: { id: string }[], theirs: { id: string }[]) => [
+      ...new Set([...mine, ...theirs].map((one) => one.id)),
+    ]
+    await setMeetingPeople(tx, actor, m.id, union(m.people, parent.people))
+    await addMeetingGroups(
+      tx,
+      m.id,
+      parent.groups.map((group) => group.id).filter((groupId) => !m.groups.some((g) => g.id === groupId)),
+    )
+    await setMeetingProjects(tx, actor, m.id, union(m.projects, parent.projects))
+    return getMeeting(tx, m.id)
+  })
+}

@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { ValidationError } from '../lib/core/types'
 import { proposals } from '../lib/db/schema'
-import { createMeeting } from '../lib/meetings/meetings'
+import { createMeeting, getMeeting } from '../lib/meetings/meetings'
+import { ownMeetingFromNote, sessionFromNote } from '../lib/meetings/prep'
 import { getNote, hashNote, listNotes, moveNote, saveNote } from '../lib/notes/notes'
 import { acceptProposal, addProposals, listProposals, rejectProposal } from '../lib/processing/proposals'
 import { db, resetBetweenTests } from './helpers/db'
@@ -181,5 +182,99 @@ describe('moveNote', () => {
       'Order chairs',
     ])
     expect(await db.select().from(proposals).where(eq(proposals.meetingId, retreat.id))).toEqual([])
+  })
+})
+
+describe('sessionFromNote', () => {
+  it('makes a second sitting a session of its meeting, with its people, groups and projects', async () => {
+    const w = await makeWorld()
+    const visit = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Site visit',
+      startsAt: new Date('2026-10-26T15:00:00Z'),
+      endsAt: new Date('2026-10-26T16:00:00Z'),
+      personIds: [w.sarah.id],
+      groupIds: [w.staff.id],
+      projectIds: [w.campaign.id],
+    })
+    const tour = await saveNote(db, actor, { meetingId: visit.id, source: 'pasted', body: 'the tour' })
+    const { note } = await saveNote(db, actor, {
+      meetingId: visit.id,
+      source: 'granola',
+      externalId: 'not_debrief000001',
+      title: 'Site visit debrief',
+      body: 'the debrief',
+      filing: {
+        startsAt: '2026-10-26T15:53:00Z',
+        endsAt: '2026-10-26T16:50:00Z',
+        calendarEventId: null,
+      },
+    })
+    await addProposals(db, { meetingId: visit.id, noteId: note.id }, [item('Find a piano')])
+
+    const session = await sessionFromNote(db, actor, note.id)
+
+    expect(session).toMatchObject({
+      parentMeetingId: visit.id,
+      title: 'Site visit debrief',
+      startsAt: new Date('2026-10-26T15:53:00Z'),
+      endsAt: new Date('2026-10-26T16:50:00Z'),
+    })
+    expect(session.people.map((one) => one.id)).toEqual([w.sarah.id])
+    expect(session.groups.map((one) => one.id)).toEqual([w.staff.id])
+    expect(session.projects.map((one) => one.id)).toEqual([w.campaign.id])
+    expect((await getNote(db, note.id)).meetingId).toBe(session.id)
+    expect((await listProposals(db, session.id)).map((p) => p.payload.type === 'item' && p.payload.text)).toEqual([
+      'Find a piano',
+    ])
+    // The first sitting stays on the meeting, which now has the session.
+    expect((await listNotes(db, visit.id)).map((one) => one.id)).toEqual([tour.note.id])
+    expect((await getMeeting(db, visit.id)).sessions.map((one) => one.id)).toEqual([session.id])
+  })
+})
+
+describe('ownMeetingFromNote', () => {
+  it('gives a 1:1 filed on the meeting before it a meeting of its own', async () => {
+    const w = await makeWorld()
+    const staff = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Staff',
+      startsAt: new Date('2026-10-26T15:00:00Z'),
+      endsAt: new Date('2026-10-26T16:00:00Z'),
+      personIds: [w.sarah.id, w.tom.id],
+      projectIds: [w.campaign.id],
+    })
+    await saveNote(db, actor, { meetingId: staff.id, source: 'pasted', body: 'staff' })
+    const { note } = await saveNote(db, actor, {
+      meetingId: staff.id,
+      source: 'granola',
+      externalId: 'not_oneonone00001',
+      title: 'Sarah / John',
+      body: 'the 1:1',
+      attendees: [{ email: 'Sarah@example.test', name: 'Sarah' }],
+      filing: {
+        startsAt: '2026-10-26T15:50:00Z',
+        endsAt: null,
+        calendarEventId: null,
+        recordedTo: '2026-10-26T16:20:00Z',
+      },
+    })
+    await addProposals(db, { meetingId: staff.id, noteId: note.id }, [item('Sabbatical dates')])
+
+    const own = await ownMeetingFromNote(db, actor, note.id)
+
+    expect(own).toMatchObject({
+      parentMeetingId: null,
+      title: 'Sarah / John',
+      startsAt: new Date('2026-10-26T15:50:00Z'),
+      endsAt: new Date('2026-10-26T16:20:00Z'),
+    })
+    expect(own.people.map((one) => one.id)).toEqual([w.sarah.id])
+    expect(own.projects.map((one) => one.id)).toEqual([w.campaign.id])
+    expect((await getNote(db, note.id)).meetingId).toBe(own.id)
+    expect((await listProposals(db, own.id)).map((p) => p.payload.type === 'item' && p.payload.text)).toEqual([
+      'Sabbatical dates',
+    ])
+    expect(await listNotes(db, staff.id)).toHaveLength(1)
   })
 })

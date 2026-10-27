@@ -175,7 +175,8 @@ async function assertMeeting(exec: Executor, meetingId: string) {
 
 /**
  * File a note on a session of its meeting, on another session, or back on the
- * parent. Nowhere else: a note does not travel between unrelated meetings.
+ * parent. Nowhere else: a note does not travel between unrelated meetings,
+ * except onto a meeting made for it (`splitNote`).
  *
  * What is still undecided goes with it: the note's pending and rejected
  * proposals move to the new meeting (a rejection is a fact about the note, so
@@ -205,43 +206,58 @@ export async function moveNote(
     if (!from || (from.parentMeetingId ?? from.id) !== (to.parentMeetingId ?? to.id)) {
       throw new ValidationError('A note can only move between a meeting and its own sessions.')
     }
-
-    const there = new Set(
-      (
-        await tx
-          .select({ fingerprint: proposals.fingerprint })
-          .from(proposals)
-          .where(eq(proposals.meetingId, meetingId))
-      ).map((row) => row.fingerprint),
-    )
-    const moving = await tx
-      .select({ id: proposals.id, fingerprint: proposals.fingerprint })
-      .from(proposals)
-      .where(
-        and(
-          eq(proposals.noteId, noteId),
-          eq(proposals.meetingId, fromId),
-          ne(proposals.status, 'accepted'),
-        ),
-      )
-
-    const doubled = moving.filter((row) => there.has(row.fingerprint)).map((row) => row.id)
-    const going = moving.filter((row) => !there.has(row.fingerprint)).map((row) => row.id)
-    if (doubled.length > 0) await tx.delete(proposals).where(inArray(proposals.id, doubled))
-    if (going.length > 0) {
-      await tx
-        .update(proposals)
-        .set({ meetingId, agendaLineId: null, updatedAt: new Date() })
-        .where(inArray(proposals.id, going))
-    }
-
-    const [moved] = await tx
-      .update(notes)
-      .set({ meetingId, updatedAt: new Date() })
-      .where(eq(notes.id, noteId))
-      .returning()
-    return moved!
+    return carryNote(tx, note, meetingId)
   })
+}
+
+/**
+ * A note matched to a meeting by time that was its own conversation goes to a
+ * meeting made for it (`ownMeetingFromNote`), taking what it left undecided
+ * as `moveNote` does. The caller made that meeting, in the note's context.
+ */
+export async function splitNote(exec: Executor, noteId: string, meetingId: string): Promise<Note> {
+  return inTransaction(exec, async (tx) => carryNote(tx, await getNote(tx, noteId), meetingId))
+}
+
+async function carryNote(tx: Executor, note: Note, meetingId: string): Promise<Note> {
+  const fromId = meetingOf(note)
+  if (fromId === meetingId) return note
+
+  const there = new Set(
+    (
+      await tx
+        .select({ fingerprint: proposals.fingerprint })
+        .from(proposals)
+        .where(eq(proposals.meetingId, meetingId))
+    ).map((row) => row.fingerprint),
+  )
+  const moving = await tx
+    .select({ id: proposals.id, fingerprint: proposals.fingerprint })
+    .from(proposals)
+    .where(
+      and(
+        eq(proposals.noteId, note.id),
+        eq(proposals.meetingId, fromId),
+        ne(proposals.status, 'accepted'),
+      ),
+    )
+
+  const doubled = moving.filter((row) => there.has(row.fingerprint)).map((row) => row.id)
+  const going = moving.filter((row) => !there.has(row.fingerprint)).map((row) => row.id)
+  if (doubled.length > 0) await tx.delete(proposals).where(inArray(proposals.id, doubled))
+  if (going.length > 0) {
+    await tx
+      .update(proposals)
+      .set({ meetingId, agendaLineId: null, updatedAt: new Date() })
+      .where(inArray(proposals.id, going))
+  }
+
+  const [moved] = await tx
+    .update(notes)
+    .set({ meetingId, updatedAt: new Date() })
+    .where(eq(notes.id, note.id))
+    .returning()
+  return moved!
 }
 
 /**

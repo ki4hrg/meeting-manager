@@ -16,15 +16,17 @@ import { ValidationError, inTransaction, type ActorContext, type Executor } from
 import { groups, meetings, projects, series } from '../db/schema'
 import { onShelf } from '../db/shelf'
 import { groupsByEmail } from '../directory/groups'
-import { findSelf } from '../directory/people'
+import { findSelf, knownPeople } from '../directory/people'
 import {
   attachToEvent,
   createMeeting,
   findMeetingByEvent,
   getMeeting,
   listMeetings,
+  setMeetingProjects,
   type MeetingView,
 } from './meetings'
+import { getNote, meetingOf, moveNote, splitNote } from '../notes/notes'
 import { joinRoster } from './roster'
 import { createSeries, findSeriesByCalendar, getSeries, listSeries, updateSeries, type SeriesView } from './series'
 
@@ -154,6 +156,84 @@ export async function meetingFromNote(
     /* With a series and nobody recognised, its roster stands in, as it does
        for an event with no invitees. */
     ...(input.personIds.length > 0 || !input.seriesId ? { personIds: input.personIds } : {}),
+  })
+}
+
+/**
+ * A note filed on a meeting becomes a session of it: the meeting reconvened
+ * (a debrief after a site visit) and the note was matched to it by time. The
+ * session takes the note's title and times and starts with its meeting's
+ * people, groups and projects, as one added by hand does; the note moves onto
+ * it with what it left undecided. Not prepped, for the reason
+ * `meetingFromNote` gives.
+ */
+export async function sessionFromNote(
+  exec: Executor,
+  actor: ActorContext,
+  noteId: string,
+): Promise<MeetingView> {
+  return inTransaction(exec, async (tx) => {
+    const note = await getNote(tx, noteId)
+    const on = await getMeeting(tx, meetingOf(note))
+    const parent = on.parentMeetingId ? await getMeeting(tx, on.parentMeetingId) : on
+
+    const at = (value: string | null | undefined) => (value ? new Date(value) : null)
+    // A pasted note says nothing of when: the meeting it was on does.
+    const startsAt = at(note.filing?.startsAt) ?? parent.startsAt ?? note.createdAt
+    const endsAt = at(note.filing?.endsAt)
+    const session = await createMeeting(tx, actor, {
+      contextId: parent.contextId,
+      parentMeetingId: parent.id,
+      title: note.title?.trim() || 'Session',
+      startsAt,
+      endsAt: endsAt && endsAt > startsAt ? endsAt : null,
+      groupIds: parent.groups.map((group) => group.id),
+      personIds: parent.people.map((person) => person.id),
+      projectIds: parent.projects.map((project) => project.id),
+    })
+    await moveNote(tx, actor, note.id, session.id)
+    return session
+  })
+}
+
+/**
+ * The other way: a note filed on a meeting by time was a conversation of its
+ * own (a 1:1 straight after). It gets the meeting it would have had, with its
+ * title, times and the people it names, and the projects of the meeting it
+ * leaves, which its folder put there or which are this context's work; it
+ * moves there with what it left undecided. Accepted proposals stay where
+ * their items were made.
+ */
+export async function ownMeetingFromNote(
+  exec: Executor,
+  actor: ActorContext,
+  noteId: string,
+): Promise<MeetingView> {
+  return inTransaction(exec, async (tx) => {
+    const note = await getNote(tx, noteId)
+    const from = await getMeeting(tx, meetingOf(note))
+
+    const at = (value: string | null | undefined) => (value ? new Date(value) : null)
+    const startsAt = at(note.filing?.startsAt) ?? from.startsAt ?? note.createdAt
+    const endsAt = at(note.filing?.recordedTo) ?? at(note.filing?.endsAt)
+    const made = await meetingFromNote(tx, actor, {
+      contextId: from.contextId,
+      title: note.title?.trim() || null,
+      startsAt,
+      endsAt: endsAt && endsAt > startsAt ? endsAt : null,
+      personIds: await knownPeople(
+        tx,
+        note.attendees.map((attendee) => attendee.email.toLowerCase()),
+      ),
+    })
+    await setMeetingProjects(
+      tx,
+      actor,
+      made.id,
+      from.projects.map((project) => project.id),
+    )
+    await splitNote(tx, note.id, made.id)
+    return getMeeting(tx, made.id)
   })
 }
 

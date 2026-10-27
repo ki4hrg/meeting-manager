@@ -874,6 +874,39 @@ describe('matching an existing meeting', () => {
     expect(await listNotes(db, one.meetingId)).toHaveLength(2)
   })
 
+  it("gives a note started after the meeting's recording stopped a meeting of its own", async () => {
+    const { parish, sarah, granola, ingest } = await setUp()
+    // Ten to eleven on the calendar; the recording stopped at ten to.
+    const staff = await createMeeting(db, actor, {
+      contextId: parish.id,
+      title: 'Staff',
+      startsAt: new Date('2026-10-01T15:00:00Z'),
+      endsAt: new Date('2026-10-01T16:00:00Z'),
+      calendarId: 'cal',
+      calendarEventId: 'evt_staff',
+      personIds: [sarah.id],
+    })
+    const meeting = noteId()
+    granola.script.notes[meeting] = note({ id: meeting, folder_membership: [parishFolder], calendar_event: event('evt_staff') })
+    granola.script.transcripts[meeting] = [
+      { speaker: null, text: 'Staff.', start_time: '2026-10-01T15:00:00Z', end_time: '2026-10-01T15:50:00Z' },
+    ]
+    // Straight into a 1:1 with someone who was there.
+    const oneToOne = noteId()
+    granola.script.notes[oneToOne] = note({
+      id: oneToOne,
+      created_at: '2026-10-01T15:50:00Z',
+      folder_membership: [parishFolder],
+      attendees: [{ email: 'sarah@example.test' }],
+    })
+
+    expect(filed(await ingest(meeting))).toMatchObject({ via: 'event', meetingId: staff.id })
+    const own = filed(await ingest(oneToOne))
+    expect(own.via).toBe('new')
+    expect(own.meetingId).not.toBe(staff.id)
+    expect((await getMeeting(db, own.meetingId)).people.map((one) => one.id)).toEqual([sarah.id])
+  })
+
   it('does not join a drop-in that had already ended', async () => {
     const { granola, ingest } = await setUp()
     const first = noteId()

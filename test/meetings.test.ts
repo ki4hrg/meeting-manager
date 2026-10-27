@@ -9,10 +9,12 @@ import {
   getMeeting,
   isOver,
   listMeetings,
+  makeSessionOf,
   nextOccurrence,
   previousOccurrence,
   setMeetingPeople,
   setMeetingProjects,
+  sittingBefore,
   updateMeeting,
 } from '../lib/meetings/meetings'
 import {
@@ -769,5 +771,69 @@ describe('meetings', () => {
       now: new Date('2026-10-01T00:00:00Z'),
     })
     expect(upcoming.map((m) => m.title)).toEqual(['Planning retreat'])
+  })
+})
+
+describe('a later sitting', () => {
+  async function visit() {
+    const w = await makeWorld()
+    const site = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Site visit',
+      startsAt: new Date('2026-10-26T15:00:00Z'),
+      endsAt: new Date('2026-10-26T16:00:00Z'),
+      personIds: [w.sarah.id],
+      groupIds: [w.staff.id],
+      projectIds: [w.campaign.id],
+    })
+    return { w, site }
+  }
+
+  it('is offered for a meeting begun during another or just after it, and not later', async () => {
+    const { w, site } = await visit()
+    // Each probe is taken away before the next, or it would be the one before.
+    const before = async (iso: string) => {
+      const probe = await createMeeting(db, actor, { contextId: w.parish.id, startsAt: new Date(iso) })
+      const found = await sittingBefore(db, probe)
+      await deleteMeeting(db, actor, probe.id)
+      return found
+    }
+
+    expect(await before('2026-10-26T15:53:00Z')).toEqual({ id: site.id, title: 'Site visit' })
+    expect(await before('2026-10-26T16:10:00Z')).toEqual({ id: site.id, title: 'Site visit' })
+    expect(await before('2026-10-26T16:30:00Z')).toBeNull()
+    // Not across contexts.
+    const elsewhere = await createMeeting(db, actor, {
+      contextId: w.diocese.id,
+      startsAt: new Date('2026-10-26T15:53:00Z'),
+    })
+    expect(await sittingBefore(db, elsewhere)).toBeNull()
+  })
+
+  it("becomes a session, keeping its own people and taking on the meeting's", async () => {
+    const { w, site } = await visit()
+    const debrief = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Debrief',
+      startsAt: new Date('2026-10-26T15:53:00Z'),
+      personIds: [w.bishop.id],
+    })
+
+    const session = await makeSessionOf(db, actor, debrief.id, site.id)
+
+    expect(session.parentMeetingId).toBe(site.id)
+    expect(session.people.map((one) => one.id).sort()).toEqual([w.bishop.id, w.sarah.id].sort())
+    expect(session.groups.map((one) => one.id)).toEqual([w.staff.id])
+    expect(session.projects.map((one) => one.id)).toEqual([w.campaign.id])
+    expect((await getMeeting(db, site.id)).sessions.map((one) => one.id)).toEqual([debrief.id])
+
+    // One level only.
+    const another = await createMeeting(db, actor, { contextId: w.parish.id, startsAt: new Date('2026-10-26T16:30:00Z') })
+    await expect(makeSessionOf(db, actor, another.id, debrief.id)).rejects.toThrow(
+      'A session cannot itself have a session.',
+    )
+    await expect(makeSessionOf(db, actor, site.id, another.id)).rejects.toThrow(
+      'A meeting with sessions cannot become one.',
+    )
   })
 })
