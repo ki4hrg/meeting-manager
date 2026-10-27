@@ -689,7 +689,7 @@ export const renderRecapTool = defineTool({
     'closed, and the lookahead. It is computed now, from accepted proposals only, and only ' +
     'from items placed on the agenda or captured in the meeting; my private notes never ' +
     'appear. A meeting with sessions gets one recap covering them. Also the subject line and ' +
-    'the recipients with an address. for: a person or group, to add their "your items" ' +
+    'the recipients with an address: everyone invited, and here, those I said were there. for: a person or group, to add their "your items" ' +
     'snippet (what they owe from this meeting and what I owe them; empty when neither).',
   scope: 'meetings:read',
   input: z.object({
@@ -718,6 +718,7 @@ export const renderRecapTool = defineTool({
       subject: recapSubject(recap),
       markdown: renderRecap(recap),
       recipients: recap.recipients.map(({ name, email }) => ({ name, email })),
+      here: recap.hereRecipients.map(({ name, email }) => ({ name, email })),
       ...(party ? { snippet: { for: party, markdown: renderPersonSnippet(recap, party) } } : {}),
     }
   },

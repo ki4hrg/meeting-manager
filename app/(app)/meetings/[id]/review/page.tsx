@@ -1,15 +1,13 @@
 import { RollCall } from '@/components/meetings/RollCall'
 import { GranolaChip } from '@/components/GranolaChip'
-import { Roster } from '@/components/meetings/Roster'
 import { knownPeople } from '@/lib/connect/granola/ingest'
-import { attendanceLocked, rollCall, settleIfOver } from '@/lib/meetings/attendance'
+import { copyListIfOver, rollCall } from '@/lib/meetings/attendance'
 import { notFound } from 'next/navigation'
 import { ActionSelect } from '@/components/ActionSelect'
 import { FormModal } from '@/components/forms'
 import { LivesIn } from '@/components/meetings/Move'
 import { ApproveAll } from '@/components/processing/ApproveAll'
 import { ProposalCard } from '@/components/processing/ProposalCard'
-import { PartyPicker } from '@/components/processing/PartyPicker'
 import { RunState } from '@/components/processing/RunState'
 import { UnknownAttendee } from '@/components/processing/UnknownAttendee'
 import { ButtonLink } from '@/components/ui/Button'
@@ -33,7 +31,7 @@ import { latestRun } from '@/lib/processing/run'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
 import { crumbsFrom } from '@/lib/web/crumbs'
-import { addAttendeesAction, openMeetingAction, settleAttendanceAction } from '../../actions'
+import { openMeetingAction, takeRollAction } from '../../actions'
 import { addNoteAction, moveNoteAction } from '../../processing-actions'
 
 const SUMMARY =
@@ -61,7 +59,7 @@ export default async function ReviewPage({
     throw err
   })
   // A meeting under review is over: who was there is settled before it is read.
-  const meeting = (await settleIfOver(db, id)) ? await getMeeting(db, id) : found
+  const meeting = (await copyListIfOver(db, id)) ? await getMeeting(db, id) : found
   /* As on the meeting's own page: with another context selected, nothing of it is drawn. */
   if (meeting.contextId !== context.id) {
     const home = (await allContexts()).find((one) => one.id === meeting.contextId)
@@ -83,21 +81,18 @@ export default async function ReviewPage({
 
   const choices = { people, groups, projects, series }
 
-  /* Who was there can be corrected until something from the notes is
-     accepted. The notes' own attendees, when in the directory, are offered as
-     people who came; they never take anyone off. */
-  const locked = await attendanceLocked(db, id)
-  const roll = locked ? [] : await rollCall(db, id)
-  if (!locked) {
-    const listed = new Set(roll.map((entry) => entry.id))
-    const named = await knownPeople(
-      db,
-      notes.flatMap((note) => note.attendees.map((attendee) => attendee.email)),
-    )
-    for (const person of people) {
-      if (named.includes(person.id) && !listed.has(person.id)) {
-        roll.push({ id: person.id, name: person.name, present: false, via: 'person', groupId: null })
-      }
+  /* Who was there can be said or corrected at any time. The notes' own
+     attendees, when in the directory, are offered on the list, not yet said;
+     they never take anyone off. */
+  const roll = await rollCall(db, id)
+  const listed = new Set(roll.map((entry) => entry.id))
+  const named = await knownPeople(
+    db,
+    notes.flatMap((note) => note.attendees.map((attendee) => attendee.email)),
+  )
+  for (const person of people) {
+    if (named.includes(person.id) && !listed.has(person.id)) {
+      roll.push({ id: person.id, name: person.name, mark: null, via: 'person', groupId: null })
     }
   }
   const cards = (list: ProposalView[]) => (
@@ -221,51 +216,17 @@ export default async function ReviewPage({
 
       {/* Who was there comes before what was said: a name settled here is one
           the proposals below can be given to. */}
-      <Section
-        title="Attendance"
-        action={
-          locked ? (
-            // Nobody can be marked out any more, but someone who was there can still be added.
-            <FormModal
-              action={addAttendeesAction}
-              title="Add"
-              label="Add"
-              icon="plus"
-              variant="secondary"
-              size="sm"
-              submit="Add"
-            >
-              <input type="hidden" name="meetingId" value={meeting.id} />
-              <PartyPicker
-                label="Also here"
-                name="personIds"
-                options={people
-                  .filter((person) => !person.isSelf && !meeting.attendees.some((one) => one.id === person.id))
-                  .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
-                allowNew
-              />
-            </FormModal>
-          ) : null
-        }
-      >
+      <Section title="Attendance">
         <Card>
-          {locked ? (
-            // Settled for good once something from the notes was accepted, but for who is added.
-            <div className="flex flex-wrap items-center gap-2">
-              <Icon name="lock" className="h-4 w-4 text-gray-400 dark:text-gray-500" label="Settled" />
-              <Roster selfId={self.id} groups={meeting.groups} attendees={meeting.attendees} />
-            </div>
-          ) : (
-            <RollCall
-              action={settleAttendanceAction}
-              meetingId={meeting.id}
-              entries={roll}
-              groups={meeting.groups}
-              people={people
-                .filter((person) => !person.isSelf)
-                .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
-            />
-          )}
+          <RollCall
+            action={takeRollAction}
+            meetingId={meeting.id}
+            entries={roll}
+            groups={meeting.groups}
+            people={people
+              .filter((person) => !person.isSelf)
+              .map((person) => ({ value: person.id, name: person.name, icon: 'person' as const }))}
+          />
         </Card>
       </Section>
       {strangers.length > 0 ? (

@@ -90,12 +90,17 @@ export type Recap = {
   lookahead: LookaheadBlock | null
   /** Whether John has reworded any of its prose. */
   edited: boolean
-  recipients: { personId: string; name: string; email: string }[]
+  /** Everyone invited, here or not, with an address. */
+  recipients: Recipient[]
+  /** Of them, who John said was there. */
+  hereRecipients: Recipient[]
   /** Carried so the renderers format dates as the user reads them. */
   today: string
   timeZone: string | null
   selfId: string
 }
+
+type Recipient = { personId: string; name: string; email: string }
 
 export type RecapOpts = {
   /** 'YYYY-MM-DD' in the user's time zone. */
@@ -301,11 +306,18 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
     ahead.milestones.length + ahead.deadlines.length + ahead.meetings.length > 0 ? ahead : null
 
   // ─── who it goes to ────────────────────────────────────────────────────────
-  /* Who was at it or any of its sessions: their people and, until attendance
-     is settled, their groups' members. John is never among them. */
+  /* Everyone on it or any of its sessions: their people and, until the list
+     is copied, their groups' members, here, not yet said or marked out. Who was
+     there is those said to be here at any of them. John is never among them. */
   const byId = new Map<string, { id: string; name: string }>()
+  const here = new Set<string>()
   for (const id of coveredIds) {
-    for (const person of (await getMeeting(exec, id)).attendees) byId.set(person.id, person)
+    const one = await getMeeting(exec, id)
+    for (const person of one.attendees) {
+      byId.set(person.id, { id: person.id, name: person.name })
+      if (person.here) here.add(person.id)
+    }
+    for (const person of one.absent) if (!byId.has(person.id)) byId.set(person.id, { id: person.id, name: person.name })
   }
   const attendees = [...byId.values()]
     .filter((person) => person.id !== opts.selfId)
@@ -352,6 +364,7 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
     lookahead,
     edited: edits.summary !== undefined || Object.keys(edits.lines ?? {}).length > 0,
     recipients,
+    hereRecipients: recipients.filter((recipient) => here.has(recipient.personId)),
     today: opts.today,
     timeZone: opts.timeZone,
     selfId: opts.selfId,
@@ -576,8 +589,9 @@ export function recapSubject(recap: Recap): string {
  * A `mailto:` with the recipients and the subject and no body: the body goes
  * to the clipboard, because a URL cannot carry rich text.
  */
-export function recapMailto(recap: Recap): string {
+export function recapMailto(recap: Recap, to: 'invited' | 'here' = 'invited'): string {
+  const list = to === 'here' ? recap.hereRecipients : recap.recipients
   // `@` is left readable; everything else that could end the address list is encoded.
-  const to = recap.recipients.map((r) => encodeURIComponent(r.email).replace(/%40/g, '@')).join(',')
-  return `mailto:${to}?subject=${encodeURIComponent(recapSubject(recap))}`
+  const addresses = list.map((r) => encodeURIComponent(r.email).replace(/%40/g, '@')).join(',')
+  return `mailto:${addresses}?subject=${encodeURIComponent(recapSubject(recap))}`
 }

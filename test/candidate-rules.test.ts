@@ -1307,9 +1307,9 @@ describe('several groups', () => {
     expect(renderRecap(recap)).not.toContain('performance concern')
   })
 
-  it('stand for their members until attendance is settled, then the record stays as it was', async () => {
+  it('stand for their members until the list is copied, then the list stays as it was', async () => {
     const w = await makeWorld()
-    const { settleAttendance } = await import('../lib/meetings/attendance')
+    const { takeRoll } = await import('../lib/meetings/attendance')
     const meeting = await createMeeting(db, actor, {
       contextId: w.parish.id,
       groupId: w.staff.id,
@@ -1318,13 +1318,13 @@ describe('several groups', () => {
     const late = await createPerson(db, { name: 'New Curate' })
     const forHer = await createItem(db, actor, { contextId: w.parish.id, text: 'welcome', parties: [{ personId: late.id, role: 'with' }] })
 
-    // Joining the group before it is settled puts her at it, and her items under more.
+    // Joining the group before the list is copied puts her at it, and her items under more.
     await addMember(db, w.staff.id, late.id)
     expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([w.sarah, w.tom, late]))
     expect(grouped((await getCandidates(db, meeting.id, NOW)).more)).toEqual([forHer.id])
 
-    // Settled with Tom out: he is not at it, and someone joining later is not either.
-    await settleAttendance(db, meeting.id, [w.sarah.id, late.id], NOW)
+    // Taken with Tom out: he is not at it, and someone joining later is not either.
+    await takeRoll(db, meeting.id, { here: [w.sarah.id, late.id], out: [w.tom.id] }, NOW)
     const extra = await createPerson(db, { name: 'Later Still' })
     await addMember(db, w.staff.id, extra.id)
     const after = await getMeeting(db, meeting.id)

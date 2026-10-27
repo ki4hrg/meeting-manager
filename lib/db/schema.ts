@@ -610,9 +610,10 @@ export const meetings = pgTable(
     calendarEndsAt: timestamp('calendar_ends_at', { withTimezone: true }),
     /* Null inherits the series' blocks. */
     blocks: jsonb('blocks').$type<BlockSettings>(),
-    /* When who was there was settled: by the roll call, or the first look
-       after the meeting ended. Until then its groups stand for their members
-       as they are; from then on meeting_people is the record. */
+    /* When its list was copied from its groups: by the first roll call, or
+       the first look after the meeting ended. Until then its groups stand for
+       their members as they are; from then on meeting_people is the list.
+       Copying confirms no one: who was there is `meeting_people.here`. */
     attendanceAt: timestamp('attendance_at', { withTimezone: true }),
     recapEdits: jsonb('recap_edits').$type<RecapEdits>(),
     ...timestamps,
@@ -638,9 +639,12 @@ export const meetingPeople = pgTable(
     personId: uuid('person_id')
       .notNull()
       .references(() => people.id, { onDelete: 'cascade' }),
-    /* Once attendance is settled: the group that brought them, rather than
+    /* Once its list is copied: the group that brought them, rather than
        being on the meeting by name. Null for someone named on it. */
     groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
+    /* John said they were there. False is not yet said either way; someone
+       who was not there is in meeting_absences instead. */
+    here: boolean('here').notNull().default(false),
   },
   (t) => [
     primaryKey({ columns: [t.meetingId, t.personId] }),
@@ -648,7 +652,7 @@ export const meetingPeople = pgTable(
   ],
 )
 
-/* A meeting's groups. Live until its attendance is settled (meetings.attendance_at). */
+/* A meeting's groups. Live until its list is copied (meetings.attendance_at). */
 export const meetingGroups = pgTable(
   'meeting_groups',
   {
@@ -662,9 +666,9 @@ export const meetingGroups = pgTable(
   (t) => [primaryKey({ columns: [t.meetingId, t.groupId] }), index('meeting_groups_group_idx').on(t.groupId)],
 )
 
-/* Someone expected at a meeting and left off it alone ("Adlene is out this
-   week"): from the series' roster or one of its groups. A later roster or
-   group change does not put them back. */
+/* Someone expected at a meeting who is not there: left off it alone ("Adlene
+   is out this week") or marked out at the roll call. A later roster or group
+   change does not put them back. */
 export const meetingAbsences = pgTable(
   'meeting_absences',
   {

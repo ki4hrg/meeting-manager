@@ -3,10 +3,11 @@
 import { describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { meetingPeople, personEmails } from '../lib/db/schema'
+import { addMember } from '../lib/directory/groups'
 import { createPerson } from '../lib/directory/people'
-import { addAttendees } from '../lib/meetings/attendance'
-import { createMeeting } from '../lib/meetings/meetings'
-import { dismissAttendee, nameAttendee, unknownAttendees } from '../lib/notes/attendees'
+import { addAttendees, takeRoll } from '../lib/meetings/attendance'
+import { createMeeting, getMeeting } from '../lib/meetings/meetings'
+import { attendeeIsGroup, dismissAttendee, nameAttendee, unknownAttendees } from '../lib/notes/attendees'
 import { saveNote } from '../lib/notes/notes'
 import { addProposals, listProposals } from '../lib/processing/proposals'
 import { db, resetBetweenTests } from './helpers/db'
@@ -59,6 +60,24 @@ describe('people a note names who are not in the directory', () => {
     expect(emails).toHaveLength(before + 1)
     expect(emails.find((row) => row.email === 'new.face@example.test')?.isPrimary).toBe(before === 0)
     expect(await on(meeting.id)).toEqual([w.tom.id])
+  })
+
+  it("puts a list's group on the meeting, its members invited and none marked here", async () => {
+    const { w, meeting } = await setup()
+    const ray = await createPerson(db, { name: 'Ray Hall' })
+    await addMember(db, w.staff.id, w.john.id)
+    await addMember(db, w.staff.id, ray.id)
+    // The list is already copied: Tom is here by name, Ray was marked out.
+    await takeRoll(db, meeting.id, { here: [w.tom.id], out: [ray.id] }, new Date())
+
+    await attendeeIsGroup(db, meeting.id, 'new.face@example.test', w.staff.id)
+    const after = await getMeeting(db, meeting.id)
+    expect(after.groups.map((group) => group.id)).toEqual([w.staff.id])
+    expect(after.attendees.map((one) => [one.name, one.groupId, one.here])).toEqual([
+      ['Sarah Jones', w.staff.id, false],
+      ['Tom Baker', null, true],
+    ])
+    expect(after.absent.map((one) => one.name)).toEqual(['Ray Hall'])
   })
 
   it('refuses an address the note does not offer', async () => {

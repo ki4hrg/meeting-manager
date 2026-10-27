@@ -1,131 +1,130 @@
 /*
- * Who was at a meeting (docs/SPEC.md, "Groups among a meeting's attendees").
+ * Who was at a meeting (docs/SPEC.md, "Groups among a meeting's attendees" and
+ * "Attendance is John's to say").
  *
- * Until a meeting's attendance is settled, each of its groups stands for its
- * members as they are now: someone who joins the group is at the next
- * meeting. Settling copies who was there onto the meeting (meeting_people) and
- * stamps `attendance_at`; from then on a change to a group does not rewrite
- * who was there.
+ * A meeting has a list: who is invited or expected, each either said to be
+ * here, marked out, or not yet said. Nothing says someone was there but John:
+ * an invite, a group or a list address only puts people on the list. The roll
+ * call says who was there, at any time, as often as he likes.
  *
- * It is settled by the roll call, taken on the meeting's page while it is
- * under way. If no one takes it, the first look at the meeting after its end
- * (opening it, its review or recap, or processing its notes) settles it as it
- * stands. The review can still correct it until a proposal is accepted;
- * after that, someone who was there can still be added (`addAttendees`), but
- * no one is marked out.
+ * Until the list is copied, each of a meeting's groups stands for its members
+ * as they are now: someone who joins the group is at the next meeting. The
+ * first roll call, or the first look after the meeting ends (opening it, its
+ * review or recap, or processing its notes), copies the members onto the
+ * meeting (meeting_people) and stamps `attendance_at`; from then on a change
+ * to a group does not rewrite who was on it. Copying confirms no one.
  */
 
 import { and, eq, inArray } from 'drizzle-orm'
-import { ValidationError, inTransaction, type Executor } from '../core/types'
-import { groupMembers, meetingAbsences, meetingPeople, meetings, people, proposals } from '../db/schema'
+import { inTransaction, type Executor } from '../core/types'
+import { meetingAbsences, meetingPeople, meetings, people } from '../db/schema'
 import { notDeleted } from '../db/shelf'
 import { linkAttendees } from '../processing/proposals'
-import { getMeeting, isOver, type MeetingView } from './meetings'
+import { copyMembers, getMeeting, isOver, type MeetingView } from './meetings'
+
+/** Where someone stands at a meeting: here, out, or not yet said. */
+export type Mark = 'here' | 'out' | null
 
 export type RollCallEntry = {
   id: string
   name: string
-  /** At it, as things stand. */
-  present: boolean
+  mark: Mark
   /** On it by name, or brought by one of its groups. */
   via: 'person' | 'group'
   /** The group that brought them; null for someone on it by name, or added. */
   groupId: string | null
 }
 
-/**
- * Everyone expected at a meeting, each marked present or out: its people, and
- * its groups' members (live until settled), with who was left off it alone.
- */
+/** Everyone on a meeting's list, each with their mark, in name order. */
 export async function rollCall(exec: Executor, meetingId: string): Promise<RollCallEntry[]> {
   const meeting = await getMeeting(exec, meetingId)
-  const present = new Set(meeting.attendees.map((person) => person.id))
-  const entries = new Map<string, RollCallEntry>()
-  for (const person of meeting.attendees) {
-    entries.set(person.id, { ...person, present: true, via: person.groupId ? 'group' : 'person' })
-  }
-
-  const groupIds = meeting.groups.map((group) => group.id)
-  // Its groups' members: who is expected while it is live, and where someone marked out is shown.
-  const members =
-    groupIds.length === 0
-      ? []
-      : await exec
-          .select({ id: people.id, name: people.name, isSelf: people.isSelf, groupId: groupMembers.groupId })
-          .from(groupMembers)
-          .innerJoin(people, eq(people.id, groupMembers.personId))
-          .where(and(inArray(groupMembers.groupId, groupIds), notDeleted(people)))
-  const absent = await exec
-    .select({ id: people.id, name: people.name, isSelf: people.isSelf })
-    .from(meetingAbsences)
-    .innerJoin(people, eq(people.id, meetingAbsences.personId))
-    .where(and(eq(meetingAbsences.meetingId, meetingId), notDeleted(people)))
-  // Someone marked out is shown under the first of its groups they are in, else on their own.
-  const groupOf = new Map<string, string>()
-  for (const groupId of groupIds) {
-    for (const member of members) if (member.groupId === groupId && !groupOf.has(member.id)) groupOf.set(member.id, groupId)
-  }
-  for (const person of [...(meeting.attendanceAt ? [] : members), ...absent]) {
-    if (person.isSelf || entries.has(person.id)) continue
-    const groupId = groupOf.get(person.id) ?? null
-    entries.set(person.id, {
+  const entries: RollCallEntry[] = [
+    ...meeting.attendees.map((person) => ({
       id: person.id,
       name: person.name,
-      present: present.has(person.id),
-      via: groupId ? 'group' : 'person',
-      groupId,
-    })
-  }
-  return [...entries.values()].sort((a, b) => a.name.localeCompare(b.name))
+      mark: person.here ? ('here' as const) : null,
+      via: person.groupId ? ('group' as const) : ('person' as const),
+      groupId: person.groupId,
+    })),
+    ...meeting.absent.map((person) => ({
+      id: person.id,
+      name: person.name,
+      mark: 'out' as const,
+      via: person.groupId ? ('group' as const) : ('person' as const),
+      groupId: person.groupId,
+    })),
+  ]
+  return entries.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /**
- * Settle who was at a meeting: these people, and no one else. Whoever was
- * expected and is not among them is remembered as out. May be taken again to
- * correct it, until a proposal from its notes is accepted.
+ * Take the roll: these were here, these were out, and anyone else on the list
+ * is not yet said. Someone not on the list who is named here or as unsure
+ * joins it by name. John is never a row.
  */
-export async function settleAttendance(
+export async function takeRoll(
   exec: Executor,
   meetingId: string,
-  presentIds: string[],
+  marks: { here: string[]; out: string[]; unsure?: string[] },
   now: Date = new Date(),
 ): Promise<MeetingView> {
   return inTransaction(exec, async (tx) => {
-    if (await attendanceLocked(tx, meetingId)) {
-      throw new ValidationError('What came of this meeting has been accepted, so who was there stays as it is.')
+    await copyList(tx, meetingId, now)
+    const named = [...new Set([...marks.here, ...marks.out, ...(marks.unsure ?? [])])]
+    const rows = named.length
+      ? await tx
+          .select({ id: people.id, isSelf: people.isSelf })
+          .from(people)
+          .where(and(inArray(people.id, named), notDeleted(people)))
+      : []
+    const real = new Set(rows.filter((row) => !row.isSelf).map((row) => row.id))
+    const here = new Set(marks.here.filter((id) => real.has(id)))
+    const out = new Set(marks.out.filter((id) => real.has(id) && !here.has(id)))
+    const unsure = (marks.unsure ?? []).filter((id) => real.has(id) && !here.has(id) && !out.has(id))
+
+    const listed = await tx
+      .select({ personId: meetingPeople.personId, groupId: meetingPeople.groupId })
+      .from(meetingPeople)
+      .where(eq(meetingPeople.meetingId, meetingId))
+    // Someone marked out comes back under the group they would be shown in.
+    const absent = (await getMeeting(tx, meetingId)).absent.map((one) => ({ personId: one.id, groupId: one.groupId }))
+    const broughtBy = new Map([...absent, ...listed].map((row) => [row.personId, row.groupId]))
+    // Whoever was on the list or marked out, and is now neither here nor out, is not yet said.
+    const onList = [
+      ...new Set([...listed.map((row) => row.personId), ...absent.map((row) => row.personId), ...here, ...unsure]),
+    ].filter((id) => !out.has(id))
+
+    await tx.delete(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
+    if (onList.length > 0) {
+      await tx.insert(meetingPeople).values(
+        onList.map((personId) => ({
+          meetingId,
+          personId,
+          groupId: broughtBy.get(personId) ?? null,
+          here: here.has(personId),
+        })),
+      )
     }
-    return settle(tx, meetingId, presentIds, now)
+    await tx.delete(meetingAbsences).where(eq(meetingAbsences.meetingId, meetingId))
+    if (out.size > 0) await tx.insert(meetingAbsences).values([...out].map((personId) => ({ meetingId, personId })))
+    await linkAttendees(tx, meetingId)
+    return getMeeting(tx, meetingId)
   })
 }
 
-/** Copy who was there onto the meeting and stamp it settled, without asking whether that is still allowed. */
-async function settle(tx: Executor, meetingId: string, presentIds: string[], now: Date): Promise<MeetingView> {
-  const expected = await rollCall(tx, meetingId)
-  const rows = presentIds.length
-    ? await tx
-        .select({ id: people.id, isSelf: people.isSelf })
-        .from(people)
-        .where(and(inArray(people.id, [...new Set(presentIds)]), notDeleted(people)))
-    : []
-  const here = rows.filter((row) => !row.isSelf).map((row) => row.id)
-  const out = expected.filter((entry) => !here.includes(entry.id)).map((entry) => entry.id)
-  // Who came with a group is kept apart from who was on it by name.
-  const broughtBy = new Map(expected.map((entry) => [entry.id, entry.groupId]))
-
-  await tx.delete(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
-  if (here.length > 0) {
-    await tx
-      .insert(meetingPeople)
-      .values(here.map((personId) => ({ meetingId, personId, groupId: broughtBy.get(personId) ?? null })))
-  }
-  await tx.delete(meetingAbsences).where(eq(meetingAbsences.meetingId, meetingId))
-  if (out.length > 0) await tx.insert(meetingAbsences).values(out.map((personId) => ({ meetingId, personId })))
+/** Copy a meeting's groups' members onto it, once. Confirms no one. */
+async function copyList(tx: Executor, meetingId: string, now: Date): Promise<void> {
+  const meeting = await getMeeting(tx, meetingId)
+  if (meeting.attendanceAt) return
+  await copyMembers(
+    tx,
+    meetingId,
+    meeting.groups.map((group) => group.id),
+  )
   await tx.update(meetings).set({ attendanceAt: now, updatedAt: now }).where(eq(meetings.id, meetingId))
-  await linkAttendees(tx, meetingId)
-  return getMeeting(tx, meetingId)
 }
 
-/** The meeting's people, added to: for someone who turned up, or a note's attendee. */
+/** People who turned up, marked here: on the list by name if they were not on it. */
 export async function addAttendees(exec: Executor, meetingId: string, personIds: string[]): Promise<void> {
   const ids = [...new Set(personIds)]
   if (ids.length === 0) return
@@ -137,8 +136,8 @@ export async function addAttendees(exec: Executor, meetingId: string, personIds:
   if (adding.length === 0) return
   await exec
     .insert(meetingPeople)
-    .values(adding.map((personId) => ({ meetingId, personId })))
-    .onConflictDoNothing()
+    .values(adding.map((personId) => ({ meetingId, personId, here: true })))
+    .onConflictDoUpdate({ target: [meetingPeople.meetingId, meetingPeople.personId], set: { here: true } })
   await exec
     .delete(meetingAbsences)
     .where(and(eq(meetingAbsences.meetingId, meetingId), inArray(meetingAbsences.personId, adding)))
@@ -146,31 +145,15 @@ export async function addAttendees(exec: Executor, meetingId: string, personIds:
 }
 
 /**
- * The first look after a meeting's end settles its attendance as it stands,
- * if no roll call did. Returns whether it settled it now. Settling as it
- * stands marks no one out, so it goes ahead even when a proposal was
- * accepted before the meeting ended.
+ * The first look after a meeting's end copies its list, if no roll call did.
+ * Returns whether it copied it now. No one is marked here or out by it.
  */
-export async function settleIfOver(exec: Executor, meetingId: string, now: Date = new Date()): Promise<boolean> {
+export async function copyListIfOver(exec: Executor, meetingId: string, now: Date = new Date()): Promise<boolean> {
   const meeting = await getMeeting(exec, meetingId)
   if (meeting.attendanceAt || !isOver(meeting, now)) return false
-  await inTransaction(exec, (tx) =>
-    settle(
-      tx,
-      meetingId,
-      meeting.attendees.map((person) => person.id),
-      now,
-    ),
-  )
+  await inTransaction(exec, async (tx) => {
+    await copyList(tx, meetingId, now)
+    await linkAttendees(tx, meetingId)
+  })
   return true
-}
-
-/** Whether no one can be marked out any more: a proposal from its notes was accepted. Adding is still open. */
-export async function attendanceLocked(exec: Executor, meetingId: string): Promise<boolean> {
-  const [accepted] = await exec
-    .select({ id: proposals.id })
-    .from(proposals)
-    .where(and(eq(proposals.meetingId, meetingId), eq(proposals.status, 'accepted')))
-    .limit(1)
-  return !!accepted
 }

@@ -34,7 +34,10 @@ const PRINT_CSS =
   'h1{font-size:1.5rem;margin:0 0 .25rem}h2{font-size:1.1rem;margin:1.5rem 0 .25rem}' +
   'p{margin:.25rem 0}ul{margin:.25rem 0;padding-left:1.25rem}li{margin:.1rem 0}'
 
-type Saved = { parts: string[]; format: Format }
+type Saved = { parts: string[]; format: Format; to?: string }
+
+/** One list an email can go to: who it is, and the `mailto:` for them. */
+export type MailTo = { key: string; label: string; icon: IconName; href: string }
 
 const storageKey = (kind: ExportKind) => `mm-export:${kind}`
 
@@ -45,7 +48,11 @@ function load(kind: ExportKind): Saved | null {
     const saved = JSON.parse(raw) as Partial<Saved>
     const keys = new Set(EXPORTS[kind].options.map((option) => option.key))
     if (!Array.isArray(saved.parts) || !FORMATS.some((one) => one.format === saved.format)) return null
-    return { parts: saved.parts.filter((part) => keys.has(part)), format: saved.format! }
+    return {
+      parts: saved.parts.filter((part) => keys.has(part)),
+      format: saved.format!,
+      ...(typeof saved.to === 'string' ? { to: saved.to } : {}),
+    }
   } catch {
     return null
   }
@@ -102,8 +109,8 @@ export function Export({
   outline: OutlinePart[]
   /** The document's name: the PDF's title, the file's name. */
   title: string
-  /** Who it goes to and its subject; the body rides on the clipboard. */
-  mailto: string
+  /** Who it goes to and its subject; the body rides on the clipboard. Several lists are offered as a choice. */
+  mailto: string | MailTo[]
   variant?: ButtonProps['variant']
 }) {
   const { options, presets } = EXPORTS[kind]
@@ -112,6 +119,8 @@ export function Export({
   const [parts, setParts] = useState<string[]>(presets[0]!.parts)
   const [format, setFormat] = useState<Format>('clipboard')
   const [manual, setManual] = useState<string | null>(null)
+  const lists = typeof mailto === 'string' ? null : mailto
+  const [to, setTo] = useState(lists?.[0]?.key ?? '')
   const fallbackRef = useRef<HTMLTextAreaElement>(null)
 
   /* Read when the modal opens, so the page renders the same on the server and in the browser. */
@@ -120,6 +129,7 @@ export function Export({
     if (saved) {
       setParts(saved.parts)
       setFormat(saved.format)
+      if (saved.to && lists?.some((list) => list.key === saved.to)) setTo(saved.to)
     }
     setOpen(true)
   }
@@ -130,12 +140,12 @@ export function Export({
 
   function choose(next: string[]) {
     setParts(next)
-    save(kind, { parts: next, format })
+    save(kind, { parts: next, format, to })
   }
 
   async function run(next: Format) {
     setFormat(next)
-    save(kind, { parts, format: next })
+    save(kind, { parts, format: next, to })
     const kept = pick(outline, chosen)
     const text = toMarkdown(kept)
     const html = toHtml(kept)
@@ -149,7 +159,7 @@ export function Export({
         () => toast.success(copied),
         () => {},
       )
-      window.location.assign(mailto)
+      window.location.assign(lists ? (lists.find((list) => list.key === to) ?? lists[0]!).href : mailto as string)
       return
     }
     try {
@@ -238,6 +248,34 @@ export function Export({
                   ))}
                 </div>
               </fieldset>
+
+              {lists && lists.length > 1 ? (
+                <fieldset className="min-w-0">
+                  <legend className="block text-sm font-medium text-gray-700 dark:text-gray-300">To</legend>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {lists.map((list) => {
+                      const on = list.key === to
+                      return (
+                        <button
+                          key={list.key}
+                          type="button"
+                          onClick={() => {
+                            setTo(list.key)
+                            save(kind, { parts, format, to: list.key })
+                          }}
+                          aria-pressed={on}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                            on ? pillClass('blue') : `${pillClass('gray')} hover:bg-gray-200 dark:hover:bg-gray-600`
+                          }`}
+                        >
+                          <Icon name={list.icon} className="h-4 w-4" />
+                          {list.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </fieldset>
+              ) : null}
 
               {/* The format last used is the blue one. */}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

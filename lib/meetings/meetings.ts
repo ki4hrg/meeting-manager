@@ -5,7 +5,7 @@
  * whole event wherever meetings are listed; its agenda is its sessions'.
  */
 
-import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, notInArray, sql, type SQL } from 'drizzle-orm'
 import {
   NotFoundError,
   ValidationError,
@@ -33,6 +33,9 @@ import { notDeleted, onShelf, type Shelf } from '../db/shelf'
 import { getContext } from '../directory/contexts'
 import { getProject } from '../projects/projects'
 
+/** Someone on a meeting, and whether John said they were there. */
+export type Attendee = { id: string; name: string; groupId: string | null; here: boolean }
+
 export type MeetingView = {
   id: string
   contextId: string
@@ -40,7 +43,7 @@ export type MeetingView = {
   startsAt: Date | null
   endsAt: Date | null
   series: { id: string; name: string } | null
-  /** Its groups. Until attendance is settled, each stands for its members as they are now. */
+  /** Its groups. Until its list is copied, each stands for its members as they are now. */
   groups: { id: string; name: string }[]
   parentMeetingId: string | null
   calendarId: string | null
@@ -49,13 +52,15 @@ export type MeetingView = {
   /** The people on it by name, without John. */
   people: { id: string; name: string }[]
   /**
-   * Who is at it, without John: its people and, until attendance is settled,
-   * its groups' members, less anyone left off it alone. Once settled, its
-   * people are the record. `groupId` is the group that brought someone, null
-   * for someone on it by name.
+   * Who is on it, without John: its people and, until its list is copied, its
+   * groups' members, less anyone marked out. Once copied, its people are the
+   * list. `groupId` is the group that brought someone, null for someone on it
+   * by name; `here` is whether John said they were there (false: not yet said).
    */
-  attendees: { id: string; name: string; groupId: string | null }[]
-  /** When who was there was settled; null while its groups are live. */
+  attendees: Attendee[]
+  /** Who is expected and not there: left off it alone, or marked out. */
+  absent: { id: string; name: string; groupId: string | null }[]
+  /** When its list was copied from its groups; null while they are live. Not a confirmation. */
   attendanceAt: Date | null
   projects: { id: string; name: string }[]
   sessions: { id: string; title: string; startsAt: Date | null; endsAt: Date | null }[]
@@ -96,6 +101,7 @@ async function loadViews(
       personName: people.name,
       isSelf: people.isSelf,
       groupId: meetingPeople.groupId,
+      here: meetingPeople.here,
     })
     .from(meetingPeople)
     .innerJoin(people, eq(people.id, meetingPeople.personId))
@@ -109,24 +115,23 @@ async function loadViews(
     .where(inArray(meetingGroups.meetingId, meetingIds))
     .orderBy(asc(groups.name))
 
-  /* Live groups' members, for the meetings whose attendance is not settled. */
-  const live = rows.filter((row) => row.meeting.attendanceAt === null).map((row) => row.meeting.id)
-  const liveGroupIds = [...new Set(groupRows.filter((row) => live.includes(row.meetingId)).map((row) => row.groupId))]
+  /* The groups' members: who a live group stands for, and which group someone
+     marked out is shown under. */
+  const allGroupIds = [...new Set(groupRows.map((row) => row.groupId))]
   const memberRows =
-    liveGroupIds.length === 0
+    allGroupIds.length === 0
       ? []
       : await exec
           .select({ groupId: groupMembers.groupId, personId: people.id, name: people.name, isSelf: people.isSelf })
           .from(groupMembers)
           .innerJoin(people, eq(people.id, groupMembers.personId))
-          .where(and(inArray(groupMembers.groupId, liveGroupIds), notDeleted(people)))
-  const absenceRows =
-    live.length === 0
-      ? []
-      : await exec
-          .select({ meetingId: meetingAbsences.meetingId, personId: meetingAbsences.personId })
-          .from(meetingAbsences)
-          .where(inArray(meetingAbsences.meetingId, live))
+          .where(and(inArray(groupMembers.groupId, allGroupIds), notDeleted(people)))
+  const absenceRows = await exec
+    .select({ meetingId: meetingAbsences.meetingId, personId: people.id, name: people.name })
+    .from(meetingAbsences)
+    .innerJoin(people, eq(people.id, meetingAbsences.personId))
+    .where(and(inArray(meetingAbsences.meetingId, meetingIds), notDeleted(people)))
+    .orderBy(asc(people.name))
 
   const projectRows = await exec
     .select({
@@ -151,12 +156,12 @@ async function loadViews(
     .where(and(inArray(meetings.parentMeetingId, meetingIds), onShelf(meetings)))
     .orderBy(asc(meetings.startsAt), asc(meetings.createdAt))
 
-  const byMeetingPeople = new Map<string, { id: string; name: string; groupId: string | null }[]>()
+  const byMeetingPeople = new Map<string, Attendee[]>()
   for (const row of peopleRows) {
     /* John (is_self) is dropped: he's at every meeting */
     if (row.isSelf) continue
     const list = byMeetingPeople.get(row.meetingId) ?? []
-    list.push({ id: row.personId, name: row.personName, groupId: row.groupId })
+    list.push({ id: row.personId, name: row.personName, groupId: row.groupId, here: row.here })
     byMeetingPeople.set(row.meetingId, list)
   }
 
@@ -173,9 +178,9 @@ async function loadViews(
     list.push({ id: row.groupId, name: row.groupName })
     byMeetingGroups.set(row.meetingId, list)
   }
-  const attendeesOf = (meetingId: string, settled: boolean): MeetingView['attendees'] => {
+  const attendeesOf = (meetingId: string, copied: boolean): Attendee[] => {
     const own = byMeetingPeople.get(meetingId) ?? []
-    if (settled) return own
+    if (copied) return own
     const absent = new Set(absenceRows.filter((row) => row.meetingId === meetingId).map((row) => row.personId))
     // In name order, so someone in two of its groups is shown under the first.
     const groupIds = (byMeetingGroups.get(meetingId) ?? []).map((group) => group.id)
@@ -183,11 +188,22 @@ async function loadViews(
     for (const groupId of groupIds) {
       for (const member of memberRows) {
         if (member.groupId === groupId && !member.isSelf && !absent.has(member.personId) && !byId.has(member.personId)) {
-          byId.set(member.personId, { id: member.personId, name: member.name, groupId })
+          byId.set(member.personId, { id: member.personId, name: member.name, groupId, here: false })
         }
       }
     }
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }
+  // Someone marked out is shown under the first of its groups they are in, else on their own.
+  const absentOf = (meetingId: string): MeetingView['absent'] => {
+    const groupIds = (byMeetingGroups.get(meetingId) ?? []).map((group) => group.id)
+    return absenceRows
+      .filter((row) => row.meetingId === meetingId)
+      .map((row) => ({
+        id: row.personId,
+        name: row.name,
+        groupId: groupIds.find((groupId) => memberRows.some((m) => m.groupId === groupId && m.personId === row.personId)) ?? null,
+      }))
   }
 
   const byParent = new Map<string, MeetingView['sessions']>()
@@ -220,6 +236,7 @@ async function loadViews(
       },
     people: (byMeetingPeople.get(m.id) ?? []).map(({ id, name }) => ({ id, name })),
     attendees: attendeesOf(m.id, m.attendanceAt !== null),
+    absent: absentOf(m.id),
     attendanceAt: m.attendanceAt,
     projects: byMeetingProjects.get(m.id) ?? [],
     sessions: byParent.get(m.id) ?? [],
@@ -666,16 +683,78 @@ export async function updateMeeting(
       .update(meetings)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(meetings.id, id))
-    if (groupIds !== undefined) await setGroupsOf(tx, id, groupIds)
+    if (groupIds !== undefined) await setMeetingGroups(tx, id, groupIds)
     return getMeeting(tx, id)
   })
 }
 
-async function setGroupsOf(exec: Executor, meetingId: string, groupIds: string[]) {
+/** Replace a meeting's groups; see `addMeetingGroups` for who a group brings. */
+export async function setMeetingGroups(exec: Executor, meetingId: string, groupIds: string[]) {
+  const was = await exec
+    .select({ groupId: meetingGroups.groupId })
+    .from(meetingGroups)
+    .where(eq(meetingGroups.meetingId, meetingId))
+  const gone = was.map((row) => row.groupId).filter((groupId) => !groupIds.includes(groupId))
   await exec.delete(meetingGroups).where(eq(meetingGroups.meetingId, meetingId))
-  if (groupIds.length > 0) {
-    await exec.insert(meetingGroups).values(groupIds.map((groupId) => ({ meetingId, groupId })))
+  // Whoever a group that left brought, and no one has said was there, goes with it.
+  if (gone.length > 0) {
+    await exec
+      .delete(meetingPeople)
+      .where(
+        and(eq(meetingPeople.meetingId, meetingId), inArray(meetingPeople.groupId, gone), eq(meetingPeople.here, false)),
+      )
   }
+  await addMeetingGroups(exec, meetingId, groupIds)
+}
+
+/**
+ * Put groups on a meeting. Once its list is copied a group no longer stands
+ * for its members, so they are put on it as brought by the group, as copying
+ * would have: not John, not whoever is on it already, and not anyone marked out.
+ */
+export async function addMeetingGroups(exec: Executor, meetingId: string, groupIds: string[]): Promise<void> {
+  if (groupIds.length === 0) return
+  await exec
+    .insert(meetingGroups)
+    .values(groupIds.map((groupId) => ({ meetingId, groupId })))
+    .onConflictDoNothing()
+  const [meeting] = await exec
+    .select({ attendanceAt: meetings.attendanceAt })
+    .from(meetings)
+    .where(eq(meetings.id, meetingId))
+  if (meeting?.attendanceAt) await copyMembers(exec, meetingId, groupIds)
+}
+
+/** These groups' members onto a meeting, unconfirmed, as brought by the first group each is in. */
+export async function copyMembers(exec: Executor, meetingId: string, groupIds: string[]): Promise<void> {
+  if (groupIds.length === 0) return
+  const out = exec
+    .select({ id: meetingAbsences.personId })
+    .from(meetingAbsences)
+    .where(eq(meetingAbsences.meetingId, meetingId))
+  const on = exec.select({ id: meetingPeople.personId }).from(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
+  const members = await exec
+    .select({ personId: people.id, groupId: groupMembers.groupId, groupName: groups.name })
+    .from(groupMembers)
+    .innerJoin(people, eq(people.id, groupMembers.personId))
+    .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+    .where(
+      and(
+        inArray(groupMembers.groupId, groupIds),
+        eq(people.isSelf, false),
+        notDeleted(people),
+        notInArray(people.id, out),
+        notInArray(people.id, on),
+      ),
+    )
+    .orderBy(asc(groups.name))
+  const brought = new Map<string, string>()
+  for (const member of members) if (!brought.has(member.personId)) brought.set(member.personId, member.groupId)
+  if (brought.size === 0) return
+  await exec
+    .insert(meetingPeople)
+    .values([...brought].map(([personId, groupId]) => ({ meetingId, personId, groupId })))
+    .onConflictDoNothing()
 }
 
 export async function setMeetingPeople(
@@ -697,16 +776,21 @@ export async function setMeetingPeople(
   }
 
   return inTransaction(exec, async (tx) => {
-    // Whoever stays keeps the group that brought them.
+    // Whoever stays keeps the group that brought them, and whether they were there.
     const was = await tx
-      .select({ personId: meetingPeople.personId, groupId: meetingPeople.groupId })
+      .select({ personId: meetingPeople.personId, groupId: meetingPeople.groupId, here: meetingPeople.here })
       .from(meetingPeople)
       .where(eq(meetingPeople.meetingId, id))
-    const broughtBy = new Map(was.map((row) => [row.personId, row.groupId]))
+    const kept = new Map(was.map((row) => [row.personId, row]))
     await tx.delete(meetingPeople).where(eq(meetingPeople.meetingId, id))
     if (filtered.length > 0) {
       await tx.insert(meetingPeople).values(
-        filtered.map((personId) => ({ meetingId: id, personId, groupId: broughtBy.get(personId) ?? null })),
+        filtered.map((personId) => ({
+          meetingId: id,
+          personId,
+          groupId: kept.get(personId)?.groupId ?? null,
+          here: kept.get(personId)?.here ?? false,
+        })),
       )
     }
     return getMeeting(tx, id)

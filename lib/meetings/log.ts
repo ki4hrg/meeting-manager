@@ -14,7 +14,7 @@ import { people } from '../db/schema'
 import { notDeleted } from '../db/shelf'
 import { saveNote } from '../notes/notes'
 import { queueRun } from '../processing/run'
-import { settleAttendance } from './attendance'
+import { takeRoll } from './attendance'
 import { createMeeting, type MeetingView } from './meetings'
 
 export type LogMeetingInput = {
@@ -86,12 +86,14 @@ export async function logMeeting(
       personIds,
       projectIds: input.projectIds ?? [],
     })
-    /* Logged after the fact, so who was there is settled now: those picked,
-       or, with a group and nobody picked, the group's members. */
-    const meeting = await settleAttendance(
+    /* Logged after the fact, so who was there is known now: those picked,
+       the rest of its group out; or, with a group and nobody picked, the
+       group's members. */
+    const here = personIds.length > 0 ? personIds : made.attendees.map((person) => person.id)
+    const meeting = await takeRoll(
       tx,
       made.id,
-      personIds.length > 0 ? personIds : made.attendees.map((person) => person.id),
+      { here, out: made.attendees.map((person) => person.id).filter((id) => !here.includes(id)) },
       now,
     )
 

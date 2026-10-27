@@ -183,6 +183,13 @@
       "when": 1792458701628,
       "tag": "0025_proposed_projects",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793059651304,
+      "tag": "0026_attendance_here",
+      "breakpoints": true
     }
   ]
 }

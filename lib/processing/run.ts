@@ -42,7 +42,7 @@ import {
 } from '../db/schema'
 import { notDeleted, onShelf } from '../db/shelf'
 import { findSelf } from '../directory/people'
-import { settleIfOver } from '../meetings/attendance'
+import { copyListIfOver } from '../meetings/attendance'
 import { isOpen, listItems, type ItemView } from '../items/items'
 import { getMeeting, type MeetingView } from '../meetings/meetings'
 import { getNote, listNotes, meetingOf } from '../notes/notes'
@@ -412,7 +412,7 @@ export async function processRun(
     }
 
     // Who was there is settled before the notes are read against it.
-    await settleIfOver(exec, meetingOf(note))
+    await copyListIfOver(exec, meetingOf(note))
     const meeting = await getMeeting(exec, meetingOf(note))
     const where = { meetingId: meeting.id, noteId: note.id, runId }
 

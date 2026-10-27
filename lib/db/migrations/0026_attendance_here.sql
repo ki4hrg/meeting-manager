@@ -1,0 +1,1 @@
+ALTER TABLE "meeting_people" ADD COLUMN "here" boolean DEFAULT false NOT NULL;
