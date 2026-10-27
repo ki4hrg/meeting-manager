@@ -376,6 +376,31 @@ describe('brief rendering', () => {
     expect(brief).toContain('## Follow-ups due\n\n**Alice**\n- Fix the bug [action, due Oct 10]')
   })
 
+  it("lists a topic's questions beneath it", () => {
+    const question = (mockAgenda.nodes[1] as Extract<Agenda['nodes'][number], { type: 'line' }>).item!
+    const topic = { ...question, id: 'topic-1', kind: 'topic' as const, text: 'Status update' }
+    const agenda: Agenda = {
+      ...mockAgenda,
+      nodes: [
+        {
+          type: 'line',
+          id: 'line-9',
+          text: 'Status update',
+          ownText: null,
+          item: topic,
+          description: null,
+          leader: null,
+          privateNote: null,
+          minutes: null,
+          pinnedStart: null,
+          start: null,
+          questions: [{ ...question, id: 'q-1', text: 'Why is it blocked?' }],
+        },
+      ],
+    }
+    expect(renderBrief({ ...input, agenda })).toContain('- Status update\n  - Why is it blocked?')
+  })
+
   it('never writes a kind as a capture prefix', () => {
     // "Q:" and "A:" at the start of a notepad line mean "capture this" to processing.
     expect(renderBrief(input)).not.toMatch(/(^|[-\s])[TQAD]: /m)

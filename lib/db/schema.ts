@@ -387,8 +387,9 @@ export const items = pgTable(
     projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
     /* Always a deadline, never a "do it on" date. */
     dueOn: date('due_on'),
-    /* What this item came out of. Set at creation and never moved, so a thread
-       cannot loop. */
+    /* What this item came out of, or the topic a question sits under. Set at
+       creation, or on a question with none by linking it under a topic, which
+       refuses a loop. */
     parentItemId: uuid('parent_item_id').references((): AnyPgColumn => items.id),
     supersededByItemId: uuid('superseded_by_item_id').references((): AnyPgColumn => items.id),
     closedAt: timestamp('closed_at', { withTimezone: true }),

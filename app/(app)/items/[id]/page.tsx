@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ActionButton, FormModal } from '@/components/forms'
-import { History } from '@/components/items/History'
+import { History, Notes } from '@/components/items/History'
 import { ItemCard } from '@/components/items/ItemCard'
 import { ItemPicker, type ItemOption } from '@/components/items/ItemPicker'
 import { PartyOptions } from '@/components/items/PartyOptions'
@@ -14,7 +14,7 @@ import { PartyPicker, type PartyOption } from '@/components/processing/PartyPick
 import { GranolaChip } from '@/components/GranolaChip'
 import { QuickAdd } from '@/components/QuickAdd'
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs'
-import { Card, Section } from '@/components/ui/Card'
+import { Card, CardGrid, Section } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
 import { RemovableChip } from '@/components/ui/RemovableChip'
 import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/Field'
@@ -62,12 +62,15 @@ import {
   setOngoingAction,
   deleteItemAction,
   itemStatusAction,
+  linkQuestionAction,
   parkItemAction,
   recordDecisionAction,
   removePartyAction,
   setPartyRoleAction,
   supersedeDecisionAction,
+  unlinkQuestionAction,
   unparkItemAction,
+  updateDetailAction,
   updateItemAction,
   setItemTargetAction,
 } from '../../actions'
@@ -199,6 +202,30 @@ export default async function ItemPage({
         .map((one) => ({ id: one.id, text: one.text, kind: one.kind }))
     : []
   const events = thread.events.filter((event) => event.itemId === id)
+  /* A topic's questions: those under it, open first. A question shows the
+     topic it sits under. */
+  const questions =
+    item.kind === 'topic'
+      ? thread.entries
+          .map((entry) => entry.item)
+          .filter((one) => one.parentItemId === item.id && one.kind === 'question')
+          .sort((a, b) => Number(!isOpen(a)) - Number(!isOpen(b)))
+      : []
+  const inThread = new Set(thread.entries.map((entry) => entry.item.id))
+  const linkable: ItemOption[] =
+    item.kind === 'topic' && open
+      ? (await listItems(db, { contextId: item.contextId, open: true, kinds: ['question'] }))
+          .filter((one) => !one.parentItemId && !inThread.has(one.id))
+          .map((one) => ({ id: one.id, text: one.text, kind: one.kind }))
+      : []
+  const topic =
+    item.kind === 'question'
+      ? thread.entries.find((entry) => entry.item.id === item.parentItemId && entry.item.kind === 'topic')?.item
+      : undefined
+  // The thread beyond the topic and its questions, shown below them.
+  const threaded = thread.entries.some(
+    (entry) => entry.item.id !== id && !questions.some((one) => one.id === entry.item.id),
+  )
   /* Its Todoist task, or a way to give it one. */
   const todoist = await itemTodoist(db, item.id)
   const unsent = todoist && (todoist.state === 'none' || todoist.state === 'unmatched' || todoist.state === 'skipped')
@@ -275,6 +302,22 @@ export default async function ItemPage({
 
             {detail ? (
               <Markdown source={detail} className="mt-2 text-sm text-gray-700 dark:text-gray-300" />
+            ) : !item.detail ? (
+              <div className="mt-2">
+                <FormModal
+                  action={updateDetailAction}
+                  title="Detail"
+                  label="Detail"
+                  icon="plus"
+                  variant="secondary"
+                  size="sm"
+                >
+                  <input type="hidden" name="id" value={item.id} />
+                  <Field label="Detail">
+                    <Textarea name="detail" rows={5} />
+                  </Field>
+                </FormModal>
+              </div>
             ) : null}
 
             {item.resolution ? (
@@ -314,7 +357,7 @@ export default async function ItemPage({
               />
             </div>
 
-            {raisable || target || from || granolaIds.length > 0 || (open && item.parkedAt) ? (
+            {raisable || target || from || topic || granolaIds.length > 0 || (open && item.parkedAt) ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {open && item.parkedAt && blocker ? (
                   <BackWhen
@@ -337,6 +380,16 @@ export default async function ItemPage({
                     }}
                   >
                     {item.laterOn ? formatDay(item.laterOn, today) : 'Later'}
+                  </RemovableChip>
+                ) : null}
+                {topic ? (
+                  <RemovableChip
+                    icon="topic"
+                    iconLabel="Topic"
+                    href={`/items/${topic.id}`}
+                    remove={{ action: unlinkQuestionAction, fields: { id: item.id }, label: 'Remove from topic' }}
+                  >
+                    {topic.text}
                   </RemovableChip>
                 ) : null}
                 {from ? (
@@ -668,7 +721,53 @@ export default async function ItemPage({
         </div>
       </Card>
 
-      {thread.entries.length > 1 ? (
+      {item.kind === 'topic' ? (
+        <Section
+          title="Questions"
+          count={questions.length}
+          action={
+            open ? (
+              <span className="flex items-center gap-2">
+                {linkable.length > 0 ? (
+                  <FormModal
+                    action={linkQuestionAction}
+                    title="Add question"
+                    label="Add"
+                    icon="link"
+                    variant="secondary"
+                    size="sm"
+                    submit="Add"
+                  >
+                    <input type="hidden" name="id" value={item.id} />
+                    <ItemPicker label="Question" name="question" options={linkable} />
+                  </FormModal>
+                ) : null}
+                <QuickAdd
+                  label="New"
+                  title="New question"
+                  presets={{ parentItemId: item.id, kind: 'question', projectId: item.project?.id }}
+                />
+              </span>
+            ) : undefined
+          }
+        >
+          <CardGrid>
+            {questions.map((question) => (
+              <ItemCard key={question.id} item={question} today={today} />
+            ))}
+          </CardGrid>
+        </Section>
+      ) : null}
+
+      <Notes
+        item={item}
+        events={events}
+        comments={await itemComments(db, item.id)}
+        accepted={await acceptedSteps(db, item.id)}
+        timeZone={user.timeZone}
+      />
+
+      {threaded ? (
         <Section title="Thread" count={thread.entries.length}>
           <div className="flex flex-col gap-3">
             {thread.entries.map(({ item: entry, depth }) => (
@@ -684,13 +783,7 @@ export default async function ItemPage({
         </Section>
       ) : null}
 
-      <History
-        item={item}
-        events={events}
-        comments={await itemComments(db, item.id)}
-        accepted={await acceptedSteps(db, item.id)}
-        timeZone={user.timeZone}
-      />
+      <History item={item} events={events} accepted={await acceptedSteps(db, item.id)} timeZone={user.timeZone} />
     </>
   )
 }

@@ -21,6 +21,8 @@ import {
   ITEM_KINDS,
   addItemParty,
   addNote,
+  linkQuestion,
+  unlinkQuestion,
   answerItem,
   askItem,
   setOngoing,
@@ -167,6 +169,13 @@ export async function updateItemAction(formData: FormData): Promise<ActionResult
       projectId: field(formData, 'projectId') || null,
       dueOn: field(formData, 'dueOn') || null,
     })
+  })
+}
+
+/* An item's detail alone, from where the item page shows it. */
+export async function updateDetailAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await updateItem(db, actor, field(formData, 'id'), { detail: field(formData, 'detail') })
   })
 }
 
@@ -320,6 +329,21 @@ export async function setPartyRoleAction(formData: FormData): Promise<ActionResu
 export async function addNoteAction(formData: FormData): Promise<ActionResult> {
   return act(async (actor) => {
     await addNote(db, actor, field(formData, 'id'), field(formData, 'text'))
+  })
+}
+
+/* A question put under a topic, or taken out from under it. */
+export async function linkQuestionAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const question = field(formData, 'question')
+    if (!question) throw new ValidationError('Pick a question.')
+    await linkQuestion(db, actor, field(formData, 'id'), question)
+  })
+}
+
+export async function unlinkQuestionAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    await unlinkQuestion(db, actor, field(formData, 'id'))
   })
 }
 
