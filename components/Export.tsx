@@ -19,11 +19,12 @@ import {
 
 type Format = 'clipboard' | 'pdf' | 'email' | 'markdown'
 
-const FORMATS: Array<{ format: Format; label: string; icon: IconName }> = [
-  { format: 'clipboard', label: 'Copy', icon: 'copy' },
-  { format: 'pdf', label: 'PDF', icon: 'printer' },
-  { format: 'email', label: 'Email', icon: 'mail' },
-  { format: 'markdown', label: 'Markdown', icon: 'download' },
+/* Each format as a choice, and the words on the button that sends it there. */
+const FORMATS: Array<{ format: Format; label: string; icon: IconName; go: string }> = [
+  { format: 'clipboard', label: 'Clipboard', icon: 'copy', go: 'Copy' },
+  { format: 'pdf', label: 'PDF', icon: 'printer', go: 'Print' },
+  { format: 'email', label: 'Email', icon: 'mail', go: 'Open email' },
+  { format: 'markdown', label: 'Markdown', icon: 'download', go: 'Download' },
 ]
 
 const PRESET_ICON: Record<string, IconName> = { Private: 'lock', Shareable: 'group' }
@@ -135,6 +136,7 @@ export function Export({
   }
 
   const chosen = useMemo(() => new Set(parts), [parts])
+  const current = FORMATS.find((one) => one.format === format)!
   const isPrivate = options.some((option) => option.private && chosen.has(option.key))
   const same = (preset: string[]) => preset.length === chosen.size && preset.every((part) => chosen.has(part))
 
@@ -143,9 +145,12 @@ export function Export({
     save(kind, { parts: next, format, to })
   }
 
-  async function run(next: Format) {
+  function pickFormat(next: Format) {
     setFormat(next)
     save(kind, { parts, format: next, to })
+  }
+
+  async function run(next: Format) {
     const kept = pick(outline, chosen)
     const text = toMarkdown(kept)
     const html = toHtml(kept)
@@ -188,6 +193,19 @@ export function Export({
             setManual(null)
           }}
           title="Export"
+          footer={
+            manual !== null ? null : (
+              <>
+                <Button variant="secondary" onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={() => run(format)}>
+                  <Icon name={current.icon} className="h-4 w-4" />
+                  {current.go}
+                </Button>
+              </>
+            )
+          }
         >
           {manual !== null ? (
             <textarea
@@ -277,19 +295,28 @@ export function Export({
                 </fieldset>
               ) : null}
 
-              {/* The format last used is the blue one. */}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {FORMATS.map((one) => (
-                  <Button
-                    key={one.format}
-                    variant={one.format === format ? 'primary' : 'secondary'}
-                    onClick={() => run(one.format)}
-                  >
-                    <Icon name={one.icon} className="h-4 w-4" />
-                    {one.label}
-                  </Button>
-                ))}
-              </div>
+              <fieldset className="min-w-0">
+                <legend className="block text-sm font-medium text-gray-700 dark:text-gray-300">As</legend>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {FORMATS.map((one) => {
+                    const on = one.format === format
+                    return (
+                      <button
+                        key={one.format}
+                        type="button"
+                        onClick={() => pickFormat(one.format)}
+                        aria-pressed={on}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                          on ? pillClass('blue') : `${pillClass('gray')} hover:bg-gray-200 dark:hover:bg-gray-600`
+                        }`}
+                      >
+                        <Icon name={one.icon} className="h-4 w-4" />
+                        {one.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </fieldset>
             </div>
           )}
         </Modal>

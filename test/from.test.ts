@@ -58,7 +58,7 @@ describe('withFrom', () => {
     expect(withFrom(`/items/${ID}`, `/people/${ID.replace('0b', '1c')}`)).toBe(
       `/items/${ID}?from=${encodeURIComponent(`/people/${ID.replace('0b', '1c')}`)}`,
     )
-    expect(withFrom(`/meetings/${ID}/review`, '/inbox')).toBe(`/meetings/${ID}/review?from=%2Finbox`)
+    expect(withFrom(`/meetings/${ID}#review`, '/inbox')).toBe(`/meetings/${ID}?from=%2Finbox#review`)
     // Keeps what the link already asks.
     expect(withFrom(`/projects/${ID}?all=1`, '/projects')).toBe(`/projects/${ID}?all=1&from=%2Fprojects`)
   })

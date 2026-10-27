@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 import { dialog, watchErrors } from './helpers'
 import { WORLD } from './world'
 
@@ -13,6 +13,18 @@ const HUBS = [
   { list: '/people', name: WORLD.people.adlene, main: 'Raise', side: 'Meetings' },
   { list: '/meetings', name: WORLD.meetings.checkIn, main: 'Agenda', side: 'Blocks' },
 ]
+
+/* A page that does not scroll sideways can still have controls run past its
+   card: what, inside the card holding this heading, ends beyond its padding. */
+const pastTheCard = (heading: Locator) =>
+  heading.evaluate((h1) => {
+    let card = h1 as HTMLElement
+    while (card.parentElement && !card.className.includes('rounded-lg')) card = card.parentElement
+    const edge = card.getBoundingClientRect().right - parseFloat(getComputedStyle(card).paddingRight)
+    return [...card.querySelectorAll<HTMLElement>('select, button, a')]
+      .filter((one) => one.getBoundingClientRect().right > edge + 1)
+      .map((one) => one.getAttribute('aria-label') ?? one.textContent?.trim())
+  })
 
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`at phone width, ${scheme}`, () => {
@@ -69,6 +81,7 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(overflow, 'page scrolls sideways').toBeLessThanOrEqual(0)
       const widths = await title.evaluate((h1) => ({ title: h1.clientWidth, column: h1.parentElement!.clientWidth }))
       expect(widths.title, 'badges squeeze the title').toBeGreaterThanOrEqual(widths.column - 1)
+      expect(await pastTheCard(title), 'runs past the card').toEqual([])
       expect(errors).toEqual([])
     })
     test('a question’s Ask and Answer fit the screen', async ({ page }) => {
@@ -76,6 +89,8 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.goto('/items')
       await page.getByRole('link').filter({ hasText: WORLD.items.longForm }).first().click()
       await expect(page.getByRole('heading', { name: WORLD.items.longForm })).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      expect(await pastTheCard(page.getByRole('heading', { name: WORLD.items.longForm })), 'runs past the card').toEqual([])
       for (const button of ['Ask', 'Answer']) {
         await page.getByRole('button', { name: button, exact: true }).click()
         await expect(dialog(page)).toBeVisible()

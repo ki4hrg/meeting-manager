@@ -1,7 +1,7 @@
 /* Wall-clock times in the user's zone, whatever zone the server runs in. */
 
 import { describe, expect, it } from 'vitest'
-import { clockIn, formatClock, fromLocalInput, toLocalInput, todayIn } from '../lib/core/dates'
+import { clockIn, dateRelativeDays, formatClock, fromLocalInput, toLocalInput, todayIn } from '../lib/core/dates'
 
 const CHICAGO = 'America/Chicago'
 
@@ -62,5 +62,19 @@ describe('formatClock', () => {
     expect(formatClock('09:00')).toBe('9:00 AM')
     expect(formatClock('12:00')).toBe('12:00 PM')
     expect(formatClock('15:05')).toBe('3:05 PM')
+  })
+})
+
+describe('dateRelativeDays', () => {
+  it('dates the words that name one day, once', () => {
+    // 2026-10-26 is a Monday.
+    expect(dateRelativeDays('Meet tomorrow, not yesterday; today is busy.', '2026-10-26', '2026-10-27')).toBe(
+      'Meet tomorrow (October 27), not yesterday (October 25); today (October 26) is busy.',
+    )
+    expect(dateRelativeDays('Due this Friday.', '2026-10-26', '2026-10-27')).toBe('Due this Friday (October 30).')
+    expect(dateRelativeDays('Tomorrow (October 27) it is.', '2026-10-26', '2026-10-27')).toBe('Tomorrow (October 27) it is.')
+    expect(dateRelativeDays('On Friday, or next week.', '2026-10-26', '2026-10-27')).toBe('On Friday, or next week.')
+    expect(dateRelativeDays('Tomorrow', '2026-12-31', '2027-01-02')).toBe('Tomorrow (January 1)')
+    expect(dateRelativeDays('Tomorrow', '2024-12-31', '2026-10-27')).toBe('Tomorrow (January 1, 2025)')
   })
 })

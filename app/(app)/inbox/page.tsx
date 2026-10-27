@@ -65,7 +65,7 @@ export default async function InboxPage() {
       <ReviewSection
         pending={pending}
         timeZone={user.timeZone}
-        href={(id) => openHref(`/meetings/${id}/review`, contextOf(id), context.id)}
+        href={(id) => openHref(`/meetings/${id}#review`, contextOf(id), context.id)}
         context={(id) => label(contextOf(id))}
       />
       {notes.length > 0 ? (

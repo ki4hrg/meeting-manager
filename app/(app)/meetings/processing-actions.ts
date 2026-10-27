@@ -121,7 +121,7 @@ export async function logMeetingAction(formData: FormData): Promise<ActionResult
     id = meeting.id
     processSoon()
   })
-  if (!result.error) redirect(`/meetings/${id}/review`)
+  if (!result.error) redirect(`/meetings/${id}#review`)
   return result
 }
 
@@ -177,7 +177,7 @@ export async function ownMeetingFromNoteAction(formData: FormData): Promise<Acti
     await ownMeeting(meetingOf(note))
     id = (await ownMeetingFromNote(db, actor, note.id)).id
   })
-  if (!result.error) redirect(`/meetings/${id}/review`)
+  if (!result.error) redirect(`/meetings/${id}#review`)
   return result
 }
 
@@ -233,7 +233,7 @@ export async function fileNoteAction(formData: FormData): Promise<ActionResult> 
   })
   if (result.error) return result
   ;(await cookies()).set(CONTEXT_COOKIE, to.contextId, contextCookieOptions)
-  redirect(`/meetings/${to.meetingId}/review`)
+  redirect(`/meetings/${to.meetingId}#review`)
 }
 
 export async function dismissNoteAction(formData: FormData): Promise<ActionResult> {

@@ -65,6 +65,43 @@ export function formatDay(day: string, today: string): string {
   }).format(new Date(Date.UTC(year!, month! - 1, date!)))
 }
 
+/** "October 9", with the year only when it is not this one: for prose. */
+export function formatLongDay(day: string, today: string): string {
+  const [year, month, date] = day.split('-').map(Number)
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    month: 'long',
+    day: 'numeric',
+    year: day.slice(0, 4) === today.slice(0, 4) ? undefined : 'numeric',
+  }).format(new Date(Date.UTC(year!, month! - 1, date!)))
+}
+
+const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+/**
+ * Prose written on `day` read on any other: each "tomorrow", "yesterday",
+ * "today", "tonight" and "this Friday" gets its date after it, "tomorrow
+ * (October 27)". Only the words that name one day for certain; one already
+ * followed by a bracket is left as it is.
+ */
+export function dateRelativeDays(text: string, day: string, today: string): string {
+  const weekday = new Date(`${day}T00:00:00Z`).getUTCDay()
+  return text.replace(
+    /\b(today|tonight|tomorrow|yesterday|this (?:coming )?(sunday|monday|tuesday|wednesday|thursday|friday|saturday))\b(?!\s*\()/gi,
+    (words: string, whole: string, named: string | undefined) => {
+      const lower = whole.toLowerCase()
+      const offset = named
+        ? (WEEKDAY_NAMES.indexOf(named.toLowerCase()) - weekday + 7) % 7
+        : lower === 'tomorrow'
+          ? 1
+          : lower === 'yesterday'
+            ? -1
+            : 0
+      return `${words} (${formatLongDay(addDays(day, offset), today)})`
+    },
+  )
+}
+
 /** "Oct 9, 3:40 PM" in the given zone. */
 export function formatMoment(moment: Date, timeZone: string | null | undefined): string {
   return new Intl.DateTimeFormat('en-US', {

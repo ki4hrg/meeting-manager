@@ -70,6 +70,9 @@ export function ContextBadge({ name }: { name: string }) {
   )
 }
 
+/** Only what was given up is struck through: an answered question or a done action is not. */
+export const struck = (status: string) => status === 'dropped' || status === 'superseded'
+
 // ─── item kinds ──────────────────────────────────────────────────────────────
 
 export type ItemKind = 'topic' | 'question' | 'action' | 'decision'

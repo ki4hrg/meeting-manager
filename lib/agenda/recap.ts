@@ -22,14 +22,14 @@
  */
 
 import { and, asc, eq, inArray } from 'drizzle-orm'
-import { formatDay, formatSpan, formatWeekday, todayIn } from '../core/dates'
+import { dateRelativeDays, formatDay, formatSpan, formatWeekday, todayIn } from '../core/dates'
 import { NotFoundError, type ActorContext, type Executor } from '../core/types'
-import { meetings, notes, personEmails, processingRuns, type RecapEdits } from '../db/schema'
+import { meetings, notes, people, personEmails, processingRuns, type RecapEdits } from '../db/schema'
 import { onShelf } from '../db/shelf'
 import { getMeeting } from '../meetings/meetings'
 import { isOpen, listItems, type ItemKind, type ItemStatus, type ItemView } from '../items/items'
 import { isOwed, owersOf } from '../items/horizon'
-import { lookaheadParts, markdownLeaf, reportBack, rows } from './brief'
+import { decisionEntry, lookaheadParts, markdownLeaf, reportBack, rows } from './brief'
 import {
   only,
   pick,
@@ -41,7 +41,7 @@ import {
   type Part,
   type Piece,
 } from './export'
-import { computeBlocks, itemsOf } from './generated'
+import { computeBlocks, decisionSays, itemsOf } from './generated'
 import { getAgenda } from './lines'
 import type { LookaheadBlock } from './types'
 
@@ -75,7 +75,8 @@ export type Recap = {
   /** What was said under an agenda line, in agenda order. Only lines still on the agenda. */
   /** Agenda lines the notes said something about, with the line's public description. */
   lines: { lineId: string; text: string; description: string | null; summary: string }[]
-  decisions: { itemId: string; text: string }[]
+  /** `says`: the decision itself, when its text names only what it was about. */
+  decisions: { itemId: string; text: string; says: string | null }[]
   /** What is owed, by who owes it (`owersOf`: a topic's raiser, never its collaborators);
       an item with several owners is under each.
       A null party holds what nobody owns yet. */
@@ -98,6 +99,8 @@ export type Recap = {
   today: string
   timeZone: string | null
   selfId: string
+  /** John's name, for a snippet that has to say who owes whom. */
+  selfName: string
 }
 
 type Recipient = { personId: string; name: string; email: string }
@@ -262,6 +265,11 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
     }
   }
   const edits: RecapEdits = meeting.recapEdits ?? {}
+  /* Prose is written as of the meeting and read later, by people who were not
+     all there: a "tomorrow" in it carries its date. */
+  const meetingDay = meeting.startsAt ? todayIn(opts.timeZone, meeting.startsAt) : null
+  const dated = (text: string | null) =>
+    text && meetingDay ? dateRelativeDays(text, meetingDay, opts.today) : text
   const lines: Recap['lines'] = []
   if (said.size > 0 || Object.keys(edits.lines ?? {}).length > 0) {
     for (const row of covered) {
@@ -277,7 +285,7 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
       for (const { id, text, description } of listed) {
         const own = edits.lines?.[id]
         const summary = own !== undefined ? own.trim() : (said.get(id) ?? []).join('\n\n')
-        if (summary) lines.push({ lineId: id, text, description, summary })
+        if (summary) lines.push({ lineId: id, text, description, summary: dated(summary)! })
       }
     }
   }
@@ -351,14 +359,15 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
       endsAt: meeting.endsAt,
       people: attendees,
     },
-    summary:
+    summary: dated(
       edits.summary !== undefined
         ? edits.summary.trim() || null
         : summaries.length > 0
           ? summaries.join('\n\n')
           : null,
+    ),
     lines,
-    decisions: decisions.map((item) => ({ itemId: item.id, text: item.text })),
+    decisions: decisions.map((item) => ({ itemId: item.id, text: item.text, says: decisionSays(item) })),
     owed,
     closed,
     lookahead,
@@ -368,7 +377,14 @@ export async function getRecap(exec: Executor, meetingId: string, opts: RecapOpt
     today: opts.today,
     timeZone: opts.timeZone,
     selfId: opts.selfId,
+    selfName: owed.flatMap((group) => group.items.flatMap((item) => [...item.owners, ...item.with]))
+      .find((party) => party.isSelf)?.name ?? (await selfNameOf(exec, opts.selfId)),
   }
+}
+
+async function selfNameOf(exec: Executor, selfId: string): Promise<string> {
+  const [row] = await exec.select({ name: people.name }).from(people).where(eq(people.id, selfId)).limit(1)
+  return row?.name ?? 'John'
 }
 
 /**
@@ -449,6 +465,13 @@ function day(recap: Recap): string | null {
   return recap.meeting.startsAt ? todayIn(recap.timeZone, recap.meeting.startsAt) : null
 }
 
+/* A line that was discussed: its text, its public description, then what was said. */
+const lineEntry = (line: Recap['lines'][number]): Entry => ({
+  text: line.text,
+  bold: true,
+  sub: [...rows(line.description).map(markdownLeaf), ...rows(line.summary).map(leaf)],
+})
+
 /** Everything a recap can export, each section marked with its part. */
 export function recapOutline(recap: Recap): OutlinePart[] {
   const { meeting, today, timeZone } = recap
@@ -467,14 +490,7 @@ export function recapOutline(recap: Recap): OutlinePart[] {
     parts.push(
       ...only<OutlinePart>('discussed', [
         { type: 'h2', text: 'Discussed' },
-        {
-        type: 'list',
-        entries: recap.lines.map((line) => ({
-          text: line.text,
-          bold: true,
-          sub: [...rows(line.description).map(markdownLeaf), ...rows(line.summary).map(leaf)],
-        })),
-        },
+        { type: 'list', entries: recap.lines.map(lineEntry) },
       ]),
     )
   }
@@ -483,7 +499,7 @@ export function recapOutline(recap: Recap): OutlinePart[] {
     parts.push(
       ...only<OutlinePart>('decisions', [
         { type: 'h2', text: 'Decisions' },
-        { type: 'list', entries: recap.decisions.map((decision) => leaf(decision.text)) },
+        { type: 'list', entries: recap.decisions.map(decisionEntry) },
       ]),
     )
   }
@@ -542,12 +558,34 @@ export function renderRecapHtml(recap: Recap): string {
 }
 
 /**
+ * The shareable recap as HTML in the pieces its page edits in place: the
+ * heading, the summary, each line discussed, and the rest after them.
+ */
+export function recapPieces(recap: Recap): {
+  head: string
+  summary: string | null
+  lines: Array<Recap['lines'][number] & { html: string }>
+  rest: string
+} {
+  const kept = pick(recapOutline({ ...recap, summary: null, lines: [] }), WHOLE)
+  const split = kept.findIndex((part) => part.type === 'h2')
+  const at = split === -1 ? kept.length : split
+  return {
+    head: toHtml(kept.slice(0, at)),
+    summary: recap.summary ? toHtml(prose(recap.summary)) : null,
+    lines: recap.lines.map((line) => ({ ...line, html: toHtml([{ type: 'list', entries: [lineEntry(line)] }]) })),
+    rest: toHtml(kept.slice(at)),
+  }
+}
+
+/**
  * "Your items" for one person or group, as Markdown: what they owe from this
- * meeting, and what John owes them. Empty when there is neither.
+ * meeting, and what John owes them. Empty when there is neither. Each list
+ * names who owes whom, so it reads the same to John and to them.
  */
 export function renderPersonSnippet(
   recap: Recap,
-  party: { type: 'person' | 'group'; id: string },
+  party: { type: 'person' | 'group'; id: string; name?: string },
 ): string {
   const is = (other: RecapParty) => other.type === party.type && other.id === party.id
   const yours = recap.owed.find((group) => group.party && is(group.party))?.items ?? []
@@ -574,8 +612,10 @@ export function renderPersonSnippet(
       { type: 'list', entries: items.map((item) => leaf(owedText(item, recap.today))) },
     )
   }
-  group('Yours', yours)
-  group('Owed to you', toYou)
+  const name =
+    party.name ?? recap.owed.find((one) => one.party && is(one.party))?.party?.name ?? toYou[0]?.with.find(is)?.name ?? ''
+  group(`${name} owes`, yours)
+  group(`${recap.selfName} owes ${name}`, toYou)
   return toMarkdown(parts)
 }
 

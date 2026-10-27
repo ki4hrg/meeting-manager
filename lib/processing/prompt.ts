@@ -114,7 +114,7 @@ Where an item or an update came up under a particular agenda line, give that lin
 
 # Summaries
 
-summary is the meeting in three to six sentences: what was covered and what came of it, in plain past tense, for someone who was not there. No list of attendees, no preamble. If there is too little material to summarise, null.
+summary is the meeting in three to six sentences: what was covered and what came of it, in plain past tense, for someone who was not there. No list of attendees, no preamble. If there is too little material to summarise, null. It is read days later, so a day named relative to the meeting carries its date, worked out from the meeting's own date: "tomorrow (October 27)", "this Friday (October 30)". The same goes for what you write under each agenda line.
 
 lines carries one entry for each agenda line that was actually discussed: two or three sentences on what was said under it. Leave out lines that were skipped or that the material does not cover. Use the line ids exactly as given.
 

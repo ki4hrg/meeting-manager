@@ -52,7 +52,8 @@ export function RaiseAt({
         name="target"
         value={value}
         label="Raise at"
-        className="!w-auto max-w-full !py-1 !text-sm"
+        // min-w-0: a select is as wide as its longest option unless told it may be narrower.
+        className="!w-auto min-w-0 max-w-full !py-1 !text-sm"
       >
         {children}
       </ActionSelect>

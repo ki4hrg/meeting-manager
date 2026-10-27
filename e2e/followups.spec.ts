@@ -53,9 +53,10 @@ test("a recap's prose is reworded by hand, and the edit can be undone", async ({
   await page.goto(`${meeting}/recap`)
   await expect(page.getByRole('heading', { name: 'Recap' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Edit', exact: true }).click()
-  await dialog(page).getByLabel('Summary').fill('We agreed to replace the boiler before winter.')
-  await dialog(page).getByRole('button', { name: 'Save', exact: true }).click()
+  // The summary is reworded where it stands: the first pencil on the recap.
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  await page.getByLabel('Summary').fill('We agreed to replace the boiler before winter.')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog(page)).toHaveCount(0)
   await expect(page.getByRole('paragraph').filter({ hasText: 'We agreed to replace the boiler before winter.' })).toBeVisible()
 

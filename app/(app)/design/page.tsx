@@ -11,7 +11,7 @@ import { LivesIn, MoveTo } from '@/components/meetings/Move'
 import { UnfiledCard } from '@/components/meetings/UnfiledCard'
 import { WhenInputs } from '@/components/meetings/WhenInputs'
 import { DeleteButton } from '@/components/archive/DeleteButton'
-import { FormModal, IconAction } from '@/components/forms'
+import { FormModal, IconAction, InlineEdit } from '@/components/forms'
 import { PartyLine } from '@/components/items/ItemCard'
 import { ProjectTree, type ProjectTreeNode } from '@/components/projects/ProjectTree'
 import { MentionSuggestions, NewNames } from '@/components/QuickAdd'
@@ -648,6 +648,12 @@ export default function DesignPage() {
             <FilterChip href="/design" on={false}>
               Waiting on
             </FilterChip>
+          </div>
+          {/* A block of prose reworded where it stands. */}
+          <div className="mt-4">
+            <InlineEdit action={sampleAction} fields={{}} name="summary" value="The venue is settled." label="Summary">
+              <p className="text-sm text-gray-700 dark:text-gray-300">The venue is settled.</p>
+            </InlineEdit>
           </div>
         </Card>
       </Section>

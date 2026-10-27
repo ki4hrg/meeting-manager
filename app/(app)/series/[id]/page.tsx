@@ -54,6 +54,7 @@ const BLOCKS: Array<{ block: keyof BlockSettings; icon: IconName; label: string 
   { block: 'followUps', icon: 'action', label: 'Follow-ups due' },
   { block: 'sinceLast', icon: 'undo', label: 'Since last time' },
   { block: 'lookahead', icon: 'flag', label: 'Lookahead' },
+  { block: 'wholeProject', icon: 'project', label: 'Whole project' },
 ]
 
 /* How much of the next agenda the hub shows before it is a link's job. */
@@ -478,7 +479,7 @@ export default async function SeriesPage({
                         icon={icon}
                         label={label}
                         tone={series.blocks[block] ? 'on' : 'gray'}
-                        aria-pressed={series.blocks[block]}
+                        aria-pressed={series.blocks[block] === true}
                       />
                     ))}
                   </div>

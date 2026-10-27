@@ -164,6 +164,8 @@ describe('the committee walkthrough', () => {
       contextId: w.parish.id,
       title: 'Retreat planning',
       startsAt: new Date('2025-03-20T15:00:00Z'),
+      // The committee's next meeting; a smaller one on the project would not be listed.
+      personIds: [w.sarah.id, w.tom.id],
       projectIds: [w.retreat.id],
     })
     await noteWith(meeting.id, {
@@ -408,18 +410,18 @@ describe('owed', () => {
       [
         'Staff · Thu, Mar 6',
         '',
-        '**Yours**',
+        '**Sarah Jones owes**',
         '- book the hall [action, due Mar 10]',
         '',
-        '**Owed to you**',
+        '**John owes Sarah Jones**',
         '- send Sarah the figures [action]',
       ].join('\n'),
     )
     expect(renderPersonSnippet(recap, { type: 'person', id: w.tom.id })).toBe(
-      ['Staff · Thu, Mar 6', '', '**Yours**', '- fix the boiler [action]'].join('\n'),
+      ['Staff · Thu, Mar 6', '', '**Tom Baker owes**', '- fix the boiler [action]'].join('\n'),
     )
     expect(renderPersonSnippet(recap, { type: 'group', id: w.staff.id })).toBe(
-      ['Staff · Thu, Mar 6', '', '**Yours**', '- who locks up? [question]'].join('\n'),
+      ['Staff · Thu, Mar 6', '', '**Staff owes**', '- who locks up? [question]'].join('\n'),
     )
     expect(renderPersonSnippet(recap, { type: 'person', id: w.bishop.id })).toBe('')
   })
@@ -725,5 +727,36 @@ describe('dates', () => {
     const recap = await recapOf(w, meeting.id)
     expect(renderRecap(recap)).toBe('# Evening\nThu, Mar 6 · 8:30 PM')
     expect(recapMailto(recap)).toContain('Mar%206')
+  })
+})
+
+describe('read later', () => {
+  it('dates a relative day in the prose as of the meeting', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, startsAt: START, personIds: [w.sarah.id] })
+    await noteWith(meeting.id, {
+      status: 'done',
+      output: { summary: 'John meets the pastors tomorrow and the board this Monday.', lines: [] },
+    })
+    expect((await recapOf(w, meeting.id)).summary).toBe(
+      'John meets the pastors tomorrow (March 7) and the board this Monday (March 10).',
+    )
+  })
+
+  it('a decision named for its matter carries what was decided', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, startsAt: START, personIds: [w.sarah.id] })
+    await createItem(db, actor, {
+      contextId: w.parish.id,
+      kind: 'decision',
+      text: 'Format of the memorial service',
+      detail: 'It is separate from ordination',
+      originMeetingId: meeting.id,
+    })
+    const recap = await recapOf(w, meeting.id)
+    expect(recap.decisions.map((decision) => decision.says)).toEqual(['It is separate from ordination'])
+    expect(renderRecap(recap)).toContain(
+      '## Decisions\n- Format of the memorial service\n  - It is separate from ordination',
+    )
   })
 })

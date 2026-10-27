@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useToast } from '@/components/Toast'
 import { Button, type ButtonProps } from '@/components/ui/Button'
-import { FormError } from '@/components/ui/Field'
+import { FormError, Textarea } from '@/components/ui/Field'
 import { IconButton, type IconButtonProps } from '@/components/ui/IconButton'
 import { Icon, type IconName } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
@@ -220,5 +220,59 @@ export function ActionButton({
     <Button {...props} disabled={pending || props.disabled} onClick={run}>
       {children}
     </Button>
+  )
+}
+
+/**
+ * One block of text that is edited where it stands: its pencil turns it into
+ * a box with Cancel and Save, so a long page is reworded a part at a time.
+ * The value it started from goes as `<name>Was`, so a Save that changed
+ * nothing changes nothing.
+ */
+export function InlineEdit({
+  action,
+  fields,
+  name,
+  value,
+  rows = 4,
+  label,
+  children,
+}: {
+  action: Action
+  /** Hidden fields the action needs besides the text. */
+  fields: Record<string, string>
+  name: string
+  value: string
+  rows?: number
+  /** What the box holds, for a screen reader. */
+  label: string
+  /** The block as it reads. */
+  children: React.ReactNode
+}) {
+  const [editing, setEditing] = useState(false)
+  if (!editing) {
+    return (
+      <div className="group relative flex items-start gap-2">
+        <div className="min-w-0 flex-1">{children}</div>
+        <IconButton icon="pencil" label="Edit" onClick={() => setEditing(true)} />
+      </div>
+    )
+  }
+  return (
+    <ActionForm action={action} onDone={() => setEditing(false)} className="flex flex-col gap-2">
+      {Object.entries(fields).map(([key, field]) => (
+        <input key={key} type="hidden" name={key} value={field} />
+      ))}
+      <input type="hidden" name={`${name}Was`} value={value} />
+      <Textarea name={name} rows={rows} defaultValue={value} aria-label={label} autoFocus />
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" size="sm" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm">
+          Save
+        </Button>
+      </div>
+    </ActionForm>
   )
 }

@@ -53,6 +53,12 @@ const leaf = (text: string): Entry => ({ text, sub: [] })
 /* A row of long text: Markdown, so the HTML copy renders its bold and links. */
 export const markdownLeaf = (text: string): Entry => ({ text, markdown: true, sub: [] })
 
+/** A decision as it is reported: its text, and what it settled beneath when the text names only the matter. */
+export const decisionEntry = (decision: { text: string; says: string | null }): Entry => ({
+  text: decision.text,
+  sub: rows(decision.says).map(markdownLeaf),
+})
+
 const minutes = (value: number | null) => (value ? ` (${value} min)` : '')
 const led = (line: AgendaLine) => (line.leader ? ` — ${line.leader.name}` : '')
 /* Text written across several lines, as one bullet per line. A Markdown
@@ -191,15 +197,12 @@ function sinceLastParts(input: BriefInput, today: string): Part[] {
     ? ` (${formatDay(todayIn(input.timeZone, block.meeting.startsAt), today)})`
     : ''
   const parts: Part[] = [{ type: 'h2', text: `Since last time${when}` }]
-  const group = (label: string, entries: string[]) => {
+  const group = (label: string, entries: Array<string | Entry>) => {
     if (entries.length === 0) return
     parts.push({ type: 'label', text: label })
-    parts.push({ type: 'list', entries: entries.map(leaf) })
+    parts.push({ type: 'list', entries: entries.map((entry) => (typeof entry === 'string' ? leaf(entry) : entry)) })
   }
-  group(
-    'Decided',
-    block.decisions.map((decision) => decision.text),
-  )
+  group('Decided', block.decisions.map(decisionEntry))
   group(
     'Closed',
     block.closed.map((item) => (item.resolution ? `${item.text} — ${item.resolution}` : item.text)),

@@ -12,12 +12,15 @@ export function Modal({
   onClose,
   title,
   children,
+  footer,
   size = 'md',
 }: {
   open: boolean
   onClose: () => void
   title: string
   children: React.ReactNode
+  /** Kept in view under the body, however long it runs: the button that does the thing. */
+  footer?: React.ReactNode
   size?: 'md' | 'lg'
 }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -43,11 +46,11 @@ export function Modal({
         if (event.target === ref.current) onClose()
       }}
       aria-label={title}
-      className={`m-auto w-[calc(100%-2rem)] rounded-lg bg-white p-0 text-gray-900 shadow-xl backdrop:bg-black/40 dark:bg-gray-800 dark:text-gray-100 ${
+      className={`m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] flex-col rounded-lg open:flex bg-white p-0 text-gray-900 shadow-xl backdrop:bg-black/40 dark:bg-gray-800 dark:text-gray-100 ${
         size === 'lg' ? 'max-w-2xl' : 'max-w-md'
       }`}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-6 py-4 dark:border-gray-700">
         <h2 className="text-lg font-semibold">{title}</h2>
         <button
           type="button"
@@ -58,7 +61,12 @@ export function Modal({
           <Icon name="close" />
         </button>
       </div>
-      <div className="p-6">{children}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">{children}</div>
+      {footer ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+          {footer}
+        </div>
+      ) : null}
     </dialog>
   )
 }

@@ -12,6 +12,8 @@ const BLOCKS: Array<{ name: keyof BlockSettings; label: string; icon: IconName }
   { name: 'followUps', label: 'Follow-ups due', icon: 'clock' },
   { name: 'sinceLast', label: 'Since last time', icon: 'undo' },
   { name: 'lookahead', label: 'Lookahead', icon: 'flag' },
+  /* Not a block: how far the two above read, the meeting's own room or its whole project. */
+  { name: 'wholeProject', label: 'Whole project', icon: 'project' },
 ]
 
 const ROW = 'flex items-start gap-2 py-1.5'
@@ -50,7 +52,7 @@ export function Blocks({
               icon={block.icon}
               label={block.label}
               tone={settings[block.name] ? 'on' : 'gray'}
-              aria-pressed={settings[block.name]}
+              aria-pressed={settings[block.name] === true}
             />
           ))}
         </div>
@@ -108,6 +110,9 @@ export function Blocks({
                     <KindIcon kind="decision" className="mt-0.5 h-4 w-4" />
                     <Link href={`/items/${decision.itemId}`} className={TEXT}>
                       {decision.text}
+                      {decision.says ? (
+                        <span className="block text-gray-600 dark:text-gray-300">{decision.says}</span>
+                      ) : null}
                     </Link>
                   </li>
                 ))}
@@ -117,7 +122,7 @@ export function Blocks({
                       <Icon name="check" className="h-4 w-4" label="Closed" />
                     </span>
                     <Link href={`/items/${item.itemId}`} className={TEXT}>
-                      <span className="text-gray-500 line-through dark:text-gray-400">{item.text}</span>
+                      <span className="text-gray-500 dark:text-gray-400">{item.text}</span>
                       {item.resolution ? <span className="block">{item.resolution}</span> : null}
                     </Link>
                   </li>
