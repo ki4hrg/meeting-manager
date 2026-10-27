@@ -22,3 +22,14 @@ export function watchErrors(page: Page): string[] {
 
 /** The open modal: there is only ever one. */
 export const dialog = (page: Page) => page.locator('dialog[open]')
+
+/* Open quick-add. A click before the page has hydrated does nothing, so it is
+   clicked until the box is there. */
+export async function openQuickAdd(page: Page) {
+  const line = dialog(page).getByLabel('New item')
+  await expect(async () => {
+    // Not again once it is open: the button is behind it then.
+    if (!(await line.isVisible())) await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+    await expect(line).toBeVisible({ timeout: 1_000 })
+  }).toPass()
+}
