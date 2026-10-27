@@ -29,6 +29,8 @@ export const WORLD = {
     finance: 'Finance committee',
     planning: 'Worship planning',
     bishop: 'With the bishop',
+    /* A long title, as calendar titles are: it widens every picker it is in. */
+    venue: 'Hilton Garden Inn/Homewood Suites Site Visit and Contract Review',
     camps: 'Camps review',
     /* Two recordings filed on it by time. */
     siteVisit: 'Site visit',

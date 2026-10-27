@@ -63,6 +63,7 @@ export async function seed({ todoistToken }: { todoistToken?: string } = {}) {
   const lastPlanning = await createMeeting(db, actor, { contextId: conference.id, seriesId: planning.id, title: WORLD.meetings.planning, startsAt: at(-7, 9), endsAt: at(-7, 10), personIds: [sarah.id] })
   await createMeeting(db, actor, { contextId: conference.id, seriesId: planning.id, title: WORLD.meetings.planning, startsAt: at(7, 9), endsAt: at(7, 10), personIds: [sarah.id] })
   await createMeeting(db, actor, { contextId: conference.id, title: WORLD.meetings.bishop, startsAt: at(3, 14), endsAt: at(3, 15), personIds: [bishop.id] })
+  await createMeeting(db, actor, { contextId: conference.id, title: WORLD.meetings.venue, startsAt: at(9, 9), endsAt: at(9, 10), personIds: [bishop.id] })
   for (const text of [WORLD.items.scripture, WORLD.items.longForm]) {
     await createItem(db, actor, { contextId: conference.id, kind: 'question', text, originMeetingId: lastPlanning.id, parties: [{ personId: bishop.id, role: 'owner' }] })
   }

@@ -578,7 +578,7 @@ export default async function ItemPage({
               ) : null}
 
               {/* Housekeeping, icon only, last: Todoist, its kind, Edit, Delete. */}
-              <span className="ml-auto flex items-center gap-1">
+              <span className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
                 {todoist?.state === 'linked' ? (
                   <a
                     href={todoist.url}
