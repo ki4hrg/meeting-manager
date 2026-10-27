@@ -190,6 +190,13 @@
       "when": 1793059651304,
       "tag": "0026_attendance_here",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793068225636,
+      "tag": "0027_session_joined",
+      "breakpoints": true
     }
   ]
 }

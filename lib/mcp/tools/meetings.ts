@@ -45,6 +45,7 @@ import {
   getMeeting,
   listMeetings,
   makeSessionOf,
+  separateSession,
   setMeetingPeople,
   setMeetingProjects,
   sittingBefore,
@@ -677,7 +678,8 @@ export const updateMeetingTool = defineTool({
     `of its series, before anything else is applied. ${MOVE_RULE} session_of makes it a ` +
     "session of that meeting (its next sitting: a debrief), after everything else, taking the " +
     "meeting's people, groups and projects beside its own; get_meeting's may_be_session_of " +
-    'names the one it began during or just after. Never do this unasked. Returns what get_meeting returns.',
+    'names the one it began during or just after. Never do this unasked. session_of null ' +
+    'makes a session its own meeting again, taking off what joining added. Returns what get_meeting returns.',
   scope: 'meetings:write',
   input: z.object({
     id: meetingId,
@@ -693,7 +695,11 @@ export const updateMeetingTool = defineTool({
     groups: groupsArg,
     series: z.string().min(1).nullable().optional().describe('Series name or id.'),
     blocks: blocksArg.nullable().optional(),
-    session_of: z.uuid().optional().describe('Meeting id: this one becomes a session of it.'),
+    session_of: z
+      .uuid()
+      .nullable()
+      .optional()
+      .describe('Meeting id: this one becomes a session of it. null: a session becomes its own meeting.'),
     add_to_series: z
       .boolean()
       .optional()
@@ -784,6 +790,7 @@ export const updateMeetingTool = defineTool({
         })
       }
       if (input.session_of) await makeSessionOf(tx, actor, input.id, input.session_of)
+      if (input.session_of === null) await separateSession(tx, actor, input.id)
       const view = await meetingView(tx, input.id, clock)
       return destination
         ? { ...view, context: { id: destination.id, name: destination.name } }

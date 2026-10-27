@@ -44,4 +44,10 @@ test('a debrief just after a meeting is made a session of it', async ({ page }) 
   await up.click()
   const sessions = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Sessions/ }) })
   await expect(sessions.getByText(WORLD.meetings.debrief)).toBeVisible()
+
+  // Joined by mistake: it comes out again, a meeting of its own.
+  await page.goto(`${debrief}/review`)
+  await page.getByRole('button', { name: 'Own meeting', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Own meeting', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('navigation').getByRole('link', { name: WORLD.meetings.walkThrough })).toHaveCount(0)
 })

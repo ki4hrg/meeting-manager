@@ -811,6 +811,11 @@ describe('back-to-back conversations', () => {
     expect((await ok<Sitting>('get_meeting', { id: site.id })).meeting.sessions.map((one) => one.id)).toEqual([
       debrief.id,
     ])
+
+    // And out again, without the people it took on.
+    const apart = await ok<Sitting>('update_meeting', { id: debrief.id, session_of: null })
+    expect(apart.meeting.parent_meeting_id).toBeNull()
+    expect(apart.meeting.people).toEqual([])
   })
 
   it("lists a meeting's notes and splits one into a session or a meeting of its own", async () => {
