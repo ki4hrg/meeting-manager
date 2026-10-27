@@ -28,7 +28,8 @@ const NEXT: Record<Attendance, Attendance> = { unsure: 'here', here: 'out', out:
  * Who was there: everyone on the list, Me first and fixed, then those on it by
  * name, then each group around the people it brings. Each is here, out, or not
  * yet said, and a tap moves them on; anyone else who came is added below, as
- * here. Confirm saves it, and it can be taken again at any time.
+ * here. A cross takes someone off the list (never expected, rather than out).
+ * Confirm saves it, and it can be taken again at any time.
  *
  * Once saved, the page comes back with the list as it now stands: the form
  * starts again from that, and the picker is empty again.
@@ -42,26 +43,41 @@ function RollCallForm({ action, meetingId, entries, groups = [], people }: Props
   const [marks, setMarks] = useState(
     () => new Map(entries.map((entry) => [entry.id, (entry.mark ?? 'unsure') as Attendance])),
   )
+  // Taken off the list on Confirm: never expected, rather than out.
+  const [removed, setRemoved] = useState(() => new Set<string>())
   const move = (id: string) =>
     setMarks((current) => new Map(current).set(id, NEXT[current.get(id) ?? 'unsure']))
+  const remove = (id: string) => setRemoved((current) => new Set(current).add(id))
   const listed = new Set(entries.map((entry) => entry.id))
   const shown = new Set(groups.map((group) => group.id))
-  const alone = entries.filter((entry) => !entry.groupId || !shown.has(entry.groupId))
+  const present = entries.filter((entry) => !removed.has(entry.id))
+  const alone = present.filter((entry) => !entry.groupId || !shown.has(entry.groupId))
 
   const toggleChip = (entry: Entry) => {
     const mark = marks.get(entry.id) ?? 'unsure'
     const look = ATTENDANCE[mark]
+    const ring = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500'
     return (
-      <button
-        key={entry.id}
-        type="button"
-        aria-pressed={mark === 'here'}
-        onClick={() => move(entry.id)}
-        className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${look.pill}`}
-      >
-        <Icon name={look.icon} className="h-3.5 w-3.5 shrink-0" label={look.label} />
-        <span className="truncate">{entry.name}</span>
-      </button>
+      <span key={entry.id} className={`inline-flex max-w-full items-center rounded-full text-xs font-medium ${look.pill}`}>
+        <button
+          type="button"
+          aria-pressed={mark === 'here'}
+          onClick={() => move(entry.id)}
+          className={`inline-flex min-w-0 items-center gap-1.5 rounded-full py-1 pl-2.5 pr-1 transition-opacity hover:opacity-80 ${ring}`}
+        >
+          <Icon name={look.icon} className="h-3.5 w-3.5 shrink-0" label={look.label} />
+          <span className="truncate">{entry.name}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => remove(entry.id)}
+          aria-label={`Remove ${entry.name}`}
+          title="Remove"
+          className={`mr-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100 ${ring}`}
+        >
+          <Icon name="close" className="h-3 w-3" />
+        </button>
+      </span>
     )
   }
 
@@ -69,7 +85,7 @@ function RollCallForm({ action, meetingId, entries, groups = [], people }: Props
     <ActionForm action={action} className="flex flex-col gap-3">
       <input type="hidden" name="meetingId" value={meetingId} />
       {[...marks].map(([id, mark]) => (
-        <input key={id} type="hidden" name={mark} value={id} />
+        <input key={id} type="hidden" name={removed.has(id) ? 'remove' : mark} value={id} />
       ))}
       <div className="flex flex-wrap items-center gap-2">
         <MeChip />
@@ -84,7 +100,7 @@ function RollCallForm({ action, meetingId, entries, groups = [], people }: Props
               </span>
             }
           >
-            {entries.filter((entry) => entry.groupId === group.id).map(toggleChip)}
+            {present.filter((entry) => entry.groupId === group.id).map(toggleChip)}
           </GroupCluster>
         ))}
       </div>

@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test'
 import { dialog, selectContext, selectedContext } from './helpers'
 import { WORLD } from './world'
 
+/* A person's attendance chip, not the cross beside it. */
+const chip = (name: string) => new RegExp(`^(Here|Out|Not confirmed) ${name}$`)
+
 test('a proposal waiting in another context is reviewed from home and accepted', async ({ page }) => {
   await page.goto('/')
   const review = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Review/ }) })
@@ -16,7 +19,7 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await attendance.getByLabel('Also here').fill(WORLD.people.bishop)
   await attendance.getByRole('option', { name: WORLD.people.bishop }).click()
   await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
-  const bishop = attendance.getByRole('button', { name: WORLD.people.bishop })
+  const bishop = attendance.getByRole('button', { name: chip(WORLD.people.bishop) })
   await expect(bishop).toHaveAttribute('aria-pressed', 'true')
   await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
   await page.reload()
@@ -48,9 +51,15 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await attendance.getByLabel('Also here').fill(WORLD.people.adlene)
   await attendance.getByRole('option', { name: WORLD.people.adlene }).click()
   await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
-  await expect(attendance.getByRole('button', { name: WORLD.people.adlene })).toHaveAttribute('aria-pressed', 'true')
+  await expect(attendance.getByRole('button', { name: chip(WORLD.people.adlene) })).toHaveAttribute('aria-pressed', 'true')
   await page.reload()
   await expect(bishop).toHaveAccessibleName(/^Out/)
+
+  // Someone on the list by mistake comes off it altogether, rather than out.
+  await attendance.getByRole('button', { name: `Remove ${WORLD.people.bishop}` }).click()
+  await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await page.reload()
+  await expect(bishop).toHaveCount(0)
 
   // Nothing of it is left waiting on home.
   await page.goto('/')

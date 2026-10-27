@@ -427,6 +427,7 @@ export async function takeRollAction(formData: FormData): Promise<ActionResult> 
         here: [...marked('here'), ...added],
         out: marked('out'),
         unsure: marked('unsure'),
+        remove: marked('remove'),
       })
     })
   })

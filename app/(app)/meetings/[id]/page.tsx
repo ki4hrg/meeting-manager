@@ -4,7 +4,7 @@ import { copyListIfOver, rollCall } from '@/lib/meetings/attendance'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { Export } from '@/components/Export'
-import { FormModal, IconAction } from '@/components/forms'
+import { ActionButton, FormModal, IconAction } from '@/components/forms'
 import { AgendaCard, type LeaderChoice } from '@/components/meetings/AgendaCard'
 import { Blocks } from '@/components/meetings/Blocks'
 import { SessionAgenda } from '@/components/meetings/SessionAgenda'
@@ -132,8 +132,9 @@ export default async function MeetingPage({
   }
 
   // Import, Section and quick-add, aimed at one meeting's own agenda (a session's, on a rollup).
-  const agendaTools = (meetingId: string) => (
+  const agendaTools = (meetingId: string, extra?: React.ReactNode) => (
     <div className="flex flex-wrap items-center justify-end gap-2">
+      {extra}
       <FormModal
         action={importOutlineAction}
         title="Import outline"
@@ -328,15 +329,19 @@ export default async function MeetingPage({
                           timeZone={timeZone}
                           people={leaders}
                           sessions={sessions}
-                          tools={agendaTools(session.id)}
-                          housekeeping={
-                            <IconAction
+                          tools={agendaTools(
+                            session.id,
+                            /* Out of this meeting, a meeting of its own: the undo for a join. */
+                            <ActionButton
                               action={separateSessionAction}
                               fields={{ meetingId: session.id }}
-                              icon="meeting"
-                              label="Own meeting"
-                            />
-                          }
+                              variant="secondary"
+                              size="sm"
+                            >
+                              <Icon name="meeting" className="h-4 w-4" />
+                              Own meeting
+                            </ActionButton>,
+                          )}
                         />
                       ))}
                     </div>
