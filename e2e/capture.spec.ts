@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { dialog } from './helpers'
+import { dialog, openQuickAdd } from './helpers'
 
 test('a line typed in quick-add lands in the Inbox, and the box is ready for the next', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+  await openQuickAdd(page)
   const text = `Book the parish hall for the dinner ${Date.now()}`
   const line = dialog(page).getByLabel('New item')
   await line.fill(`A: ${text}`)
@@ -17,7 +17,7 @@ test('a line typed in quick-add lands in the Inbox, and the box is ready for the
 
 test('a name that matches nobody is made a new person with the line', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+  await openQuickAdd(page)
   const box = dialog(page)
   const line = box.getByLabel('New item')
 

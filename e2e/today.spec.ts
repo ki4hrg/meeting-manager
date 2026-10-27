@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { selectedContext, watchErrors } from './helpers'
+import { openQuickAdd, selectedContext, watchErrors } from './helpers'
 import { WORLD } from './world'
 
 const section = (page: import('@playwright/test').Page, title: string) =>
@@ -34,6 +34,6 @@ test('opening a row from another context selects that context on the way', async
 
 test('quick-add names the context it files into', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+  await openQuickAdd(page)
   await expect(page.locator('dialog[open]').getByText(WORLD.contexts.conference)).toBeVisible()
 })
