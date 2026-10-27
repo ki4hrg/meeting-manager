@@ -4,7 +4,7 @@ import { copyListIfOver, rollCall } from '@/lib/meetings/attendance'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { Export } from '@/components/Export'
-import { FormModal } from '@/components/forms'
+import { FormModal, IconAction } from '@/components/forms'
 import { AgendaCard, type LeaderChoice } from '@/components/meetings/AgendaCard'
 import { Blocks } from '@/components/meetings/Blocks'
 import { SessionAgenda } from '@/components/meetings/SessionAgenda'
@@ -39,6 +39,7 @@ import { listSeries } from '@/lib/meetings/series'
 import { pendingOnCards } from '@/lib/processing/proposals'
 import { listProjectChoices } from '@/lib/projects/projects'
 import { allContexts, requireContext, viewer, webActor } from '@/lib/web/context'
+import { separateSessionAction } from '../processing-actions'
 import { crumbsFrom } from '@/lib/web/crumbs'
 import {
   addSectionAction,
@@ -239,8 +240,16 @@ export default async function MeetingPage({
                 timeZone={timeZone}
               />
             </FormModal>
-            {/* A session goes where its meeting goes. */}
-            {parent ? null : (
+            {/* A session goes where its meeting goes, or comes out of it. */}
+            {parent ? (
+              <IconAction
+                action={separateSessionAction}
+                fields={{ meetingId: meeting.id }}
+                icon="meeting"
+                label="Own meeting"
+                size="md"
+              />
+            ) : (
               <MoveTo
                 action={moveMeetingAction}
                 id={meeting.id}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NotFoundError } from '../lib/core/types'
+import { takeRoll } from '../lib/meetings/attendance'
 import {
   attachToEvent,
   createMeeting,
@@ -12,6 +13,7 @@ import {
   makeSessionOf,
   nextOccurrence,
   previousOccurrence,
+  separateSession,
   setMeetingPeople,
   setMeetingProjects,
   sittingBefore,
@@ -808,6 +810,14 @@ describe('a later sitting', () => {
       startsAt: new Date('2026-10-26T15:53:00Z'),
     })
     expect(await sittingBefore(db, elsewhere)).toBeNull()
+    // Nor for a meeting on a calendar event of its own: two visits back to back are two meetings.
+    const scheduled = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      startsAt: new Date('2026-10-26T16:00:00Z'),
+      calendarId: 'cal',
+      calendarEventId: 'evt_next_visit',
+    })
+    expect(await sittingBefore(db, scheduled)).toBeNull()
   })
 
   it("becomes a session, keeping its own people and taking on the meeting's", async () => {
@@ -835,5 +845,33 @@ describe('a later sitting', () => {
     await expect(makeSessionOf(db, actor, site.id, another.id)).rejects.toThrow(
       'A meeting with sessions cannot become one.',
     )
+  })
+
+  it('is undone, taking off exactly what joining added, but not anyone said to be there', async () => {
+    const { w, site } = await visit()
+    const next = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      title: 'Next visit',
+      startsAt: new Date('2026-10-26T16:00:00Z'),
+      personIds: [w.tom.id],
+    })
+    await makeSessionOf(db, actor, next.id, site.id)
+    // Sarah came with the join; Tom was its own. Both were there, as it happens.
+    await takeRoll(db, next.id, { here: [w.tom.id], out: [] })
+
+    const own = await separateSession(db, actor, next.id)
+
+    expect(own.parentMeetingId).toBeNull()
+    expect(own.people.map((one) => one.id)).toEqual([w.tom.id])
+    expect(own.groups).toEqual([])
+    expect(own.projects).toEqual([])
+    expect((await getMeeting(db, site.id)).sessions).toEqual([])
+    await expect(separateSession(db, actor, next.id)).rejects.toThrow('It is not a session.')
+
+    // Someone said to be there stays, though joining brought them.
+    await makeSessionOf(db, actor, next.id, site.id)
+    await takeRoll(db, next.id, { here: [w.tom.id, w.sarah.id], out: [] })
+    const again = await separateSession(db, actor, next.id)
+    expect(again.people.map((one) => one.id).sort()).toEqual([w.sarah.id, w.tom.id].sort())
   })
 })

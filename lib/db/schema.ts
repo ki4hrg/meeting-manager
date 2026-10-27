@@ -616,6 +616,9 @@ export const meetings = pgTable(
        Copying confirms no one: who was there is `meeting_people.here`. */
     attendanceAt: timestamp('attendance_at', { withTimezone: true }),
     recapEdits: jsonb('recap_edits').$type<RecapEdits>(),
+    /* What it took on from its meeting when John made it a session of one
+       (`makeSessionOf`), so separating it again takes off exactly that. */
+    sessionJoined: jsonb('session_joined').$type<SessionJoined>(),
     ...timestamps,
     ...shelved,
   },
@@ -819,6 +822,8 @@ export type NoteAttendee = { email: string; name: string | null }
 /* What a note that arrived unfiled says about when it was and which calendar
    event it recorded: enough to find or make its meeting once a context is
    chosen, without asking Granola again. */
+export type SessionJoined = { personIds: string[]; groupIds: string[]; projectIds: string[] }
+
 export type NoteFiling = {
   startsAt: string | null
   endsAt: string | null

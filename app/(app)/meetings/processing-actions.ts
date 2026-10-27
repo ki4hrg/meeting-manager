@@ -14,7 +14,7 @@ import { resolveParty, resolvePerson } from '@/lib/directory/resolve'
 import { ITEM_KINDS } from '@/lib/items/items'
 import { PROCESS_NOTES, kick } from '@/lib/jobs'
 import { logMeeting } from '@/lib/meetings/log'
-import { getMeeting, makeSessionOf } from '@/lib/meetings/meetings'
+import { getMeeting, makeSessionOf, separateSession } from '@/lib/meetings/meetings'
 import { findEvent, ownMeetingFromNote, sessionFromNote } from '@/lib/meetings/prep'
 import { attendeeIsGroup, dismissAttendee, nameAttendee } from '@/lib/notes/attendees'
 import { getNote, meetingOf, moveNote, saveNote } from '@/lib/notes/notes'
@@ -187,6 +187,14 @@ export async function makeSessionOfAction(formData: FormData): Promise<ActionRes
     const meeting = await ownMeeting(field(formData, 'meetingId'))
     const parent = await ownMeeting(field(formData, 'parentId'))
     await makeSessionOf(db, actor, meeting.id, parent.id)
+  })
+}
+
+/** A session becomes a meeting of its own again, taking off what joining added. */
+export async function separateSessionAction(formData: FormData): Promise<ActionResult> {
+  return act(async (actor) => {
+    const meeting = await ownMeeting(field(formData, 'meetingId'))
+    await separateSession(db, actor, meeting.id)
   })
 }
 

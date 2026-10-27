@@ -37,6 +37,7 @@ import {
   makeSessionOfAction,
   moveNoteAction,
   ownMeetingFromNoteAction,
+  separateSessionAction,
   sessionFromNoteAction,
 } from '../../processing-actions'
 
@@ -236,6 +237,17 @@ export default async function ReviewPage({
               >
                 <Icon name="section" className="h-4 w-4 shrink-0" />
                 <span className="truncate">Session of {before.title}</span>
+              </ActionButton>
+            ) : null}
+            {/* A session that was its own meeting all along, or joined by mistake. */}
+            {parent ? (
+              <ActionButton
+                action={separateSessionAction}
+                fields={{ meetingId: meeting.id }}
+                variant="secondary"
+              >
+                <Icon name="meeting" className="h-4 w-4 shrink-0" />
+                Own meeting
               </ActionButton>
             ) : null}
             <ButtonLink href={`/meetings/${meeting.id}/recap`} variant="secondary">

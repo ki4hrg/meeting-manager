@@ -976,7 +976,15 @@ export async function sittingBefore(
   exec: Executor,
   meeting: MeetingView,
 ): Promise<{ id: string; title: string } | null> {
-  if (!meeting.startsAt || meeting.parentMeetingId || meeting.sessions.length > 0 || meeting.series) {
+  /* A meeting on a calendar event of its own was scheduled apart: two visits
+     back to back are two meetings, never one meeting's sittings. */
+  if (
+    !meeting.startsAt ||
+    meeting.calendarEventId ||
+    meeting.parentMeetingId ||
+    meeting.sessions.length > 0 ||
+    meeting.series
+  ) {
     return null
   }
   const start = meeting.startsAt.toISOString()
@@ -1002,7 +1010,7 @@ export async function sittingBefore(
  * A meeting becomes a session of another: the debrief after a site visit,
  * recorded as a conversation of its own. It keeps its notes, agenda and what
  * came out of it, and takes on the parent's people, groups and projects
- * beside its own.
+ * beside its own; what it took on is kept, for `separateSession`.
  */
 export async function makeSessionOf(
   exec: Executor,
@@ -1020,20 +1028,62 @@ export async function makeSessionOf(
     if (m.sessions.length > 0) throw new ValidationError('A meeting with sessions cannot become one.')
     if (m.series) throw new ValidationError('Take it out of its series first.')
 
+    const added = (mine: { id: string }[], theirs: { id: string }[]) =>
+      theirs.map((one) => one.id).filter((id) => !mine.some((own) => own.id === id))
+    const joined = {
+      personIds: added(m.people, parent.people),
+      groupIds: added(m.groups, parent.groups),
+      projectIds: added(m.projects, parent.projects),
+    }
     await tx
       .update(meetings)
-      .set({ parentMeetingId: parent.id, updatedAt: new Date() })
+      .set({ parentMeetingId: parent.id, sessionJoined: joined, updatedAt: new Date() })
       .where(eq(meetings.id, m.id))
-    const union = (mine: { id: string }[], theirs: { id: string }[]) => [
-      ...new Set([...mine, ...theirs].map((one) => one.id)),
-    ]
-    await setMeetingPeople(tx, actor, m.id, union(m.people, parent.people))
-    await addMeetingGroups(
-      tx,
-      m.id,
-      parent.groups.map((group) => group.id).filter((groupId) => !m.groups.some((g) => g.id === groupId)),
-    )
-    await setMeetingProjects(tx, actor, m.id, union(m.projects, parent.projects))
+    await setMeetingPeople(tx, actor, m.id, [...m.people.map((one) => one.id), ...joined.personIds])
+    await addMeetingGroups(tx, m.id, joined.groupIds)
+    await setMeetingProjects(tx, actor, m.id, [...m.projects.map((one) => one.id), ...joined.projectIds])
     return getMeeting(tx, m.id)
+  })
+}
+
+/**
+ * A session becomes a meeting of its own again: undoing `makeSessionOf`, or
+ * taking out a sitting that was its own meeting all along. It keeps its notes,
+ * agenda and what came out of it. What joining added comes off again, except
+ * anyone John has since said was there.
+ */
+export async function separateSession(exec: Executor, actor: ActorContext, id: string): Promise<MeetingView> {
+  return inTransaction(exec, async (tx) => {
+    const m = await getMeeting(tx, id)
+    if (!m.parentMeetingId) throw new ValidationError('It is not a session.')
+    const [row] = await tx
+      .select({ joined: meetings.sessionJoined })
+      .from(meetings)
+      .where(eq(meetings.id, id))
+    const joined = row?.joined ?? { personIds: [], groupIds: [], projectIds: [] }
+
+    await tx
+      .update(meetings)
+      .set({ parentMeetingId: null, sessionJoined: null, updatedAt: new Date() })
+      .where(eq(meetings.id, id))
+    const here = new Set(m.attendees.filter((one) => one.here).map((one) => one.id))
+    await setMeetingPeople(
+      tx,
+      actor,
+      id,
+      m.people.map((one) => one.id).filter((personId) => here.has(personId) || !joined.personIds.includes(personId)),
+    )
+    await setMeetingGroups(
+      tx,
+      id,
+      m.groups.map((one) => one.id).filter((groupId) => !joined.groupIds.includes(groupId)),
+    )
+    await setMeetingProjects(
+      tx,
+      actor,
+      id,
+      m.projects.map((one) => one.id).filter((projectId) => !joined.projectIds.includes(projectId)),
+    )
+    return getMeeting(tx, id)
   })
 }
