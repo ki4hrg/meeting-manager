@@ -1,6 +1,6 @@
 import { RollCall } from '@/components/meetings/RollCall'
 import { Roster } from '@/components/meetings/Roster'
-import { rollCall, settleIfOver } from '@/lib/meetings/attendance'
+import { copyListIfOver, rollCall } from '@/lib/meetings/attendance'
 import { ArchiveButton, ArchivedBar, Muted } from '@/components/archive/Archive'
 import { notFound } from 'next/navigation'
 import { Export } from '@/components/Export'
@@ -46,7 +46,7 @@ import {
   importOutlineAction,
   moveMeetingAction,
   openMeetingAction,
-  settleAttendanceAction,
+  takeRollAction,
   updateMeetingAction,
 } from '../actions'
 
@@ -85,12 +85,11 @@ export default async function MeetingPage({
   for (const one of rollup ? meeting.sessions : [meeting]) {
     if (!isOver(one)) await placeAutomatic(db, webActor(user), one.id)
   }
-  /* The first look after it ended settles who was there, if no roll call did. */
-  if (await settleIfOver(db, id)) meeting = await getMeeting(db, id)
-  // While it is under way, who is here is taken here.
-  const underWay =
-    !rollup && !meeting.attendanceAt && meeting.startsAt !== null && meeting.startsAt <= new Date() && !isOver(meeting)
-  const roll = underWay ? await rollCall(db, id) : []
+  /* The first look after it ended copies its list from its groups, if no roll call did. */
+  if (await copyListIfOver(db, id)) meeting = await getMeeting(db, id)
+  // Once it has started, who was there is taken here, and can be taken again at any time.
+  const takesRoll = !rollup && meeting.startsAt !== null && meeting.startsAt <= new Date()
+  const roll = takesRoll ? await rollCall(db, id) : []
 
   const covered = [meeting.id, ...meeting.sessions.map((one) => one.id)]
   const [agenda, sessionAgendas, candidates, blocks, parent, people, groups, projects, series, pending, documents, outcomes] = await Promise.all([
@@ -270,8 +269,11 @@ export default async function MeetingPage({
             </Chip>
           ) : null}
           {/* John first; then who is on it by name; then each group with who it brings
-              (live until who was there is settled, then as it was). */}
-          <Roster selfId={self?.id} groups={meeting.groups} attendees={meeting.attendees} />
+              (live until its list is copied, then as it was). Once the roll call is
+              below, it is the list. */}
+          {takesRoll ? null : (
+            <Roster selfId={self?.id} groups={meeting.groups} attendees={meeting.attendees} absent={meeting.absent} />
+          )}
           {meeting.projects.map((project) => (
             <Chip key={project.id} href={`/projects/${project.id}`} icon="project">
               {project.name}
@@ -279,11 +281,11 @@ export default async function MeetingPage({
           ))}
         </div>
 
-        {underWay ? (
+        {takesRoll ? (
           <Section title="Attendance">
             <Card>
               <RollCall
-                action={settleAttendanceAction}
+                action={takeRollAction}
                 meetingId={meeting.id}
                 entries={roll}
                 groups={meeting.groups}

@@ -49,6 +49,7 @@ import {
   updateMeeting,
   type MeetingView,
 } from '../../meetings/meetings'
+import { takeRoll } from '../../meetings/attendance'
 import { clearAbsences, joinRoster, recordAbsences } from '../../meetings/roster'
 import { linkAttendees } from '../../processing/proposals'
 import { moveMeeting, moveSeries } from '../../meetings/move'
@@ -194,9 +195,10 @@ function meetingOut(meeting: MeetingView, clock: Clock) {
     series: meeting.series,
     groups: meeting.groups,
     people: meeting.people,
-    // Its people and, until attendance is settled, its groups' members.
-    attendees: meeting.attendees.map(({ id, name }) => ({ id, name })),
-    attendance_settled: meeting.attendanceAt !== null,
+    /* Its people and, until its list is copied, its groups' members; here is
+       whether I said they were there (false: not yet said). out: marked not there. */
+    attendees: meeting.attendees.map(({ id, name, here }) => ({ id, name, here })),
+    out: meeting.absent.map(({ id, name }) => ({ id, name })),
     projects: meeting.projects,
     parent_meeting_id: meeting.parentMeetingId,
   }
@@ -537,6 +539,8 @@ export const prepMeetingTool = defineTool({
     starts_at: z.string().min(1).optional().describe(momentArg),
     ends_at: z.string().min(1).optional().describe(momentArg),
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
+    here: z.array(z.string().min(1)).optional().describe('People who were there, by name or id.'),
+    out: z.array(z.string().min(1)).optional().describe('People who were not there, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
     group: z.string().min(1).optional().describe('Group name or id: one of groups.'),
     groups: groupsArg,
@@ -639,8 +643,9 @@ export const updateMeetingTool = defineTool({
   name: 'update_meeting',
   title: 'Update a meeting',
   description:
-    'Change a meeting: its title, times, people, projects, groups, series or generated blocks. ' +
-    'people, projects and groups each replace the whole list. starts_at null takes the date off and ' +
+    'Change a meeting: its title, times, people, projects, groups, series or generated blocks, ' +
+    'or who was there. people, projects and groups each replace the whole list; here and out ' +
+    'mark only the people named, joining the list if they were not on it. starts_at null takes the date off and ' +
     `makes it a stub again. ${BLOCKS_RULE} blocks null goes back to the series' settings. ` +
     'Pass null to clear ends_at, group or series. context moves it to another context, out ' +
     `of its series, before anything else is applied. ${MOVE_RULE} Returns what get_meeting ` +
@@ -653,6 +658,8 @@ export const updateMeetingTool = defineTool({
     starts_at: z.string().min(1).nullable().optional().describe(momentArg),
     ends_at: z.string().min(1).nullable().optional().describe(momentArg),
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
+    here: z.array(z.string().min(1)).optional().describe('People who were there, by name or id.'),
+    out: z.array(z.string().min(1)).optional().describe('People who were not there, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
     group: z.string().min(1).nullable().optional().describe('Group name or id: the only group, or none with null.'),
     groups: groupsArg,
@@ -734,6 +741,18 @@ export const updateMeetingTool = defineTool({
       } else {
         await clearAbsences(tx, [input.id])
         if (seriesNow) await joinRoster(tx, actor, input.id)
+      }
+      if (input.here || input.out) {
+        const here = input.here ? await peopleFrom(tx, input.here) : []
+        const out = input.out ? await peopleFrom(tx, input.out) : []
+        const now = await getMeeting(tx, input.id)
+        // Only those named change; everyone else keeps their mark.
+        await takeRoll(tx, input.id, {
+          here: [...now.attendees.filter((one) => one.here).map((one) => one.id), ...here].filter(
+            (id) => !out.includes(id),
+          ),
+          out: [...now.absent.map((one) => one.id), ...out].filter((id) => !here.includes(id)),
+        })
       }
       const view = await meetingView(tx, input.id, clock)
       return destination
@@ -1161,6 +1180,8 @@ export const createSeriesTool = defineTool({
     name: z.string().min(1),
     context: contextArg,
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
+    here: z.array(z.string().min(1)).optional().describe('People who were there, by name or id.'),
+    out: z.array(z.string().min(1)).optional().describe('People who were not there, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
     group: z.string().min(1).optional().describe('Group name or id: one of groups.'),
     groups: groupsArg,
@@ -1207,6 +1228,8 @@ export const updateSeriesTool = defineTool({
     move_to: z.string().min(1).optional().describe('Context name or id to move it to.'),
     name: z.string().min(1).optional(),
     people: z.array(z.string().min(1)).optional().describe('People, by name or id.'),
+    here: z.array(z.string().min(1)).optional().describe('People who were there, by name or id.'),
+    out: z.array(z.string().min(1)).optional().describe('People who were not there, by name or id.'),
     projects: z.array(z.string().min(1)).optional().describe('Projects, by name or id.'),
     group: z.string().min(1).nullable().optional().describe('Group name or id: the only group, or none with null.'),
     groups: groupsArg,

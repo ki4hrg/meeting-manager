@@ -403,9 +403,9 @@ export default function DesignPage() {
             action={sampleAction}
             meetingId="sample"
             entries={[
-              { id: 'a', name: 'Sarah Jones', present: true },
-              { id: 'b', name: 'Tom Baker', present: false, groupId: 'g' },
-              { id: 'd', name: 'Ann Lee', present: true, groupId: 'g' },
+              { id: 'a', name: 'Sarah Jones', mark: 'here' },
+              { id: 'b', name: 'Tom Baker', mark: 'out', groupId: 'g' },
+              { id: 'd', name: 'Ann Lee', mark: null, groupId: 'g' },
             ]}
             groups={[{ id: 'g', name: 'Finance' }]}
             people={[{ value: 'c', name: 'Bishop Wright', icon: 'person' }]}
@@ -416,10 +416,11 @@ export default function DesignPage() {
             <Roster
               groups={[{ id: 'g', name: 'Finance' }]}
               attendees={[
-                { id: 'a', name: 'Sarah Jones', groupId: null },
-                { id: 'd', name: 'Ann Lee', groupId: 'g' },
+                { id: 'a', name: 'Sarah Jones', groupId: null, here: true },
+                { id: 'd', name: 'Ann Lee', groupId: 'g', here: true },
                 { id: 'e', name: 'Raj Patel', groupId: 'g' },
               ]}
+              absent={[{ id: 'b', name: 'Tom Baker', groupId: 'g' }]}
             />
           </div>
         </Card>

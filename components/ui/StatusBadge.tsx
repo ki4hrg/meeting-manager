@@ -34,6 +34,15 @@ export const iconClass = (tone: Tone) => ICON[tone]
 /** What only John should see: a private part of an export. */
 export const PRIVATE_TONE: Tone = 'amber'
 
+/** Where someone stands at a meeting: said to be here, marked out, or not yet said. */
+export type Attendance = 'here' | 'out' | 'unsure'
+
+export const ATTENDANCE: Record<Attendance, { label: string; icon: IconName; pill: string }> = {
+  here: { label: 'Here', icon: 'check', pill: PILL.green },
+  out: { label: 'Out', icon: 'close', pill: 'bg-gray-100 text-gray-400 line-through dark:bg-gray-700 dark:text-gray-500' },
+  unsure: { label: 'Not confirmed', icon: 'person', pill: PILL.gray },
+}
+
 export function Badge({ tone = 'gray', children }: { tone?: Tone; children: React.ReactNode }) {
   return (
     <span

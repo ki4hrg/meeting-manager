@@ -41,13 +41,16 @@ test('a proposal waiting in another context is reviewed from home and accepted',
   await dialog(page).getByRole('button', { name: 'Accept', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible()
 
-  // Who was there is settled now, but someone else who was there can still be added (#46).
-  await expect(attendance.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0)
-  await attendance.getByRole('button', { name: 'Add', exact: true }).click()
-  await dialog(page).getByLabel('Also here').fill(WORLD.people.adlene)
-  await dialog(page).getByRole('option', { name: WORLD.people.adlene }).click()
-  await dialog(page).getByRole('button', { name: 'Add', exact: true }).click()
-  await expect(attendance.getByText(WORLD.people.adlene)).toBeVisible()
+  // Accepting fixes nothing: who was there can still be corrected, a tap at a time.
+  await bishop.click()
+  await expect(bishop).toHaveAttribute('aria-pressed', 'false')
+  await expect(bishop).toHaveAccessibleName(/^Out/)
+  await attendance.getByLabel('Also here').fill(WORLD.people.adlene)
+  await attendance.getByRole('option', { name: WORLD.people.adlene }).click()
+  await attendance.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await expect(attendance.getByRole('button', { name: WORLD.people.adlene })).toHaveAttribute('aria-pressed', 'true')
+  await page.reload()
+  await expect(bishop).toHaveAccessibleName(/^Out/)
 
   // Nothing of it is left waiting on home.
   await page.goto('/')

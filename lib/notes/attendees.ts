@@ -12,10 +12,11 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { ValidationError, inTransaction, type ActorContext, type Executor } from '../core/types'
-import { meetingGroups, meetingPeople, meetings, notes, people, personEmails, type NoteAttendee } from '../db/schema'
+import { meetingPeople, meetings, notes, people, personEmails, type NoteAttendee } from '../db/schema'
 import { notDeleted } from '../db/shelf'
 import { addGroupEmail, allGroupEmails, getGroup } from '../directory/groups'
 import { addPersonEmail, createPerson, getPerson, type Person } from '../directory/people'
+import { addMeetingGroups } from '../meetings/meetings'
 import { linkAttendees } from '../processing/proposals'
 
 /** Who this meeting's notes name that the directory does not have, in the order given. */
@@ -85,7 +86,10 @@ export async function nameAttendee(
   })
 }
 
-/** An unknown attendee was a group's list: the group takes the address and joins the meeting. */
+/**
+ * An unknown attendee was a group's list: the group takes the address and
+ * joins the meeting, its members on the list as invited, none marked here.
+ */
 export async function attendeeIsGroup(
   exec: Executor,
   meetingId: string,
@@ -98,7 +102,7 @@ export async function attendeeIsGroup(
     const [meeting] = await tx.select({ contextId: meetings.contextId }).from(meetings).where(eq(meetings.id, meetingId))
     if (group.contextId !== meeting?.contextId) throw new ValidationError('That group belongs to another context.')
     await addGroupEmail(tx, groupId, attendee.email)
-    await tx.insert(meetingGroups).values({ meetingId, groupId }).onConflictDoNothing()
+    await addMeetingGroups(tx, meetingId, [groupId])
     await linkAttendees(tx, meetingId)
   })
 }

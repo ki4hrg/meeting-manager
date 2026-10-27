@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { getRecap } from '../lib/agenda/recap'
 import { addMember } from '../lib/directory/groups'
-import { createPerson } from '../lib/directory/people'
-import { addAttendees, attendanceLocked, rollCall, settleAttendance, settleIfOver } from '../lib/meetings/attendance'
-import { createMeeting, getMeeting, listMeetings, setMeetingPeople } from '../lib/meetings/meetings'
+import { addPersonEmail, createPerson } from '../lib/directory/people'
+import { addAttendees, copyListIfOver, rollCall, takeRoll } from '../lib/meetings/attendance'
+import { createMeeting, getMeeting, listMeetings, setMeetingPeople, updateMeeting } from '../lib/meetings/meetings'
 import { saveNote } from '../lib/notes/notes'
 import { acceptProposal, listProposals } from '../lib/processing/proposals'
 import { processRun, queueRun } from '../lib/processing/run'
@@ -16,9 +17,10 @@ const DURING = new Date('2026-10-06T15:20:00Z')
 const AFTER = new Date('2026-10-06T17:00:00Z')
 
 const ids = (list: { id: string }[]) => list.map((one) => one.id).sort()
+const marks = async (meetingId: string) => (await rollCall(db, meetingId)).map((e) => [e.name, e.mark])
 
 describe('the roll call', () => {
-  it('lists everyone expected, marks who is out, and settles who was there', async () => {
+  it('lists everyone on it, not yet said, and keeps what John marks', async () => {
     const w = await makeWorld()
     const guest = await createPerson(db, { name: 'Guest Preacher' })
     const meeting = await createMeeting(db, actor, {
@@ -28,50 +30,62 @@ describe('the roll call', () => {
       startsAt: START,
       endsAt: new Date('2026-10-06T16:00:00Z'),
     })
-    expect((await rollCall(db, meeting.id)).map((e) => [e.name, e.present, e.via])).toEqual([
-      ['Bishop Wright', true, 'person'],
-      ['Sarah Jones', true, 'group'],
-      ['Tom Baker', true, 'group'],
+    expect((await rollCall(db, meeting.id)).map((e) => [e.name, e.mark, e.via])).toEqual([
+      ['Bishop Wright', null, 'person'],
+      ['Sarah Jones', null, 'group'],
+      ['Tom Baker', null, 'group'],
     ])
 
-    // Tom is out; a guest turned up.
-    const settled = await settleAttendance(db, meeting.id, [w.bishop.id, w.sarah.id, guest.id, w.john.id], DURING)
-    expect(settled.attendanceAt).toEqual(DURING)
-    expect(ids(settled.attendees)).toEqual(ids([w.bishop, w.sarah, guest]))
-    expect((await rollCall(db, meeting.id)).map((e) => [e.name, e.present])).toEqual([
-      ['Bishop Wright', true],
-      ['Guest Preacher', true],
-      ['Sarah Jones', true],
-      ['Tom Baker', false],
+    // Sarah was here, Tom out, a guest turned up; the bishop is not yet said.
+    const taken = await takeRoll(db, meeting.id, { here: [w.sarah.id, guest.id, w.john.id], out: [w.tom.id] }, DURING)
+    expect(taken.attendanceAt).toEqual(DURING)
+    expect(ids(taken.attendees)).toEqual(ids([w.bishop, w.sarah, guest]))
+    expect(await marks(meeting.id)).toEqual([
+      ['Bishop Wright', null],
+      ['Guest Preacher', 'here'],
+      ['Sarah Jones', 'here'],
+      ['Tom Baker', 'out'],
     ])
     // He is not listed among the meetings he was at.
     expect(await listMeetings(db, { contextId: w.parish.id, personId: w.tom.id })).toEqual([])
     expect((await listMeetings(db, { contextId: w.parish.id, personId: w.sarah.id })).map((m) => m.id)).toEqual([meeting.id])
   })
 
+  it('can be taken back to not yet said', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt: START })
+    await takeRoll(db, meeting.id, { here: [w.sarah.id], out: [w.tom.id] }, DURING)
+    await takeRoll(db, meeting.id, { here: [], out: [], unsure: [w.sarah.id, w.tom.id] }, AFTER)
+    expect(await marks(meeting.id)).toEqual([
+      ['Sarah Jones', null],
+      ['Tom Baker', null],
+    ])
+    // Tom keeps the group that brought him.
+    expect((await rollCall(db, meeting.id)).find((e) => e.id === w.tom.id)?.groupId).toBe(w.staff.id)
+  })
+
   it('someone added after it ended is here, and stays here when it is taken again', async () => {
     const w = await makeWorld()
     const guest = await createPerson(db, { name: 'Guest Preacher' })
     const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt: START })
-    expect(await settleIfOver(db, meeting.id, AFTER)).toBe(true)
+    expect(await copyListIfOver(db, meeting.id, AFTER)).toBe(true)
 
-    // Also here: the guest, with everyone who was marked here.
-    const here = (await rollCall(db, meeting.id)).filter((e) => e.present).map((e) => e.id)
-    await settleAttendance(db, meeting.id, [...here, guest.id], AFTER)
-    const after = await rollCall(db, meeting.id)
-    expect(after.map((e) => [e.name, e.present])).toEqual([
-      ['Guest Preacher', true],
-      ['Sarah Jones', true],
-      ['Tom Baker', true],
+    await takeRoll(db, meeting.id, { here: [guest.id], out: [] }, AFTER)
+    expect(await marks(meeting.id)).toEqual([
+      ['Guest Preacher', 'here'],
+      ['Sarah Jones', null],
+      ['Tom Baker', null],
     ])
-
-    // Confirmed again as the roll call now reads, the guest is still here.
-    await settleAttendance(db, meeting.id, after.filter((e) => e.present).map((e) => e.id), AFTER)
-    expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([guest, w.sarah, w.tom]))
-    expect((await rollCall(db, meeting.id)).every((e) => e.present)).toBe(true)
+    // Taken again as it now reads, the guest is still here.
+    await takeRoll(db, meeting.id, { here: [guest.id], out: [], unsure: [w.sarah.id, w.tom.id] }, AFTER)
+    expect(await marks(meeting.id)).toEqual([
+      ['Guest Preacher', 'here'],
+      ['Sarah Jones', null],
+      ['Tom Baker', null],
+    ])
   })
 
-  it('a member marked out before it is settled stays out, and a new member is in', async () => {
+  it('a member marked out before the list is copied stays out, and a new member is on it', async () => {
     const w = await makeWorld()
     const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt: START })
     const { meetingAbsences } = await import('../lib/db/schema')
@@ -80,10 +94,22 @@ describe('the roll call', () => {
     await addMember(db, w.staff.id, curate.id)
     expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([w.sarah, curate]))
   })
+
+  it('people added as having turned up are here', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt: START })
+    await takeRoll(db, meeting.id, { here: [], out: [w.tom.id] }, AFTER)
+    await addAttendees(db, meeting.id, [w.tom.id, w.bishop.id, w.john.id])
+    expect(await marks(meeting.id)).toEqual([
+      ['Bishop Wright', 'here'],
+      ['Sarah Jones', null],
+      ['Tom Baker', 'here'],
+    ])
+  })
 })
 
 describe('who came with a group', () => {
-  it('is told apart from who is on it by name, live and once settled', async () => {
+  it('is told apart from who is on it by name, live and once copied', async () => {
     const w = await makeWorld()
     const guest = await createPerson(db, { name: 'Guest Preacher' })
     const meeting = await createMeeting(db, actor, {
@@ -98,51 +124,65 @@ describe('who came with a group', () => {
       ['Sarah Jones', w.staff.id],
       ['Tom Baker', w.staff.id],
     ])
-    expect((await rollCall(db, meeting.id)).map((e) => [e.name, e.groupId])).toEqual([
-      ['Bishop Wright', null],
-      ['Sarah Jones', w.staff.id],
-      ['Tom Baker', w.staff.id],
-    ])
 
     // Tom is out; a guest came, on their own.
-    await settleAttendance(db, meeting.id, [w.bishop.id, w.sarah.id, guest.id], DURING)
-    expect(by((await getMeeting(db, meeting.id)).attendees)).toEqual([
+    await takeRoll(db, meeting.id, { here: [w.bishop.id, w.sarah.id, guest.id], out: [w.tom.id] }, DURING)
+    const taken = await getMeeting(db, meeting.id)
+    expect(by(taken.attendees)).toEqual([
       ['Bishop Wright', null],
       ['Guest Preacher', null],
       ['Sarah Jones', w.staff.id],
     ])
     // Tom, marked out, is still shown under his group.
-    expect((await rollCall(db, meeting.id)).find((e) => e.id === w.tom.id)).toMatchObject({
-      present: false,
-      groupId: w.staff.id,
-    })
+    expect(by(taken.absent)).toEqual([['Tom Baker', w.staff.id]])
 
-    // An edit to its people keeps who came with the group.
+    // An edit to its people keeps who came with the group, and who was here.
     await setMeetingPeople(db, actor, meeting.id, [w.sarah.id, guest.id])
-    expect(by((await getMeeting(db, meeting.id)).attendees)).toEqual([
-      ['Guest Preacher', null],
-      ['Sarah Jones', w.staff.id],
+    expect((await getMeeting(db, meeting.id)).attendees.map((one) => [one.name, one.groupId, one.here])).toEqual([
+      ['Guest Preacher', null, true],
+      ['Sarah Jones', w.staff.id, true],
     ])
+  })
+
+  it('added once the list is copied, brings its members, not yet said', async () => {
+    const w = await makeWorld()
+    const ray = await createPerson(db, { name: 'Ray Hall' })
+    await addMember(db, w.staff.id, w.john.id)
+    await addMember(db, w.staff.id, ray.id)
+    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, personIds: [w.tom.id], startsAt: START })
+    // Tom is here by name; Ray was marked out.
+    await takeRoll(db, meeting.id, { here: [w.tom.id], out: [ray.id] }, AFTER)
+
+    await updateMeeting(db, actor, meeting.id, { groupIds: [w.staff.id] })
+    expect((await getMeeting(db, meeting.id)).attendees.map((one) => [one.name, one.groupId, one.here])).toEqual([
+      ['Sarah Jones', w.staff.id, false],
+      ['Tom Baker', null, true],
+    ])
+
+    // Taken off again, it takes whoever it brought and no one has said was there.
+    await updateMeeting(db, actor, meeting.id, { groupIds: [] })
+    expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual([w.tom.id])
   })
 })
 
-describe('settling on the first look after', () => {
-  it('settles a meeting that is over, as it stands, once', async () => {
+describe('the first look after', () => {
+  it('copies the list of a meeting that is over, once, and confirms no one', async () => {
     const w = await makeWorld()
     const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt: START })
-    expect(await settleIfOver(db, meeting.id, DURING)).toBe(false)
-    expect(await settleIfOver(db, meeting.id, AFTER)).toBe(true)
-    expect(await settleIfOver(db, meeting.id, AFTER)).toBe(false)
-    const settled = await getMeeting(db, meeting.id)
-    expect(ids(settled.people)).toEqual(ids([w.sarah, w.tom]))
+    expect(await copyListIfOver(db, meeting.id, DURING)).toBe(false)
+    expect(await copyListIfOver(db, meeting.id, AFTER)).toBe(true)
+    expect(await copyListIfOver(db, meeting.id, AFTER)).toBe(false)
+    const copied = await getMeeting(db, meeting.id)
+    expect(ids(copied.people)).toEqual(ids([w.sarah, w.tom]))
+    expect(copied.attendees.every((one) => !one.here)).toBe(true)
 
-    // Joining the group afterwards does not put anyone at it.
+    // Joining the group afterwards does not put anyone on it.
     const late = await createPerson(db, { name: 'Too Late' })
     await addMember(db, w.staff.id, late.id)
     expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([w.sarah, w.tom]))
   })
 
-  it('processing its notes settles it first, and an accepted proposal fixes it', async () => {
+  it('processing its notes copies the list first, and accepting leaves it open to correct', async () => {
     const w = await makeWorld()
     const meeting = await createMeeting(db, actor, {
       contextId: w.parish.id,
@@ -154,58 +194,41 @@ describe('settling on the first look after', () => {
     await processRun(db, run!.id)
     expect((await getMeeting(db, meeting.id)).attendanceAt).toBeInstanceOf(Date)
 
-    // Correctable until something from the notes is accepted.
-    await settleAttendance(db, meeting.id, [w.sarah.id])
     const [proposal] = await listProposals(db, meeting.id)
     await acceptProposal(db, actor, proposal!.id)
-    await expect(settleAttendance(db, meeting.id, [w.sarah.id, w.tom.id])).rejects.toThrow('stays as it is')
+    await takeRoll(db, meeting.id, { here: [w.sarah.id], out: [w.tom.id] })
+    expect(await marks(meeting.id)).toEqual([
+      ['Sarah Jones', 'here'],
+      ['Tom Baker', 'out'],
+    ])
+    await takeRoll(db, meeting.id, { here: [w.sarah.id, w.tom.id], out: [] })
+    expect(await marks(meeting.id)).toEqual([
+      ['Sarah Jones', 'here'],
+      ['Tom Baker', 'here'],
+    ])
   })
+})
 
-  it('settles as it stands when a proposal was accepted before it ended', async () => {
+describe('the recap', () => {
+  it('goes to everyone invited, or to those who were there', async () => {
     const w = await makeWorld()
-    const startsAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
-    const meeting = await createMeeting(db, actor, { contextId: w.parish.id, groupId: w.staff.id, startsAt })
-    const { note } = await saveNote(db, actor, { meetingId: meeting.id, source: 'pasted', body: 'D: Keep the Thursday slot' })
-    const run = await queueRun(db, note.id)
-    await processRun(db, run!.id)
-    expect((await getMeeting(db, meeting.id)).attendanceAt).toBeNull()
-    const [proposal] = await listProposals(db, meeting.id)
-    await acceptProposal(db, actor, proposal!.id)
-
-    const after = new Date(startsAt.getTime() + 24 * 60 * 60 * 1000)
-    expect(await settleIfOver(db, meeting.id, after)).toBe(true)
-    const settled = await getMeeting(db, meeting.id)
-    expect(settled.attendanceAt).toEqual(after)
-    expect(ids(settled.people)).toEqual(ids([w.sarah, w.tom]))
-    await expect(settleAttendance(db, meeting.id, [w.sarah.id])).rejects.toThrow('stays as it is')
-  })
-
-  it('after an accept, someone who was there can still be added, but no one marked out', async () => {
-    const w = await makeWorld()
-    const guest = await createPerson(db, { name: 'Guest Preacher' })
     const meeting = await createMeeting(db, actor, {
       contextId: w.parish.id,
       groupId: w.staff.id,
-      startsAt: new Date('2020-01-01T15:00:00Z'),
+      personIds: [w.bishop.id],
+      startsAt: START,
     })
-    const { note } = await saveNote(db, actor, { meetingId: meeting.id, source: 'pasted', body: 'D: Keep the Thursday slot' })
-    const run = await queueRun(db, note.id)
-    await processRun(db, run!.id)
-    // Tom was out.
-    await settleAttendance(db, meeting.id, [w.sarah.id])
-    const [proposal] = await listProposals(db, meeting.id)
-    await acceptProposal(db, actor, proposal!.id)
-    expect(await attendanceLocked(db, meeting.id)).toBe(true)
-
-    // Tom was there after all, and so was a guest.
-    await addAttendees(db, meeting.id, [w.tom.id, guest.id, w.john.id])
-    expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([guest, w.sarah, w.tom]))
-    expect((await rollCall(db, meeting.id)).every((e) => e.present)).toBe(true)
-    expect((await listMeetings(db, { contextId: w.parish.id, personId: w.tom.id })).map((m) => m.id)).toEqual([meeting.id])
-
-    // Taking anyone off stays refused.
-    await expect(settleAttendance(db, meeting.id, [w.sarah.id])).rejects.toThrow('stays as it is')
-    expect(ids((await getMeeting(db, meeting.id)).attendees)).toEqual(ids([guest, w.sarah, w.tom]))
+    for (const [person, email] of [
+      [w.sarah, 'sarah.recap@example.test'],
+      [w.tom, 'tom.recap@example.test'],
+      [w.bishop, 'bishop.recap@example.test'],
+    ] as const) {
+      await addPersonEmail(db, person.id, email)
+    }
+    await takeRoll(db, meeting.id, { here: [w.sarah.id], out: [w.tom.id] }, AFTER)
+    const recap = await getRecap(db, meeting.id, { today: '2026-10-06', timeZone: null, now: AFTER, selfId: w.john.id })
+    expect(recap.recipients.map((one) => one.name)).toEqual(['Bishop Wright', 'Sarah Jones', 'Tom Baker'])
+    expect(recap.hereRecipients.map((one) => one.name)).toEqual(['Sarah Jones'])
   })
 })
 

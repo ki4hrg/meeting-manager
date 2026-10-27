@@ -21,7 +21,7 @@ import {
 import { isUuid } from '@/lib/core/match'
 import { NotFoundError } from '@/lib/core/types'
 import { db } from '@/lib/db'
-import { settleIfOver } from '@/lib/meetings/attendance'
+import { copyListIfOver } from '@/lib/meetings/attendance'
 import { getMeeting } from '@/lib/meetings/meetings'
 import { pendingOnCards } from '@/lib/processing/proposals'
 import { allContexts, requireContext, viewer } from '@/lib/web/context'
@@ -90,8 +90,8 @@ export default async function RecapPage({
     if (err instanceof NotFoundError) notFound()
     throw err
   })
-  // A recap goes to who was there, so that is settled first.
-  await settleIfOver(db, id)
+  // A recap goes to who was on it, so its list is copied first.
+  await copyListIfOver(db, id)
   const parent = meeting.parentMeetingId ? await getMeeting(db, meeting.parentMeetingId) : null
   if (meeting.contextId !== context.id) {
     const home = (await allContexts()).find((one) => one.id === meeting.contextId)
@@ -163,7 +163,15 @@ export default async function RecapPage({
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Export kind="recap" outline={recapOutline(recap)} title={recapSubject(recap)} mailto={recapMailto(recap)} />
+            <Export
+              kind="recap"
+              outline={recapOutline(recap)}
+              title={recapSubject(recap)}
+              mailto={[
+                { key: 'invited', label: 'Invited', icon: 'group', href: recapMailto(recap, 'invited') },
+                { key: 'here', label: 'Here', icon: 'check', href: recapMailto(recap, 'here') },
+              ]}
+            />
             <ButtonLink href={`/meetings/${meeting.id}/review`} variant="secondary">
               <Icon name="check" className="h-4 w-4" />
               Review

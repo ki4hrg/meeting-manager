@@ -45,7 +45,6 @@ import { notDeleted, onShelf } from '../../db/shelf'
 import {
   contexts,
   groups,
-  meetingGroups,
   meetingPeople,
   meetingProjects,
   meetings,
@@ -57,6 +56,7 @@ import {
 } from '../../db/schema'
 import { listContexts } from '../../directory/contexts'
 import { groupsByEmail } from '../../directory/groups'
+import { addMeetingGroups } from '../../meetings/meetings'
 import { meetingFromNote } from '../../meetings/prep'
 import { findSeriesByCalendar } from '../../meetings/series'
 import { findNoteByExternalId, saveNote } from '../../notes/notes'
@@ -458,12 +458,7 @@ export async function placeNote(
       .onConflictDoNothing()
   }
   const groupIds = await liveIn(tx, groups, contextId, input.groupIds ?? [])
-  if (groupIds.length > 0) {
-    await tx
-      .insert(meetingGroups)
-      .values(groupIds.map((groupId) => ({ meetingId, groupId })))
-      .onConflictDoNothing()
-  }
+  await addMeetingGroups(tx, meetingId, groupIds)
   return { meetingId, via }
 }
 

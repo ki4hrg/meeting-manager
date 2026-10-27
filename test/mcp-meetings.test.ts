@@ -44,8 +44,8 @@ type Meeting = {
   ends_at_local: string | null
   series: Named | null
   groups: Named[]
-  attendees: Named[]
-  attendance_settled: boolean
+  attendees: (Named & { here: boolean })[]
+  out: Named[]
   people: Named[]
   projects: Named[]
 }
@@ -287,8 +287,8 @@ describe('list_meetings', () => {
       series: null,
       groups: [],
       people: [{ id: world.sarah.id, name: 'Sarah Jones' }],
-      attendees: [{ id: world.sarah.id, name: 'Sarah Jones' }],
-      attendance_settled: false,
+      attendees: [{ id: world.sarah.id, name: 'Sarah Jones', here: false }],
+      out: [],
       projects: [{ id: world.retreat.id, name: 'Retreat' }],
       parent_meeting_id: null,
     })

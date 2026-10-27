@@ -14,8 +14,8 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { placeAutomatic } from '../agenda/candidates'
 import type { ActorContext, Executor } from '../core/types'
-import { meetingAbsences, meetingGroups, meetingPeople, meetingProjects } from '../db/schema'
-import { getMeeting, isOver, listMeetings, type MeetingView } from './meetings'
+import { meetingAbsences, meetingPeople, meetingProjects } from '../db/schema'
+import { addMeetingGroups, getMeeting, isOver, listMeetings, setMeetingGroups, type MeetingView } from './meetings'
 import { getSeries, type SeriesView } from './series'
 
 export type RosterState = { personIds: string[]; groupIds: string[]; projectIds: string[] }
@@ -70,19 +70,6 @@ async function setProjects(exec: Executor, meetingId: string, projectIds: string
   await addProjects(exec, meetingId, projectIds)
 }
 
-async function addGroups(exec: Executor, meetingId: string, groupIds: string[]) {
-  if (groupIds.length === 0) return
-  await exec
-    .insert(meetingGroups)
-    .values(groupIds.map((groupId) => ({ meetingId, groupId })))
-    .onConflictDoNothing()
-}
-
-async function setGroups(exec: Executor, meetingId: string, groupIds: string[]) {
-  await exec.delete(meetingGroups).where(eq(meetingGroups.meetingId, meetingId))
-  await addGroups(exec, meetingId, groupIds)
-}
-
 /**
  * After a series' roster, group or projects changed from `before`: bring along
  * each meeting not yet over whose own list still matches what `before` gave it.
@@ -110,7 +97,7 @@ export async function carryRoster(
     }
     const groups = meeting.groups.map((group) => group.id)
     if (!same(groups, after.groupIds) && same(groups, before.groupIds)) {
-      await setGroups(exec, meeting.id, after.groupIds)
+      await setMeetingGroups(exec, meeting.id, after.groupIds)
       touched = true
     }
     const projects = meeting.projects.map((project) => project.id)
@@ -175,7 +162,7 @@ export async function joinRoster(
       .onConflictDoNothing()
   }
   await addProjects(exec, meetingId, roster.projectIds)
-  await addGroups(exec, meetingId, roster.groupIds)
+  await addMeetingGroups(exec, meetingId, roster.groupIds)
   if (!isOver(meeting, now)) await placeAutomatic(exec, actor, meetingId, now)
   return true
 }
