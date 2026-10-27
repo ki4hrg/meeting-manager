@@ -64,6 +64,27 @@ describe('the roll call', () => {
     expect((await rollCall(db, meeting.id)).find((e) => e.id === w.tom.id)?.groupId).toBe(w.staff.id)
   })
 
+  it('takes someone off the list altogether, whether out or not yet said', async () => {
+    const w = await makeWorld()
+    const meeting = await createMeeting(db, actor, {
+      contextId: w.parish.id,
+      groupId: w.staff.id,
+      personIds: [w.bishop.id],
+      startsAt: START,
+    })
+    await takeRoll(db, meeting.id, { here: [w.sarah.id], out: [w.tom.id] }, DURING)
+    // The bishop was never expected; Tom, marked out, was not either.
+    const taken = await takeRoll(
+      db,
+      meeting.id,
+      { here: [w.sarah.id], out: [w.tom.id], unsure: [w.bishop.id], remove: [w.bishop.id, w.tom.id] },
+      AFTER,
+    )
+    expect(await marks(meeting.id)).toEqual([['Sarah Jones', 'here']])
+    expect(ids(taken.people)).not.toContain(w.bishop.id)
+    expect(ids(taken.absent)).toEqual([])
+  })
+
   it('someone added after it ended is here, and stays here when it is taken again', async () => {
     const w = await makeWorld()
     const guest = await createPerson(db, { name: 'Guest Preacher' })

@@ -60,12 +60,13 @@ export async function rollCall(exec: Executor, meetingId: string): Promise<RollC
 /**
  * Take the roll: these were here, these were out, and anyone else on the list
  * is not yet said. Someone not on the list who is named here or as unsure
- * joins it by name. John is never a row.
+ * joins it by name. Those removed come off the list altogether: never
+ * expected, rather than out. John is never a row.
  */
 export async function takeRoll(
   exec: Executor,
   meetingId: string,
-  marks: { here: string[]; out: string[]; unsure?: string[] },
+  marks: { here: string[]; out: string[]; unsure?: string[]; remove?: string[] },
   now: Date = new Date(),
 ): Promise<MeetingView> {
   return inTransaction(exec, async (tx) => {
@@ -77,7 +78,8 @@ export async function takeRoll(
           .from(people)
           .where(and(inArray(people.id, named), notDeleted(people)))
       : []
-    const real = new Set(rows.filter((row) => !row.isSelf).map((row) => row.id))
+    const removed = new Set(marks.remove ?? [])
+    const real = new Set(rows.filter((row) => !row.isSelf && !removed.has(row.id)).map((row) => row.id))
     const here = new Set(marks.here.filter((id) => real.has(id)))
     const out = new Set(marks.out.filter((id) => real.has(id) && !here.has(id)))
     const unsure = (marks.unsure ?? []).filter((id) => real.has(id) && !here.has(id) && !out.has(id))
@@ -92,7 +94,7 @@ export async function takeRoll(
     // Whoever was on the list or marked out, and is now neither here nor out, is not yet said.
     const onList = [
       ...new Set([...listed.map((row) => row.personId), ...absent.map((row) => row.personId), ...here, ...unsure]),
-    ].filter((id) => !out.has(id))
+    ].filter((id) => !out.has(id) && !removed.has(id))
 
     await tx.delete(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
     if (onList.length > 0) {
