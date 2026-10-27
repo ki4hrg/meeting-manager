@@ -56,8 +56,13 @@ function Mark({ proposal }: { proposal: ProposalView }) {
     )
   }
   if (payload.type === 'item') return <KindIcon kind={payload.kind} ongoing={payload.ongoing} />
-  if (payload.type === 'update' && proposal.item) {
-    return <KindIcon kind={proposal.item.kind} ongoing={proposal.item.ongoing} />
+  // A change to an item already kept: the change is what is up for acceptance.
+  if (payload.type === 'update') {
+    return (
+      <span className="inline-flex shrink-0 text-gray-400 dark:text-gray-500">
+        <Icon name={CHANGE[payload.change].icon} label={CHANGES[payload.change]} />
+      </span>
+    )
   }
   const [icon, label] =
     payload.type === 'document'
@@ -72,19 +77,33 @@ function Mark({ proposal }: { proposal: ProposalView }) {
   )
 }
 
+/* The item a change is on, set in beneath it: kept already, not what is accepted. */
+function Target({ proposal }: { proposal: ProposalView }) {
+  const { item } = proposal
+  const inner = (
+    <>
+      {item ? <KindIcon kind={item.kind} ongoing={item.ongoing} className="h-4 w-4" /> : null}
+      <span className="line-clamp-2 min-w-0">{item?.text ?? '—'}</span>
+    </>
+  )
+  const box =
+    'mt-2 flex items-start gap-1.5 rounded-md bg-gray-50 px-2 py-1.5 text-xs text-gray-600 dark:bg-gray-900/50 dark:text-gray-300'
+  return item ? (
+    <Link href={`/items/${item.id}`} className={`${box} hover:bg-gray-100 dark:hover:bg-gray-900`}>
+      {inner}
+    </Link>
+  ) : (
+    <div className={box}>{inner}</div>
+  )
+}
+
 /* What it is called, and once accepted, the way to what it made. */
 function Title({ proposal }: { proposal: ProposalView }) {
   const { payload, made } = proposal
-  const text =
-    payload.type === 'item'
-      ? payload.text
-      : payload.type === 'update'
-        ? (proposal.item?.text ?? '—')
-        : payload.title
+  if (payload.type === 'update') return null
+  const text = payload.type === 'item' ? payload.text : payload.title
   const href =
-    payload.type === 'update' && proposal.item
-      ? `/items/${proposal.item.id}`
-      : made?.project
+    made?.project
         ? `/projects/${made.project.id}`
         : made?.item
         ? `/items/${made.item.id}`
@@ -157,24 +176,32 @@ export function ProposalCard({
           <Title proposal={proposal} />
 
           {payload.type === 'update' ? (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {/* Once accepted the item's own status is the change: said once. */}
               {pending && proposal.item && proposal.item.status !== 'open' ? (
-                <StatusBadge status={proposal.item.status} />
+                <>
+                  <StatusBadge status={proposal.item.status} />
+                  <Icon name="arrowRight" className="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" label="Becomes" />
+                </>
               ) : null}
-              {pending ? (
-                <Icon name="arrowRight" className="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" label="Becomes" />
-              ) : null}
-              <Badge tone={CHANGE[payload.change].tone}>
-                <Icon name={CHANGE[payload.change].icon} className="h-3 w-3" />
-                {CHANGES[payload.change]}
-              </Badge>
+              <Badge tone={CHANGE[payload.change].tone}>{CHANGES[payload.change]}</Badge>
             </div>
           ) : null}
 
           {body ? (
-            <p className="mt-1 whitespace-pre-line text-sm text-gray-600 dark:text-gray-300">{body}</p>
+            <p
+              className={`mt-1 whitespace-pre-line text-sm ${
+                payload.type !== 'update'
+                  ? 'text-gray-600 dark:text-gray-300'
+                  : proposal.status === 'rejected'
+                    ? 'text-gray-500 line-through dark:text-gray-400'
+                    : 'font-medium text-gray-900 dark:text-gray-100'
+              }`}
+            >
+              {body}
+            </p>
           ) : null}
+          {payload.type === 'update' ? <Target proposal={proposal} /> : null}
           {payload.type === 'item' && payload.resolution ? (
             <div className="mt-1 flex items-start gap-1.5 text-sm text-gray-700 dark:text-gray-300">
               <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0" label="Resolution" />
