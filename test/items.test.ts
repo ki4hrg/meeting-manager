@@ -15,6 +15,7 @@ import {
   getItem,
   getThread,
   isAnswered,
+  linkQuestion,
   listItems,
   openCounts,
   parkItem,
@@ -25,6 +26,7 @@ import {
   setOngoing,
   supersedeDecision,
   undropItem,
+  unlinkQuestion,
   unparkItem,
   updateItem,
 } from '../lib/items/items'
@@ -474,6 +476,61 @@ describe('threads', () => {
         { personId: sarah.id, role: 'with' },
       ]),
     ).rejects.toThrow('twice')
+  })
+})
+
+describe('questions under a topic', () => {
+  it('links an existing question under a topic and takes it out again', async () => {
+    const { parish } = await makeWorld()
+    const topic = await createItem(db, actor, { contextId: parish.id, text: 'Project status update' })
+    const question = await createItem(db, actor, {
+      contextId: parish.id,
+      kind: 'question',
+      text: 'Why is the permit step blocked?',
+    })
+
+    await linkQuestion(db, actor, topic.id, question.id)
+    expect((await getItem(db, question.id)).parentItemId).toBe(topic.id)
+    const thread = await getThread(db, question.id)
+    expect(thread.entries.map((e) => [e.item.id, e.depth])).toEqual([
+      [topic.id, 0],
+      [question.id, 1],
+    ])
+    expect(thread.events.filter((e) => e.type === 'linked').map((e) => e.itemId).sort()).toEqual(
+      [topic.id, question.id].sort(),
+    )
+    // Linking again changes nothing.
+    await linkQuestion(db, actor, topic.id, question.id)
+
+    await unlinkQuestion(db, actor, question.id)
+    expect((await getItem(db, question.id)).parentItemId).toBeNull()
+    expect((await getThread(db, topic.id)).entries).toHaveLength(1)
+  })
+
+  it('refuses anything but a question under a topic, another context, a second parent or a loop', async () => {
+    const { parish, diocese } = await makeWorld()
+    const topic = await createItem(db, actor, { contextId: parish.id, text: 'Status' })
+    const action = await createItem(db, actor, { contextId: parish.id, kind: 'action', text: 'Send it' })
+    const question = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: 'When?' })
+    const elsewhere = await createItem(db, actor, { contextId: diocese.id, kind: 'question', text: 'Where?' })
+
+    await expect(linkQuestion(db, actor, topic.id, action.id)).rejects.toBeInstanceOf(ValidationError)
+    await expect(linkQuestion(db, actor, question.id, topic.id)).rejects.toBeInstanceOf(ValidationError)
+    await expect(linkQuestion(db, actor, topic.id, elsewhere.id)).rejects.toThrow()
+
+    const other = await createItem(db, actor, { contextId: parish.id, text: 'Other' })
+    const spawned = await createItem(db, actor, {
+      contextId: parish.id,
+      kind: 'question',
+      text: 'Who?',
+      parentItemId: other.id,
+    })
+    await expect(linkQuestion(db, actor, topic.id, spawned.id)).rejects.toBeInstanceOf(ValidationError)
+
+    // A topic that came out of a question cannot take that question under it.
+    const root = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: 'Root?' })
+    const child = await createItem(db, actor, { contextId: parish.id, text: 'Child', parentItemId: root.id })
+    await expect(linkQuestion(db, actor, child.id, root.id)).rejects.toBeInstanceOf(ValidationError)
   })
 })
 

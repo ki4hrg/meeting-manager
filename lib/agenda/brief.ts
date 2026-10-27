@@ -139,6 +139,9 @@ function agendaOf(
       minutes(line.minutes ?? line.shareMinutes ?? null),
     ],
     sub: [
+      ...(line.questions ?? []).map(
+        (question): OutlineEntry => ({ text: [question.text, { only: 'owed', text: tag(question, today) }], sub: [] }),
+      ),
       ...only('details', rows(line.description).map(markdownLeaf)),
       ...only(
         'notes',

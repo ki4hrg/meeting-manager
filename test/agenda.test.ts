@@ -16,7 +16,7 @@ import {
   applySkeleton,
   importOutline,
 } from '../lib/agenda/lines'
-import { createItem, getItem, updateItem } from '../lib/items/items'
+import { answerItem, createItem, getItem, linkQuestion, updateItem } from '../lib/items/items'
 import { createSeries } from '../lib/meetings/series'
 import { db, resetBetweenTests } from './helpers/db'
 import { actor, makeWorld } from './helpers/fixtures'
@@ -715,5 +715,43 @@ describe('agenda operations', () => {
     expect(await shape(meeting!.id)).toEqual([
       'one', 'two', 'three', 'four', 'five', 'in C', 'in D', 'in E', 'New',
     ])
+  })
+})
+
+describe('a topic and its questions', () => {
+  it('carries the open questions under a topic line, except one with a line of its own', async () => {
+    const { parish } = await makeWorld()
+    const [meeting] = await db
+      .insert(meetings)
+      .values({ contextId: parish.id, title: 'Staff', startsAt: new Date('2026-10-07T09:00:00Z') })
+      .returning()
+    const topic = await createItem(db, actor, { contextId: parish.id, text: 'Project status update' })
+    const why = await createItem(db, actor, { contextId: parish.id, kind: 'question', text: 'Why is it blocked?' })
+    const when = await createItem(db, actor, {
+      contextId: parish.id,
+      kind: 'question',
+      text: 'When is it due?',
+      parentItemId: topic.id,
+    })
+    const placed = await createItem(db, actor, {
+      contextId: parish.id,
+      kind: 'question',
+      text: 'Who signs off?',
+      parentItemId: topic.id,
+    })
+    const done = await createItem(db, actor, {
+      contextId: parish.id,
+      kind: 'question',
+      text: 'Is it funded?',
+      parentItemId: topic.id,
+    })
+    await linkQuestion(db, actor, topic.id, why.id)
+    await answerItem(db, actor, done.id, { answer: "Yes" })
+    await addLine(db, actor, meeting!.id, { itemId: topic.id })
+    await addLine(db, actor, meeting!.id, { itemId: placed.id })
+
+    const lines = (await getAgenda(db, meeting!.id)).nodes.flatMap((node) => (node.type === 'line' ? [node] : []))
+    expect(lines[0]!.questions?.map((question) => question.id)).toEqual([why.id, when.id])
+    expect(lines[1]!.questions).toBeUndefined()
   })
 })

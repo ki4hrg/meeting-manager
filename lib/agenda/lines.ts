@@ -42,6 +42,8 @@ export type AgendaLine = {
   shareMinutes?: number
   /** The item was marked discussed in this meeting. */
   discussed?: boolean
+  /** On a topic, the open questions under it that have no line of their own here. */
+  questions?: ItemView[]
 }
 
 export type AgendaSection = {
@@ -101,6 +103,24 @@ export async function getAgenda(
     ]),
   )
 
+  /* A topic brings the open questions under it, unless one is on the agenda itself. */
+  const topicIds = [...live.values()].filter((item) => item.kind === 'topic').map((item) => item.id)
+  const questionsOf = new Map<string, ItemView[]>()
+  if (topicIds.length > 0) {
+    const under = await listItems(exec, {
+      contextId: meeting.contextId,
+      parentIds: topicIds,
+      kinds: ['question'],
+      open: true,
+    })
+    for (const question of under.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+      if (live.has(question.id)) continue
+      const list = questionsOf.get(question.parentItemId!) ?? []
+      list.push(question)
+      questionsOf.set(question.parentItemId!, list)
+    }
+  }
+
   const leaderIds = [...new Set(rows.flatMap((row) => (row.leaderPersonId ? [row.leaderPersonId] : [])))]
   const leaders = new Map(
     (leaderIds.length === 0
@@ -131,8 +151,10 @@ export async function getAgenda(
 
   const lineOf = (row: Row): AgendaLine => {
     const item = row.itemId ? (live.get(row.itemId) ?? null) : null
+    const questions = item ? questionsOf.get(item.id) : undefined
     return {
       ...(item && discussed.has(item.id) ? { discussed: true } : {}),
+      ...(questions ? { questions } : {}),
       id: row.id,
       text: row.text ?? item?.text ?? '',
       ownText: row.text,

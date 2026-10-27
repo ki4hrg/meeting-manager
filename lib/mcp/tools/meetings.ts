@@ -232,6 +232,9 @@ function lineOut(line: AgendaLine) {
     description: line.description,
     leader: line.leader ? { id: line.leader.id, name: line.leader.name } : null,
     private_note: line.privateNote,
+    ...(line.questions
+      ? { questions: line.questions.map((question) => ({ id: question.id, text: question.text, status: question.status })) }
+      : {}),
     ...(line.overrunMinutes ? { overrun_minutes: line.overrunMinutes } : {}),
     ...(line.shareMinutes !== undefined ? { share_minutes: line.shareMinutes } : {}),
   }

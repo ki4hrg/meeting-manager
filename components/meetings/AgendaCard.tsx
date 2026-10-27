@@ -196,6 +196,25 @@ function LineRow({
           </div>
         ) : null}
 
+        {line.questions ? (
+          <ul className="mt-1.5 flex flex-col gap-1">
+            {line.questions.map((question) => (
+              <li key={question.id} className="flex items-start gap-2 text-sm">
+                <KindIcon kind="question" ongoing={question.ongoing} className="mt-0.5 h-3.5 w-3.5" />
+                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <Link
+                    href={`/items/${question.id}`}
+                    className="min-w-0 text-gray-700 hover:underline dark:text-gray-300"
+                  >
+                    {question.text}
+                  </Link>
+                  <PartyLine parties={question.parties} kind={question.kind} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         {line.privateNote ? (
           <div className="mt-1 flex items-start gap-1.5 text-xs italic text-gray-500 dark:text-gray-400">
             <Icon name="lock" className="mt-0.5 h-3 w-3 shrink-0" label="Private note" />

@@ -108,6 +108,8 @@ export type ItemEventType =
   | 'unparked'
   | 'needs_answer'
   | 'ongoing'
+  | 'linked'
+  | 'unlinked'
 
 export type ItemEvent = {
   id: string
@@ -233,6 +235,8 @@ export type ItemFilter = {
   ids?: string[]
   /** Came out of, or was captured in, this meeting. */
   originMeetingId?: string
+  /** Came out of, or sits under, one of these items. An empty list matches nothing. */
+  parentIds?: string[]
   /** Shorthand for the open statuses, or for everything else. */
   open?: boolean
   projectId?: string
@@ -265,6 +269,10 @@ export async function listItems(exec: Executor, filter: ItemFilter): Promise<Ite
     conditions.push(inArray(items.id, filter.ids))
   }
   if (filter.originMeetingId) conditions.push(eq(items.originMeetingId, filter.originMeetingId))
+  if (filter.parentIds) {
+    if (filter.parentIds.length === 0) return []
+    conditions.push(inArray(items.parentItemId, filter.parentIds))
+  }
   if (filter.kinds?.length) conditions.push(inArray(items.kind, filter.kinds))
   if (filter.statuses?.length) conditions.push(inArray(items.status, filter.statuses))
   if (filter.open === true) conditions.push(inArray(items.status, OPEN_STATUSES))
@@ -1468,6 +1476,64 @@ export async function addNote(
     await getItem(tx, id)
     await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id))
     await logEvent(tx, actor, id, 'note', { text: note })
+  })
+}
+
+// ─── questions under a topic ─────────────────────────────────────────────────
+
+/**
+ * Put an existing question under a topic ("Project status update" and the
+ * questions it covers), as though it had come out of it. A question that
+ * already came out of something keeps where it came from.
+ */
+export async function linkQuestion(
+  exec: Executor,
+  actor: ActorContext,
+  topicId: string,
+  questionId: string,
+): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const topic = await getItem(tx, topicId)
+    const question = await getItem(tx, questionId)
+    if (topic.kind !== 'topic') throw new ValidationError('Questions go under a topic.')
+    if (question.kind !== 'question') throw new ValidationError('Only a question can go under a topic.')
+    if (question.contextId !== topic.contextId) throw new NotFoundError('Item', questionId)
+    if (question.parentItemId === topic.id) return
+    if (question.parentItemId) throw new ValidationError('That question already follows from another item.')
+    /* The thread is read by walking parents, so it must never loop: the
+       question may not be the topic or anything the topic came out of. */
+    const [loop] = await tx.execute(sql`
+      with recursive up as (
+        select id, parent_item_id from items where id = ${topic.id}
+        union
+        select i.id, i.parent_item_id from items i join up on i.id = up.parent_item_id
+      )
+      select 1 from up where id = ${question.id}`)
+    if (loop) throw new ValidationError('That question is what this topic came out of.')
+
+    await tx
+      .update(items)
+      .set({ parentItemId: topic.id, updatedAt: new Date() })
+      .where(eq(items.id, question.id))
+    await logEvent(tx, actor, question.id, 'linked', { itemId: topic.id, text: topic.text })
+    await logEvent(tx, actor, topic.id, 'linked', { itemId: question.id, kind: question.kind, text: question.text })
+  })
+}
+
+/** Take a question out from under its topic. */
+export async function unlinkQuestion(exec: Executor, actor: ActorContext, questionId: string): Promise<void> {
+  await inTransaction(exec, async (tx) => {
+    const question = await getItem(tx, questionId)
+    if (question.kind !== 'question' || !question.parentItemId) return
+    const topic = await getItem(tx, question.parentItemId)
+    if (topic.kind !== 'topic') throw new ValidationError('That question follows from an item, not a topic.')
+
+    await tx
+      .update(items)
+      .set({ parentItemId: null, updatedAt: new Date() })
+      .where(eq(items.id, question.id))
+    await logEvent(tx, actor, question.id, 'unlinked', { itemId: topic.id, text: topic.text })
+    await logEvent(tx, actor, topic.id, 'unlinked', { itemId: question.id, kind: question.kind, text: question.text })
   })
 }
 
